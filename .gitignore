@@ -30,7 +30,7 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
+# Local environment files; commit only the blank example
 .env*
 
 # vercel
@@ -39,3 +39,39 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Devpost learner context
+/devpost/learner-profile.md
+
+# Allow a secret-free environment template
+!.env.example
+
+# Monorepo generated output
+**/node_modules/
+**/.next/
+**/dist/
+**/coverage/
+.turbo/
+*.tgz
+
+# Local credentials and private keys
+.npmrc
+.netrc
+.pgpass
+*.key
+*.p12
+*.pfx
+id_rsa
+id_ed25519
+.senslop/
+
+# Local caches, reports, and exports
+**/out/
+**/build/
+.cache/
+*.log
+test-results/
+playwright-report/
+/blob-report/
+/backups/
+/tmp/
