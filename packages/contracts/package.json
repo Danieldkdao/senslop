@@ -1,0 +1,23 @@
+{
+  "name": "@senslop/contracts",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "tsc --noEmit",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src tests",
+    "test": "vitest run --config ../../vitest.config.mts packages/contracts"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3",
+    "tsx": "4.21.0",
+    "@types/node": "^24"
+  },
+  "dependencies": {
+    "zod": "4.6.5"
+  }
+}

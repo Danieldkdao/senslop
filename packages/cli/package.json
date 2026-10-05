@@ -1,0 +1,39 @@
+{
+  "name": "@senslop/cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src tests",
+    "test": "vitest run --config ../../vitest.config.mts packages/cli",
+    "dev": "tsup --watch",
+    "pack:check": "npm pack --dry-run"
+  },
+  "devDependencies": {
+    "@senslop/contracts": "workspace:*",
+    "@types/node": "^24",
+    "@types/ws": "^8",
+    "tsup": "8.5.1",
+    "tsx": "4.21.0",
+    "typescript": "5.9.3"
+  },
+  "bin": {
+    "senslop": "./dist/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=24"
+  },
+  "dependencies": {
+    "@clack/prompts": "1.8.1",
+    "@t3-oss/env-core": "^0.13.11",
+    "open": "^11.0.4",
+    "ws": "8.22.0",
+    "zod": "4.6.5"
+  }
+}

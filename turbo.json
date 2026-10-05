@@ -1,0 +1,56 @@
+{
+  "$schema": "https://turborepo.dev/schema.json",
+  "globalEnv": [
+    "DATABASE_URL",
+    "BETTER_AUTH_SECRET",
+    "BETTER_AUTH_URL",
+    "CONNECTION_URL",
+    "CONNECTION_INTERNAL_SECRET",
+    "PORT",
+    "CONNECTION_PORT",
+    "CONNECTION_INTERNAL_URL",
+    "DATABASE_URL_UNPOOLED",
+    "SENSLOP_DATABASE_BRANCH",
+    "GOOGLE_CLIENT_ID",
+    "GOOGLE_CLIENT_SECRET",
+    "GITHUB_CLIENT_ID",
+    "GITHUB_CLIENT_SECRET",
+    "OPENROUTER_API_KEY",
+    "TRIGGER_SECRET_KEY",
+    "TRIGGER_PROJECT_REF",
+    "MAILJET_API_KEY",
+    "MAILJET_API_SECRET",
+    "SENDER_EMAIL"
+  ],
+  "tasks": {
+    "build": {
+      "dependsOn": ["^build"],
+      "outputs": ["dist/**", ".next/**", "!.next/cache/**"]
+    },
+    "dev": {
+      "cache": false,
+      "persistent": true
+    },
+    "typecheck": {
+      "dependsOn": ["^build"]
+    },
+    "lint": {
+      "dependsOn": ["^build"]
+    },
+    "test": {
+      "dependsOn": ["^build"],
+      "cache": false
+    },
+    "@senslop/contracts#build": {
+      "outputs": []
+    },
+    "@senslop/database#build": {
+      "outputs": []
+    },
+    "@senslop/review-core#build": {
+      "dependsOn": ["^build"],
+      "outputs": []
+    }
+  },
+  "globalDependencies": [".env"]
+}
