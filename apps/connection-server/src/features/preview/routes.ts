@@ -12,7 +12,14 @@ import {
 import type { Identity, PresenceRegistry } from "../../presence";
 import type { PresenceDependencies } from "../../server";
 
-type PreviewResponse = Response<unknown, { previewIdentity: Identity }>;
+type PreviewResponse = Response<
+  unknown,
+  {
+    previewIdentity: Identity;
+    previewDelivering?: boolean;
+    releasePreviewLock: () => void;
+  }
+>;
 
 const validContents = (preview: PreviewUploadSchema) => {
   const paths = new Set<string>();
@@ -104,6 +111,7 @@ export const mountPreviewRoutes = (
           header?.startsWith("Bearer ") && !request.get("origin")
             ? await dependencies.authenticateCLI(header.slice(7))
             : null;
+        if (response.destroyed) return;
         if (!identity?.deviceId) {
           response
             .status(401)
@@ -128,7 +136,17 @@ export const mountPreviewRoutes = (
         }
         response.locals.previewIdentity = identity;
         busyUsers.add(identity.userId);
-        response.once("close", () => busyUsers.delete(identity.userId));
+        let lockHeld = true;
+        response.locals.releasePreviewLock = () => {
+          if (!lockHeld) return;
+          lockHeld = false;
+          busyUsers.delete(identity.userId);
+        };
+        // Body parsing may close early; active delivery owns the lock until its finally block.
+        response.once("close", () => {
+          if (!response.locals.previewDelivering)
+            response.locals.releasePreviewLock();
+        });
         next();
       } catch {
         response
@@ -139,20 +157,24 @@ export const mountPreviewRoutes = (
     express.json({ limit: MAX_SNAPSHOT_BYTES, inflate: false }),
     async (request, response: PreviewResponse) => {
       const identity = response.locals.previewIdentity;
-      const preview = previewUploadSchema.safeParse(request.body);
-      if (!preview.success || !validContents(preview.data)) {
-        response.status(400).json({
-          message: "Invalid snapshot contents, hashes or patch coordinates.",
-        });
-        return;
-      }
+      response.locals.previewDelivering = true;
       const previewId = randomUUID();
       let clients: WebSocket[] = [];
+      let started = false;
       try {
+        if (response.destroyed) return;
+        const preview = previewUploadSchema.safeParse(request.body);
+        if (!preview.success || !validContents(preview.data)) {
+          response.status(400).json({
+            message: "Invalid snapshot contents, hashes or patch coordinates.",
+          });
+          return;
+        }
         // Authentication is checked again after receiving the body, before any source is relayed.
         const currentIdentity = await dependencies.authenticateCLI(
           request.get("authorization")!.slice(7),
         );
+        if (response.destroyed) return;
         if (
           !currentIdentity ||
           currentIdentity.userId !== identity.userId ||
@@ -175,9 +197,13 @@ export const mountPreviewRoutes = (
           return;
         }
         const browsers = registry.browsers(identity.userId);
-        for (const browser of browsers)
-          if (await dependencies.validBrowserSession(browser.identity))
-            clients.push(browser.socket as WebSocket);
+        for (const browser of browsers) {
+          const valid = await dependencies.validBrowserSession(
+            browser.identity,
+          );
+          if (response.destroyed) return;
+          if (valid) clients.push(browser.socket as WebSocket);
+        }
         if (!clients.length) {
           response.status(409).json({
             message:
@@ -186,6 +212,9 @@ export const mountPreviewRoutes = (
           return;
         }
         const broadcast = async (event: PreviewEventSchema) => {
+          if (response.destroyed)
+            throw new Error("CLI disconnected during preview. Send it again.");
+          if (event.type === "preview.start") started = true;
           const outcomes = await Promise.allSettled(
             clients.map((socket) => sendEvent(socket, event)),
           );
@@ -205,23 +234,25 @@ export const mountPreviewRoutes = (
           excluded: preview.data.excluded,
         });
         for (const [index, file] of preview.data.files.entries()) {
-          if (response.destroyed)
-            throw new Error("CLI disconnected during preview. Send it again.");
           await broadcast({ type: "preview.file", previewId, index, file });
         }
         await broadcast({ type: "preview.complete", previewId });
-        response.json({ previewId, fileCount: preview.data.files.length });
+        if (!response.destroyed)
+          response.json({ previewId, fileCount: preview.data.files.length });
       } catch (error) {
         const message =
           error instanceof Error
             ? error.message
             : "Preview delivery failed. Please retry.";
-        await Promise.allSettled(
-          clients.map((socket) =>
-            sendEvent(socket, { type: "preview.failed", previewId, message }),
-          ),
-        );
-        response.status(503).json({ message });
+        if (started)
+          await Promise.allSettled(
+            clients.map((socket) =>
+              sendEvent(socket, { type: "preview.failed", previewId, message }),
+            ),
+          );
+        if (!response.destroyed) response.status(503).json({ message });
+      } finally {
+        response.locals.releasePreviewLock();
       }
     },
   );

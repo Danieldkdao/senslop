@@ -5,7 +5,7 @@ import { useTheme } from "next-themes";
 import type { Manifest } from "material-icon-theme";
 import materialManifest from "material-icon-theme/dist/material-icons.json";
 import { version } from "material-icon-theme/package.json";
-import { cn } from "cn";
+import { cn } from "@/lib/utils";
 
 type FileIconProps = { fileName: string; isDir?: boolean; className?: string };
 
