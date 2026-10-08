@@ -12,7 +12,7 @@ test("status sends the saved bearer credential and returns validated account dat
     user: { id: "user", name: "Tester", email: "test@example.com" },
     deviceId: "device",
     deviceName: "CLI",
-    connectionUrl: "ws://localhost:3001/connection",
+    connectionUrl: "ws://localhost:3002/connection",
   };
   const fetch = vi.fn().mockResolvedValue(Response.json(account));
   vi.stubGlobal("fetch", fetch);

@@ -16,7 +16,7 @@ vi.mock("@/data/env/server", () => ({
     GOOGLE_CLIENT_SECRET: "google-test-secret",
     GITHUB_CLIENT_ID: "github-test-id",
     GITHUB_CLIENT_SECRET: "github-test-secret",
-    CONNECTION_URL: "ws://localhost:3001/connection",
+    CONNECTION_URL: "ws://localhost:3002/connection",
     CONNECTION_INTERNAL_SECRET:
       "test-secret-abcdefghijklmnopqrstuvwxyz0123456789",
   },
