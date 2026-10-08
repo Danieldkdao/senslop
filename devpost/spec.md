@@ -55,7 +55,7 @@ pnpm db:migrate
 pnpm dev
 ```
 
-`pnpm dev` runs the web app on `http://localhost:3000`, connection service on `ws://localhost:3001`, and Trigger.dev development worker through Turborepo. The root script will provide explicit startup failures for missing configuration. Open the website, create an account, and run the locally built CLI against that base URL.
+`pnpm dev` runs the web app on `http://localhost:3000`, connection service on `ws://localhost:3002`, and Trigger.dev development worker through Turborepo. The root script will provide explicit startup failures for missing configuration. Open the website, create an account, and run the locally built CLI against that base URL.
 
 Planned CLI commands:
 

@@ -80,6 +80,13 @@ export class PresenceRegistry {
     return [...devices.values()];
   }
 
+  browsers(userId: string) {
+    return [...this.connections].filter(
+      (connection) =>
+        connection.identity.userId === userId && !connection.identity.deviceId,
+    );
+  }
+
   disconnectSession(sessionId: string) {
     for (const connection of this.connections)
       if (connection.identity.sessionId === sessionId)

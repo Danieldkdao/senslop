@@ -24,7 +24,7 @@ test("device approval requires its claiming account; bearer session is revocable
     OPENROUTER_API_KEY: "test-key",
     TRIGGER_SECRET_KEY: "test-key",
     TRIGGER_PROJECT_REF: "test-project",
-    CONNECTION_URL: "ws://localhost:3001/connection",
+    CONNECTION_URL: "ws://localhost:3002/connection",
     CONNECTION_INTERNAL_SECRET:
       "test-internal-abcdefghijklmnopqrstuvwxyz0123456789",
   };
@@ -155,7 +155,7 @@ test("device approval requires its claiming account; bearer session is revocable
   const signout = await call("/sign-out", {}, undefined, token);
   expect(signout.status).toBe(200);
   expect(disconnect).toHaveBeenCalledWith(
-    new URL("http://localhost:3001/internal/disconnect"),
+    new URL("http://localhost:3002/internal/disconnect"),
     expect.objectContaining({
       method: "POST",
       body: JSON.stringify({ sessionId: session!.session.id }),

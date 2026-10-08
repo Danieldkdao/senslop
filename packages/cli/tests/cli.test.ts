@@ -24,3 +24,28 @@ test("arguments reject ambiguous source selections and unknown commands", () => 
     head: "HEAD",
   });
 });
+
+test("inspect accepts a branch and optional base without permitting mixed inputs", () => {
+  expect(
+    parseCommand(["inspect", "--branch", "feature", "--base", "main"]).command,
+  ).toBe("inspect");
+  expect(sourceFromOptions({ branch: "feature", base: "main" })).toEqual({
+    kind: "branch",
+    branch: "feature",
+    base: "main",
+  });
+  expect(sourceFromOptions({ branch: "feature" })).toEqual({
+    kind: "branch",
+    branch: "feature",
+    base: "HEAD",
+  });
+  expect(() =>
+    sourceFromOptions({ branch: "feature", commit: "HEAD" }),
+  ).toThrow();
+  expect(() =>
+    sourceFromOptions({ "working-tree": true, base: "main" }),
+  ).toThrow();
+  expect(() => parseCommand(["preview", "--working-tree"])).toThrow(
+    /Unknown command/,
+  );
+});

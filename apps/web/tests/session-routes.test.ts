@@ -11,7 +11,7 @@ vi.mock("@/lib/auth/auth", () => ({ auth: { api: { getSession: vi.fn() } } }));
 vi.mock("@/data/env/server", () => ({
   serverEnv: {
     BETTER_AUTH_URL: "http://localhost:3000",
-    CONNECTION_URL: "ws://localhost:3001/connection",
+    CONNECTION_URL: "ws://localhost:3002/connection",
   },
 }));
 vi.mock("@senslop/database", () => ({

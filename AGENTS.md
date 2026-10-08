@@ -68,7 +68,6 @@ Read the exact versioned docs at https://docs.expo.dev/versions/v57.0.0/ before 
 - Always compose dynamic or conditional class names with `cn` from `@/lib/utils`, for example `cn("text-base", selected && "font-semibold", className)`, rather than template literals, string concatenation, or array joins. Static class strings can remain literals. Bypass `cn` only for a specific technical incompatibility, explained in an adjacent comment. Keep complete Tailwind utility names statically discoverable; select whole class strings instead of interpolating fragments such as `bg-${color}`.
 - Always format values through named formatter functions; never use object lookup maps for labels, styles, or other presentation formatting. Use an exhaustive `switch` for enum values. A formatter may return an object of related presentation fields, such as `{ label, className, textClassName }`. Keep resource-specific formatters in that feature's `lib/formatters.ts` and call them from components.
 - Use `text-base` or larger Tailwind classes for text. Use smaller text only when absolutely necessary to fit the layout. Apply the equivalent minimum size when styling without Tailwind.
-- Never use `leading-*` or `tracking-*` class names anywhere in the codebase, including variant-prefixed and arbitrary-value forms. Keep the default line height and letter spacing provided by the typography styles.
 - Use semantic colors from the theme in `src/global.css` for all UI colors, including icons and inline styles (for example, `text-foreground`, `text-muted-foreground`, and `bg-primary`). Never use Tailwind palette colors, arbitrary color utilities, or hardcoded color values in application components unless an external requirement makes it unavoidable; document the reason for that exception. Define color values centrally in the theme.
 - Name variables holding database query or mutation results after the operation or lookup purpose and the resource: `insertedProject`, `updatedProject`, `deletedProject`, or `existingProject` for an existence lookup. Apply this convention to results from database helper functions too, and use plural resource names for collections, such as `insertedProjects`.
 - Always name database tables with PascalCase and end with `Table`, for example `ProjectTable` The file name for this would be `project.ts` (singular version of the table subject) and the name of the table in the database would be `projects` (plural version of the table subject).
@@ -92,3 +91,14 @@ Keep resource-specific code in its feature folder; use shared folders for code w
 When creating test files, place feature tests in `src/features/<feature>/tests/` and service tests in `src/services/<service>/tests/` (for example, `src/features/projects/tests/` and `src/services/github/tests/`). Keep tests for shared infrastructure, such as Query Client, in the root `tests/` folder. Use `.test.ts` or `.test.tsx` filenames.
 
 <!-- END:nextjs-agent-rules -->
+
+<!-- BEGIN:turborepo-agent-rules -->
+
+# This is NOT the Turborepo you know
+
+Turborepo configuration, task behavior, and CLI commands can vary between installed versions and may differ from your training data. Resolve the `turbo` package from this file's directory or relevant workspace; in monorepos, it may not be visible from the repository root. For example, run `node -p "require.resolve('turbo/package.json')"` from a workspace that depends on `turbo`.
+
+Read `docs/README.md` inside that installed package first, then read the relevant pages from its `docs/` directory before changing Turborepo configuration or commands. Heed deprecation notices. These bundled docs match the installed package version and are available without network access.
+
+This block is written and re-added by `turbo` before repository-scoped commands when an AI agent is detected. In the Turborepo source repository, its template is defined in `crates/turborepo-cli/src/cli/agent_guidance.rs`. Removing the managed block while updates are enabled means a later qualifying invocation will add it again. Set `"agentGuidance": false` in the root `turbo.json` or `turbo.jsonc` to opt out; this does not remove an existing block. Keep the block committed with your work to avoid an uncommitted change on the next agent invocation.
+<!-- END:turborepo-agent-rules -->

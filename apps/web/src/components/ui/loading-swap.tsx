@@ -2,7 +2,7 @@ import { cn } from "@/lib/utils";
 import { Loader2Icon } from "lucide-react";
 import type { ReactNode } from "react";
 
-export function LoadingSwap({
+export const LoadingSwap = ({
   isLoading,
   children,
   className,
@@ -10,10 +10,11 @@ export function LoadingSwap({
   isLoading: boolean;
   children: ReactNode;
   className?: string;
-}) {
+}) => {
   return (
     <div className="grid grid-cols-1 items-center justify-items-center">
       <div
+        aria-hidden={isLoading}
         className={cn(
           "col-start-1 col-end-2 row-start-1 row-end-2 w-full",
           isLoading ? "invisible" : "visible",
@@ -23,14 +24,20 @@ export function LoadingSwap({
         {children}
       </div>
       <div
+        role="status"
+        aria-label="Loading"
+        aria-hidden={!isLoading}
         className={cn(
           "col-start-1 col-end-2 row-start-1 row-end-2",
           isLoading ? "visible" : "invisible",
           className,
         )}
       >
-        <Loader2Icon className="animate-spin" />
+        <Loader2Icon
+          aria-hidden="true"
+          className="animate-spin motion-reduce:animate-none"
+        />
       </div>
     </div>
   );
-}
+};

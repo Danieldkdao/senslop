@@ -1,6 +1,6 @@
 "use client";
 
-import { formatConnectionStatus, formatFirstName } from "../lib/formatters";
+import { formatConnectionStatus } from "../lib/formatters";
 import {
   Check,
   Copy,
@@ -10,7 +10,7 @@ import {
   WifiOff,
 } from "lucide-react";
 import { useState } from "react";
-import { usePresence } from "@/features/connection/hooks/use-presence";
+import { useLivePreview } from "@/features/review/components/live-preview-provider";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -46,8 +46,10 @@ const Command = ({ children }: { children: string }) => {
   );
 };
 
-export const ConnectionChecklist = ({ name }: { name: string }) => {
-  const { status, devices } = usePresence();
+export const ConnectionChecklist = () => {
+  const {
+    connection: { status, devices, error },
+  } = useLivePreview();
   const connected = status === "live" && devices.length > 0;
   return (
     <section
@@ -79,7 +81,7 @@ export const ConnectionChecklist = ({ name }: { name: string }) => {
           <p className="mt-2 text-base text-muted-foreground">
             {connected
               ? "Your local CLI is connected. Your next review will live right here."
-              : `Hi, ${formatFirstName(name)}. Follow these steps to bring your local changes into Senslop.`}
+              : "Follow these steps to bring your local changes into Senslop."}
           </p>
         </div>
       </div>
@@ -88,8 +90,8 @@ export const ConnectionChecklist = ({ name }: { name: string }) => {
           role="status"
           className="mb-4 rounded-lg border p-4 text-base text-muted-foreground"
         >
-          Connection service unavailable. We’re retrying automatically; your
-          account remains signed in.
+          {error ?? "Connection service unavailable."} We’re retrying
+          automatically.
         </p>
       )}
       {connected ? (
@@ -100,16 +102,17 @@ export const ConnectionChecklist = ({ name }: { name: string }) => {
               Connected through {devices.map((d) => d.name).join(", ")}
             </p>
             <p className="mb-5 text-base text-muted-foreground">
-              No review has been submitted. For now, inspect a local change to
-              see what qualifies. Review uploads and guided preparation arrive
-              in the next build slice.
+              No preview has been sent yet. Keep this page and your connection
+              terminal open, then inspect selected changes from another
+              terminal.
             </p>
             <Command>
               {"node packages/cli/dist/index.js inspect --working-tree"}
             </Command>
             <p className="mt-4 text-base text-muted-foreground">
-              A review needs at least five text files with ten added + deleted
-              lines each. Smaller files remain included.
+              Inspect any changed files, or run inspect without source options
+              to select a commit, range, or branch. This preview is kept in
+              memory and disappears when you reload.
             </p>
           </CardContent>
         </Card>
@@ -172,9 +175,10 @@ export const ConnectionChecklist = ({ name }: { name: string }) => {
         </CollapsibleTrigger>
         <CollapsibleContent className="px-4 pt-3 text-base text-muted-foreground">
           The CLI reads your Git repository locally and stores its revocable
-          credential outside the repository. Inspection alone does not upload
-          code. In later slices, review commands will send selected code and
-          model requests through Senslop’s cloud services.
+          credential outside the repository. Inspect sends selected before/after
+          code and patches through Senslop’s connection service to your open
+          dashboard signed in to the same account. Inspect with --json stays
+          local. Streamed code is not saved in the database.
         </CollapsibleContent>
       </Collapsible>
     </section>

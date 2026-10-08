@@ -1,7 +1,13 @@
 // @vitest-environment jsdom
 
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { DeviceApproval } from "@/components/auth/device-approval";
 import DevicePage from "@/app/device/page";
@@ -272,4 +278,28 @@ test("device page ignores URL codes and waits for manual entry before verificati
     query: { user_code: "ABCD-EFGH" },
   });
   expect(state.approve).not.toHaveBeenCalled();
+});
+
+test("checking a code shows loading and prevents a duplicate request", async () => {
+  let finish!: (value: { data: { client_id: string }; error: null }) => void;
+  state.verify.mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const user = userEvent.setup();
+  render(<DeviceApproval />);
+  await user.type(
+    screen.getByLabelText("Code shown in your terminal"),
+    "ABCD-EFGH",
+  );
+  const check = screen.getByRole("button", { name: "Check code" });
+  await user.click(check);
+  expect((check as HTMLButtonElement).disabled).toBe(true);
+  expect(within(check).getByRole("status", { name: "Loading" })).toBeTruthy();
+  await user.click(check);
+  expect(state.verify).toHaveBeenCalledOnce();
+  finish({ data: { client_id: "senslop-cli" }, error: null });
+  await screen.findByRole("button", { name: "Approve" });
 });

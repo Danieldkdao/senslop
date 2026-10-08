@@ -12,6 +12,8 @@ import {
   spinner,
   text,
 } from "@clack/prompts";
+import { simpleGit } from "simple-git";
+import { sendInspection } from "./features/inspection/send-inspection.js";
 import { collectSnapshot } from "./features/git/snapshot.js";
 import { requireCredentials } from "./features/auth/credentials.js";
 import { fetchStatus } from "./features/connection/fetch-status.js";
@@ -35,13 +37,15 @@ Usage: senslop COMMAND [options]
   inspect --commit REF        Inspect one commit (first-parent delta)
   inspect --range BASE..HEAD   Inspect an endpoint-to-endpoint range
   inspect --working-tree      Inspect staged, unstaged and untracked text
+  inspect --branch NAME [--base REF]  Compare HEAD or REF to a branch
 
 Run without arguments for a command menu. Interactive inspect prompts for its source.
 Options: --json (inspect; requires an explicit source), --help, --version
 
-Inspection freezes a local snapshot; it does not upload or run AI.
-A review needs five text files with ten added+deleted lines each.
-Smaller changed files are still included. Review and sync arrive next.
+Keep senslop connect running in a second terminal for inspect.
+Inspect streams selected changes to the open dashboard without persistence or AI.
+Add --json for a local-only snapshot without upload.
+Inspection accepts small selections; JSON output includes future review eligibility.
 `;
 
 export const parseCommand = (args: string[]) => {
@@ -55,6 +59,8 @@ export const parseCommand = (args: string[]) => {
       url: { type: "string" },
       commit: { type: "string" },
       range: { type: "string" },
+      branch: { type: "string" },
+      base: { type: "string" },
       "working-tree": { type: "boolean" },
       json: { type: "boolean" },
     },
@@ -75,7 +81,7 @@ export const parseCommand = (args: string[]) => {
     connect: [],
     status: [],
     logout: [],
-    inspect: ["commit", "range", "working-tree", "json"],
+    inspect: ["commit", "range", "branch", "base", "working-tree", "json"],
   };
   for (const option of Object.keys(parsed.values))
     if (!allowed[command].includes(option))
@@ -86,18 +92,29 @@ export const parseCommand = (args: string[]) => {
 export const sourceFromOptions = (values: {
   commit?: string;
   range?: string;
+  branch?: string;
+  base?: string;
   "working-tree"?: boolean;
 }): SourceSelectionSchema => {
   if (
     [
       values.commit !== undefined,
       values.range !== undefined,
+      values.branch !== undefined,
       values["working-tree"] === true,
     ].filter(Boolean).length !== 1
   )
     throw new Error(
-      "Choose exactly one of --commit, --range or --working-tree.",
+      "Choose exactly one of --commit, --range, --branch or --working-tree.",
     );
+  if (values.base !== undefined && values.branch === undefined)
+    throw new Error("--base can only be used with --branch.");
+  if (values.branch !== undefined)
+    return sourceSelectionSchema.parse({
+      kind: "branch",
+      branch: values.branch,
+      base: values.base ?? "HEAD",
+    });
   if (values.commit !== undefined)
     return sourceSelectionSchema.parse({
       kind: "commit",
@@ -130,10 +147,19 @@ const promptSource = async (): Promise<SourceSelectionSchema | null> => {
       { value: "working-tree" as const, label: "Uncommitted changes" },
       { value: "commit" as const, label: "One commit" },
       { value: "range" as const, label: "A commit range" },
+      { value: "branch" as const, label: "Compare HEAD to a local branch" },
     ],
   });
   if (isCancel(kind)) return null;
   if (kind === "working-tree") return { kind };
+  if (kind === "branch") {
+    const branches = await simpleGit(process.cwd()).branchLocal();
+    const branch = await select({
+      message: "Which branch should HEAD be compared to?",
+      options: branches.all.map((value) => ({ value, label: value })),
+    });
+    return isCancel(branch) ? null : { kind, branch, base: "HEAD" };
+  }
   const revision = await text({
     message: kind === "commit" ? "Which commit?" : "Which range?",
     placeholder: kind === "commit" ? "HEAD" : "HEAD~1..HEAD",
@@ -163,7 +189,7 @@ export const main = async (args = process.argv.slice(2)) => {
         { value: "login", label: "Sign in" },
         { value: "connect", label: "Connect this CLI to the website" },
         { value: "status", label: "Check account status" },
-        { value: "inspect", label: "Inspect local changes" },
+        { value: "inspect", label: "Inspect changes in the website" },
         { value: "logout", label: "Sign out" },
       ],
     });
@@ -239,6 +265,7 @@ export const main = async (args = process.argv.slice(2)) => {
   const hasSource =
     values.commit !== undefined ||
     values.range !== undefined ||
+    values.branch !== undefined ||
     values["working-tree"] === true;
   const source =
     !hasSource && interactive && !values.json
@@ -258,25 +285,26 @@ export const main = async (args = process.argv.slice(2)) => {
     progress?.error("Snapshot could not be collected.");
     throw error;
   }
-  if (values.json) console.log(JSON.stringify(snapshot, null, 2));
-  else {
-    log.info(
-      `Frozen ${snapshot.source.kind} snapshot: ${snapshot.files.length} changed files; ${snapshot.eligibility.qualifyingFiles}/5 qualifying text files.`,
+  if (!values.json) {
+    const delivery = spinner();
+    delivery.start(
+      `Sending ${snapshot.files.length} files to your open dashboard…`,
     );
-    if (snapshot.source.firstParent)
-      log.info("Merge commit: reviewing its first-parent delta.");
-    for (const file of snapshot.files)
-      log.info(
-        `${JSON.stringify(file.path)}: ${file.binary ? "binary metadata only" : `+${file.added} -${file.deleted}`}`,
+    try {
+      const result = await sendInspection(snapshot);
+      delivery.stop(`Delivered ${result.fileCount} files.`);
+      outro(
+        "Preview is live in your dashboard. It disappears when you reload; nothing was saved.",
       );
-    for (const excluded of snapshot.excluded)
-      log.warn(`Excluded ${JSON.stringify(excluded.path)}: ${excluded.reason}`);
-    outro(
-      snapshot.eligibility.eligible
-        ? "Eligible for review. No upload performed."
-        : "Ineligible: at least five text files must each have ten added+deleted lines. No upload performed.",
-    );
+    } catch (error) {
+      delivery.error(
+        "Inspection was not delivered. Keep connect running and your dashboard open under the same account.",
+      );
+      throw error;
+    }
+    return;
   }
+  console.log(JSON.stringify(snapshot, null, 2));
   if (!snapshot.eligibility.eligible) process.exitCode = 2;
 };
 

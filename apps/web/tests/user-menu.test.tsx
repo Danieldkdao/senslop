@@ -13,12 +13,22 @@ import { UserMenu } from "@/components/user-menu";
 
 const state = vi.hoisted(() => ({
   signOut: vi.fn(),
+  session: {
+    data: {
+      user: {
+        name: "Daniel Dao",
+        email: "daniel@example.invalid",
+        image: null,
+      },
+    } as { user: { name: string; email: string; image: null } } | null,
+    isPending: false,
+  },
   push: vi.fn(),
   refresh: vi.fn(),
   error: vi.fn(),
 }));
 vi.mock("@/lib/auth/auth-client", () => ({
-  authClient: { signOut: state.signOut },
+  authClient: { signOut: state.signOut, useSession: () => state.session },
 }));
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: state.push, refresh: state.refresh }),
@@ -34,12 +44,13 @@ const profile = {
 beforeEach(() => {
   vi.resetAllMocks();
   state.signOut.mockResolvedValue({ error: null });
+  state.session = { data: { user: profile }, isPending: false };
 });
 afterEach(cleanup);
 
 const openMenu = async () => {
   const user = userEvent.setup();
-  render(<UserMenu user={profile} />);
+  render(<UserMenu />);
   await user.click(screen.getByRole("button", { name: "Open account menu" }));
   await screen.findByRole("menuitem", { name: "Settings" });
   return user;
@@ -101,3 +112,29 @@ test.each(["returned error", "network failure"])(
     await waitFor(() => expect(state.push).toHaveBeenCalledWith("/login"));
   },
 );
+
+test("session loading stays inside the account menu, then renders the fetched account", () => {
+  state.session = { data: null, isPending: true };
+  const view = render(<UserMenu />);
+  expect(
+    (
+      screen.getByRole("button", {
+        name: "Loading account",
+      }) as HTMLButtonElement
+    ).disabled,
+  ).toBe(true);
+  expect(
+    screen.queryByRole("button", { name: "Open account menu" }),
+  ).toBeNull();
+  state.session = { data: { user: profile }, isPending: false };
+  view.rerender(<UserMenu />);
+  expect(
+    screen.getByRole("button", { name: "Open account menu" }),
+  ).toBeTruthy();
+});
+
+test("a missing session leaves the account menu empty", () => {
+  state.session = { data: null, isPending: false };
+  const { container } = render(<UserMenu />);
+  expect(container.textContent).toBe("");
+});

@@ -7,10 +7,12 @@ import {
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { constants } from "node:fs";
-import { lstat, mkdtemp, open, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { lstat, open } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { promisify } from "node:util";
+
+import { simpleGit } from "simple-git";
+import { formatPatch, structuredPatch } from "diff";
 
 const execute = promisify(execFile);
 
@@ -90,15 +92,12 @@ const revision = async (cwd: string, input: string) => {
   if (!input || input.startsWith("-"))
     throw new Error("Select a commit revision, not a Git option.");
   return (
-    await git(cwd, [
-      "rev-parse",
+    await simpleGit({ baseDir: cwd, trimmed: false }).revparse([
       "--verify",
       "--end-of-options",
       `${input}^{commit}`,
     ])
-  )
-    .toString()
-    .trim();
+  ).trim();
 };
 const secretReason = (path: string): string | null => {
   const name = path.split("/").at(-1)!;
@@ -223,64 +222,38 @@ const textContent = (bytes: Buffer | null): string | null => {
   if (bytes === null) return null;
   if (bytes.includes(0)) return null;
   try {
-    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    return new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(
+      bytes,
+    );
   } catch {
     return null;
   }
 };
-const frozenDiff = async (file: SnapshotFile, directory: string) => {
-  const before = join(directory, "before");
-  const after = join(directory, "after");
-  await writeFile(before, file.before ?? "");
-  await writeFile(after, file.after ?? "");
-  let raw: string;
-  try {
-    raw = (
-      await execute(
-        "git",
-        [
-          "diff",
-          "--no-index",
-          "--no-ext-diff",
-          "--no-textconv",
-          "--text",
-          "--unified=3",
-          "--",
-          before,
-          after,
-        ],
-        { encoding: "utf8", maxBuffer: 25 * 1024 * 1024 },
-      )
-    ).stdout;
-  } catch (error) {
-    if (
-      (
-        error as {
-          code?: number;
-        }
-      ).code !== 1
-    )
-      throw error;
-    raw = (
-      error as {
-        stdout: string;
-      }
-    ).stdout;
+const frozenDiff = (file: SnapshotFile) => {
+  const patch = structuredPatch(
+    file.before === null ? "/dev/null" : `a/${file.oldPath ?? file.path}`,
+    file.after === null ? "/dev/null" : `b/${file.path}`,
+    file.before ?? "",
+    file.after ?? "",
+    undefined,
+    undefined,
+    { context: 3, timeout: 5000 },
+  );
+  if (!patch)
+    throw new Error(`Diff parsing exceeded its time limit (${file.path}).`);
+  patch.isGit = true;
+  patch.isCreate = file.before === null;
+  patch.isDelete = file.after === null;
+  patch.isRename = file.status.startsWith("R");
+  for (const hunk of patch.hunks) {
+    for (const line of hunk.lines) {
+      if (line.startsWith("+")) file.added++;
+      if (line.startsWith("-")) file.deleted++;
+    }
   }
-  const start = raw.indexOf("@@");
-  const hunks = start < 0 ? "" : raw.slice(start);
-  for (const line of hunks.split("\n")) {
-    if (line.startsWith("+")) file.added++;
-    if (line.startsWith("-")) file.deleted++;
-  }
-  const old =
-    file.before === null
-      ? "/dev/null"
-      : JSON.stringify(`a/${file.oldPath ?? file.path}`);
-  const next =
-    file.after === null ? "/dev/null" : JSON.stringify(`b/${file.path}`);
-  return `diff --git ${JSON.stringify(`a/${file.oldPath ?? file.path}`)} ${JSON.stringify(`b/${file.path}`)}\n--- ${old}\n+++ ${next}\n${hunks}`;
+  return formatPatch(patch);
 };
+
 export const collectSnapshot = async ({
   cwd,
   source,
@@ -288,9 +261,7 @@ export const collectSnapshot = async ({
   cwd: string;
   source: GitSource;
 }): Promise<FrozenSnapshot> => {
-  const root = (await git(cwd, ["rev-parse", "--show-toplevel"]))
-    .toString()
-    .trim();
+  const root = (await simpleGit(cwd).revparse(["--show-toplevel"])).trim();
   let base: string;
   let head: string | null;
   let firstParent = false;
@@ -323,6 +294,9 @@ export const collectSnapshot = async ({
         "Range BASE must be an ancestor of HEAD. Choose an ordered BASE..HEAD range.",
       );
     }
+  } else if (source.kind === "branch") {
+    base = await revision(root, source.base);
+    head = await revision(root, source.branch);
   } else {
     base = await revision(root, "HEAD");
     head = null;
@@ -429,15 +403,10 @@ export const collectSnapshot = async ({
         );
     }
   }
-  const temporary = await mkdtemp(join(tmpdir(), "senslop-diff-"));
-  try {
-    for (const file of files)
-      file.diff = file.binary
-        ? `Binary file ${JSON.stringify(file.path)} changed (metadata only).\n`
-        : await frozenDiff(file, temporary);
-  } finally {
-    await rm(temporary, { recursive: true, force: true });
-  }
+  for (const file of files)
+    file.diff = file.binary
+      ? `Binary file ${JSON.stringify(file.path)} changed (metadata only).\n`
+      : frozenDiff(file);
   const result = {
     source: { kind: source.kind, base, head, firstParent },
     files,
