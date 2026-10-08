@@ -3,12 +3,12 @@
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Settings, LogOut } from "lucide-react";
-import type { UserProfile } from "@/lib/types";
 import { authClient } from "@/lib/auth/auth-client";
 import { UserAvatar } from "@/components/user-avatar";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/toast";
+import { LoadingSwap } from "@/components/ui/loading-swap";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -25,9 +25,9 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 
-type UserMenuProps = { user: UserProfile };
-
-export const UserMenu = ({ user }: UserMenuProps) => {
+export const UserMenu = () => {
+  const { data: session, isPending } = authClient.useSession();
+  const user = session?.user;
   const router = useRouter();
   const triggerRef = useRef<HTMLButtonElement>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -50,6 +50,19 @@ export const UserMenu = ({ user }: UserMenuProps) => {
     }
   };
 
+  if (!user)
+    return isPending ? (
+      <Button
+        variant="ghost"
+        className="h-11 text-base"
+        disabled
+        aria-label="Loading account"
+        aria-busy="true"
+      >
+        <LoadingSwap isLoading>Account</LoadingSwap>
+      </Button>
+    ) : null;
+
   return (
     <>
       <DropdownMenu>
@@ -61,18 +74,24 @@ export const UserMenu = ({ user }: UserMenuProps) => {
               className="h-11 min-w-0 max-w-full gap-3 text-base"
               aria-label="Open account menu"
               disabled={signingOut}
+              aria-busy={signingOut}
             />
           }
         >
-          <UserAvatar name={user.name} image={user.image} />
-          <span className="truncate">{user.name}</span>
+          <LoadingSwap
+            isLoading={signingOut}
+            className="flex min-w-0 items-center gap-3"
+          >
+            <UserAvatar name={user.name} image={user.image ?? null} />
+            <span className="truncate">{user.name}</span>
+          </LoadingSwap>
         </DropdownMenuTrigger>
         <DropdownMenuContent
           align="end"
           className="w-64 max-w-(--available-width)"
         >
           <div className="space-y-1 px-3 py-3">
-            <p className="break-words text-base font-medium">{user.name}</p>
+            <p className="wrap-break-word text-base font-medium">{user.name}</p>
             <p className="break-all text-base text-muted-foreground">
               {user.email}
             </p>
@@ -92,9 +111,16 @@ export const UserMenu = ({ user }: UserMenuProps) => {
               className="gap-3 py-2 text-base"
               disabled={signingOut}
               onClick={signOut}
+              aria-label="Sign out"
+              aria-busy={signingOut}
             >
-              <LogOut aria-hidden="true" className="size-4" />
-              Sign out
+              <LoadingSwap
+                isLoading={signingOut}
+                className="flex items-center gap-3"
+              >
+                <LogOut aria-hidden="true" className="size-4" />
+                Sign out
+              </LoadingSwap>
             </DropdownMenuItem>
           </DropdownMenuGroup>
         </DropdownMenuContent>
@@ -111,11 +137,11 @@ export const UserMenu = ({ user }: UserMenuProps) => {
           <div className="flex min-w-0 items-center gap-4">
             <UserAvatar
               name={user.name}
-              image={user.image}
+              image={user.image ?? null}
               className="size-12"
             />
             <div className="min-w-0">
-              <p className="break-words font-medium">{user.name}</p>
+              <p className="wrap-break-word font-medium">{user.name}</p>
               <p className="break-all text-muted-foreground">{user.email}</p>
             </div>
           </div>
