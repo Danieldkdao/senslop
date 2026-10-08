@@ -236,3 +236,42 @@ test("commit links and invalid UTF-8 binaries remain metadata without reading ta
       }),
     ).rejects.toThrow(/not a Git option/);
   }));
+
+test("branch previews compare immutable endpoints without checking out the selected branch", async () =>
+  fixture(async (cwd, git) => {
+    await writeFile(join(cwd, "base.ts"), "base\n");
+    await git("add", ".");
+    await git("commit", "-m", "base");
+    await git("checkout", "-b", "feature");
+    await writeFile(join(cwd, "feature.ts"), "export const feature = true;\n");
+    await git("add", ".");
+    await git("commit", "-m", "feature");
+    await git("checkout", "main");
+    const snapshot = await collectSnapshot({
+      cwd,
+      source: { kind: "branch", branch: "feature", base: "HEAD" },
+    });
+    expect(snapshot.files.map((file) => file.path)).toEqual(["feature.ts"]);
+    expect(snapshot.files[0]?.added).toBe(1);
+    expect(await git("branch", "--show-current")).toBe("main");
+    expect(snapshot.source.head).toBe(await git("rev-parse", "feature"));
+  }));
+
+test("parsed patches preserve CRLF, quotes, Unicode and missing final newlines", async () =>
+  fixture(async (cwd, git) => {
+    const path = 'quoted "雪".ts';
+    await writeFile(join(cwd, path), "one\r\ntwo");
+    await git("add", ".");
+    await git("commit", "-m", "base");
+    await writeFile(join(cwd, path), "one\r\nthree\r\nfour");
+    const snapshot = await collectSnapshot({
+      cwd,
+      source: { kind: "working-tree" },
+    });
+    expect(snapshot.files[0]?.path).toBe(path);
+    expect(snapshot.files[0]?.before).toBe("one\r\ntwo");
+    expect(snapshot.files[0]?.after).toBe("one\r\nthree\r\nfour");
+    expect(snapshot.files[0]?.added).toBe(2);
+    expect(snapshot.files[0]?.deleted).toBe(1);
+    expect(snapshot.files[0]?.diff).toContain("\\ No newline at end of file");
+  }));
