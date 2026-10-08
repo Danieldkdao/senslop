@@ -16,6 +16,7 @@ const commands = vi.hoisted(() => ({
   connect: vi.fn(),
   logout: vi.fn(),
   collectSnapshot: vi.fn(),
+  sendInspection: vi.fn(),
 }));
 
 vi.mock("@clack/prompts", () => prompts);
@@ -26,6 +27,10 @@ vi.mock("../src/features/connection/connect.js", () => ({
 }));
 vi.mock("../src/features/git/snapshot.js", () => ({
   collectSnapshot: commands.collectSnapshot,
+}));
+
+vi.mock("../src/features/inspection/send-inspection.js", () => ({
+  sendInspection: commands.sendInspection,
 }));
 
 import { main } from "../src/index.js";
@@ -51,6 +56,7 @@ beforeEach(() => {
   });
   process.exitCode = 0;
   commands.collectSnapshot.mockResolvedValue(snapshot);
+  commands.sendInspection.mockResolvedValue({ fileCount: 1 });
 });
 
 afterEach(() => {
@@ -77,14 +83,15 @@ test("login asks for a website origin when not supplied", async () => {
   expect(prompts.text).toHaveBeenCalledOnce();
 });
 
-test("inspection prompts for a source and preserves the ineligible exit code", async () => {
+test("inspection prompts for a source and streams it to the dashboard", async () => {
   prompts.select.mockResolvedValueOnce("working-tree");
   await main(["inspect"]);
   expect(commands.collectSnapshot).toHaveBeenCalledWith({
     cwd: process.cwd(),
     source: { kind: "working-tree" },
   });
-  expect(process.exitCode).toBe(2);
+  expect(commands.sendInspection).toHaveBeenCalledWith(snapshot);
+  expect(process.exitCode).toBe(0);
 });
 
 test("cancelled prompts never start login or snapshot collection", async () => {
@@ -104,6 +111,7 @@ test("JSON inspection never prompts or writes decorative output", async () => {
   expect(prompts.intro).not.toHaveBeenCalled();
   expect(prompts.spinner).not.toHaveBeenCalled();
   expect(prompts.select).not.toHaveBeenCalled();
+  expect(commands.sendInspection).not.toHaveBeenCalled();
 });
 
 test("JSON inspection requires an explicit source even in a terminal", async () => {
