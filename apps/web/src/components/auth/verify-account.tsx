@@ -155,6 +155,8 @@ export const VerifyAccount = ({
           <Button
             className="h-11 w-full text-base"
             type="submit"
+            aria-label="Continue"
+            aria-busy={form.formState.isSubmitting}
             disabled={busy}
           >
             <LoadingSwap isLoading={form.formState.isSubmitting}>
@@ -170,6 +172,8 @@ export const VerifyAccount = ({
             type="button"
             variant="ghost"
             className="text-base tabular-nums"
+            aria-label={formatResendLabel(timeToResend)}
+            aria-busy={isResending}
             disabled={busy || timeToResend > 0}
             onClick={handleResend}
           >

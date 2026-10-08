@@ -1,7 +1,13 @@
 // @vitest-environment jsdom
 
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { AuthForm } from "@/components/auth/auth-form";
 
@@ -233,6 +239,7 @@ test("backend errors are shown and a pending submission cannot be repeated", asy
   const submit = screen.getByRole("button", { name: "Continue" });
   await user.click(submit);
   expect((submit as HTMLButtonElement).disabled).toBe(true);
+  expect(within(submit).getByRole("status", { name: "Loading" })).toBeTruthy();
   await user.click(submit);
   expect(state.email).toHaveBeenCalledOnce();
   resolve({ error: { message: "Invalid account details" } });
@@ -338,4 +345,27 @@ test("password network failures use the toast system", async () => {
     ),
   );
   expect(screen.queryByRole("alert")).toBeNull();
+});
+
+test("only the pending social sign-in displays loading while all submission buttons are disabled", async () => {
+  let finish!: (value: { error: null }) => void;
+  state.social.mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const user = userEvent.setup();
+  render(<AuthForm />);
+  const google = screen.getByRole("button", { name: "Continue with Google" });
+  const github = screen.getByRole("button", { name: "Continue with GitHub" });
+  await user.click(google);
+  expect((google as HTMLButtonElement).disabled).toBe(true);
+  expect((github as HTMLButtonElement).disabled).toBe(true);
+  expect(within(google).getByRole("status", { name: "Loading" })).toBeTruthy();
+  expect(within(github).queryByRole("status")).toBeNull();
+  finish({ error: null });
+  await waitFor(() =>
+    expect((google as HTMLButtonElement).disabled).toBe(false),
+  );
 });

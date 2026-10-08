@@ -5,7 +5,8 @@ import { Controller, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { LoaderCircle, Send } from "lucide-react";
+import { Send } from "lucide-react";
+import { LoadingSwap } from "@/components/ui/loading-swap";
 import { FcGoogle } from "react-icons/fc";
 import { FaGithub } from "react-icons/fa";
 import { authClient } from "@/lib/auth/auth-client";
@@ -31,7 +32,9 @@ import {
 export const AuthForm = ({ signup = false }: { signup?: boolean }) => {
   const router = useRouter();
   const params = useSearchParams();
-  const [socialBusy, setSocialBusy] = useState(false);
+  const [socialProvider, setSocialProvider] = useState<
+    "google" | "github" | null
+  >(null);
   const initialEmail =
     params.get("verify") === "1"
       ? authFormSchema.shape.email.safeParse(params.get("email"))
@@ -43,11 +46,11 @@ export const AuthForm = ({ signup = false }: { signup?: boolean }) => {
     resolver: zodResolver(signup ? signUpFormSchema : authFormSchema),
     defaultValues: { name: "", email: "", password: "" },
   });
-  const busy = socialBusy || form.formState.isSubmitting;
+  const busy = socialProvider !== null || form.formState.isSubmitting;
   const next = localReturnPath(params.get("redirect"));
 
   const socialSignIn = async (provider: "google" | "github") => {
-    setSocialBusy(true);
+    setSocialProvider(provider);
     try {
       const result = await authClient.signIn.social({
         provider,
@@ -60,7 +63,7 @@ export const AuthForm = ({ signup = false }: { signup?: boolean }) => {
     } catch {
       toast.error("We couldn’t reach account services. Please try again.");
     } finally {
-      setSocialBusy(false);
+      setSocialProvider(null);
     }
   };
 
@@ -124,9 +127,16 @@ export const AuthForm = ({ signup = false }: { signup?: boolean }) => {
             className="h-10 w-full bg-muted/40 text-base font-normal"
             disabled={busy}
             onClick={() => socialSignIn("github")}
+            aria-label="Continue with GitHub"
+            aria-busy={socialProvider === "github"}
           >
-            <FaGithub aria-hidden="true" className="size-5" />
-            Continue with GitHub
+            <LoadingSwap
+              isLoading={socialProvider === "github"}
+              className="flex items-center justify-center gap-2"
+            >
+              <FaGithub aria-hidden="true" className="size-5" />
+              Continue with GitHub
+            </LoadingSwap>
           </Button>
           <Button
             type="button"
@@ -134,10 +144,17 @@ export const AuthForm = ({ signup = false }: { signup?: boolean }) => {
             className="h-10 w-full bg-muted/40 text-base font-normal"
             disabled={busy}
             onClick={() => socialSignIn("google")}
+            aria-label="Continue with Google"
+            aria-busy={socialProvider === "google"}
           >
-            {/* Google requires its official multicolor identity. */}
-            <FcGoogle aria-hidden="true" className="size-5" />
-            Continue with Google
+            <LoadingSwap
+              isLoading={socialProvider === "google"}
+              className="flex items-center justify-center gap-2"
+            >
+              {/* Google requires its official multicolor identity. */}
+              <FcGoogle aria-hidden="true" className="size-5" />
+              Continue with Google
+            </LoadingSwap>
           </Button>
         </div>
         <div className="flex items-center gap-2 py-5">
@@ -247,13 +264,16 @@ export const AuthForm = ({ signup = false }: { signup?: boolean }) => {
             type="submit"
             disabled={busy}
             className="h-11 w-full text-base"
+            aria-label="Continue"
+            aria-busy={form.formState.isSubmitting}
           >
-            {busy ? (
-              <LoaderCircle className="animate-spin" />
-            ) : (
+            <LoadingSwap
+              isLoading={form.formState.isSubmitting}
+              className="flex items-center justify-center gap-2"
+            >
               <Send aria-hidden="true" />
-            )}
-            Continue
+              Continue
+            </LoadingSwap>
           </Button>
         </form>
         <p className="mt-5 text-center text-base text-muted-foreground">

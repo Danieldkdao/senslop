@@ -6,6 +6,7 @@ import { Controller, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { authClient } from "@/lib/auth/auth-client";
 import { Button } from "@/components/ui/button";
+import { LoadingSwap } from "@/components/ui/loading-swap";
 import { Input } from "@/components/ui/input";
 import { Field, FieldLabel, FieldError } from "@/components/ui/field";
 import {
@@ -24,8 +25,8 @@ export const DeviceApproval = () => {
     defaultValues: { code: "" },
   });
   const [verifiedCode, setVerifiedCode] = useState<string | null>(null);
-  const [deciding, setDeciding] = useState(false);
-  const busy = form.formState.isSubmitting || deciding;
+  const [decision, setDecision] = useState<"approve" | "deny" | null>(null);
+  const busy = form.formState.isSubmitting || decision !== null;
   const [message, setMessage] = useState("");
   const [done, setDone] = useState(false);
   // Browser components use Better Auth's client hook; the shared helper is server-only.
@@ -55,7 +56,7 @@ export const DeviceApproval = () => {
 
   const decide = async (approve: boolean) => {
     if (!verifiedCode || busy) return;
-    setDeciding(true);
+    setDecision(approve ? "approve" : "deny");
     setMessage("");
     try {
       const result = approve
@@ -77,7 +78,7 @@ export const DeviceApproval = () => {
     } catch {
       toast.error("Account service unavailable. Please retry.");
     } finally {
-      setDeciding(false);
+      setDecision(null);
     }
   };
 
@@ -139,8 +140,14 @@ export const DeviceApproval = () => {
                     type="submit"
                     className="w-full text-base"
                     disabled={busy || isPending}
+                    aria-label="Check code"
+                    aria-busy={form.formState.isSubmitting || isPending}
                   >
-                    Check code
+                    <LoadingSwap
+                      isLoading={form.formState.isSubmitting || isPending}
+                    >
+                      Check code
+                    </LoadingSwap>
                   </Button>
                 )}
               </form>
@@ -153,15 +160,26 @@ export const DeviceApproval = () => {
                     request or a code someone sent you.
                   </p>
                   <div className="flex gap-3">
-                    <Button disabled={busy} onClick={() => decide(true)}>
-                      Approve
+                    <Button
+                      disabled={busy}
+                      onClick={() => decide(true)}
+                      aria-label="Approve"
+                      aria-busy={decision === "approve"}
+                    >
+                      <LoadingSwap isLoading={decision === "approve"}>
+                        Approve
+                      </LoadingSwap>
                     </Button>
                     <Button
                       variant="outline"
                       disabled={busy}
                       onClick={() => decide(false)}
+                      aria-label="Deny"
+                      aria-busy={decision === "deny"}
                     >
-                      Deny
+                      <LoadingSwap isLoading={decision === "deny"}>
+                        Deny
+                      </LoadingSwap>
                     </Button>
                   </div>
                 </div>
