@@ -8,7 +8,9 @@ import type { ConnectionState } from "../types";
 const state = vi.hoisted(() => ({
   presence: { status: "connecting", devices: [] } as ConnectionState,
 }));
-vi.mock("../hooks/use-presence", () => ({ usePresence: () => state.presence }));
+vi.mock("@/features/review/components/live-preview-provider", () => ({
+  useLivePreview: () => ({ connection: state.presence, preview: null }),
+}));
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }),
 }));
@@ -23,7 +25,7 @@ test.each(["connecting", "live"] as const)(
   "%s without a CLI shows the setup steps inside the canvas",
   (status) => {
     state.presence.status = status;
-    render(<ConnectionChecklist name="Daniel Dao" />);
+    render(<ConnectionChecklist />);
     expect(
       screen.getByRole("heading", { name: "Connect your CLI" }),
     ).toBeTruthy();
@@ -52,11 +54,11 @@ test("a live CLI shows the honest no-upload state and the available inspection c
       },
     ],
   };
-  render(<ConnectionChecklist name="Daniel Dao" />);
+  render(<ConnectionChecklist />);
   expect(
     screen.getByRole("heading", { name: "Ready for your first review" }),
   ).toBeTruthy();
-  expect(screen.getByText(/No review has been submitted/)).toBeTruthy();
+  expect(screen.getByText(/No preview has been sent/)).toBeTruthy();
   expect(
     screen.getByText("node packages/cli/dist/index.js inspect --working-tree"),
   ).toBeTruthy();
@@ -73,12 +75,23 @@ test("losing connection restores the setup view without pretending files were up
       { id: "device-a", name: "CLI", connectedAt: "2026-10-05T00:00:00.000Z" },
     ],
   };
-  const view = render(<ConnectionChecklist name="Daniel" />);
+  const view = render(<ConnectionChecklist />);
   state.presence = { status: "retrying", devices: [] };
-  view.rerender(<ConnectionChecklist name="Daniel" />);
+  view.rerender(<ConnectionChecklist />);
   expect(screen.getByText("Reconnecting")).toBeTruthy();
   expect(screen.getByText(/retrying automatically/)).toBeTruthy();
   expect(
     screen.getByRole("heading", { name: "Connect your CLI" }),
   ).toBeTruthy();
+});
+
+test("connection failure shows the specific ticket error", () => {
+  state.presence = {
+    status: "retrying",
+    devices: [],
+    error: "Sign in before connecting.",
+  };
+  render(<ConnectionChecklist />);
+  expect(screen.getByText(/Sign in before connecting/)).toBeTruthy();
+  expect(screen.queryByText(/account remains signed in/)).toBeNull();
 });
