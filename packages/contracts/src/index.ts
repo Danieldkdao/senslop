@@ -9,6 +9,11 @@ export const sourceSelectionSchema = z.discriminatedUnion("kind", [
     head: z.string().min(1),
   }),
   z.object({ kind: z.literal("working-tree") }),
+  z.object({
+    kind: z.literal("branch"),
+    branch: z.string().min(1),
+    base: z.string().min(1),
+  }),
 ]);
 export type SourceSelectionSchema = z.infer<typeof sourceSelectionSchema>;
 
@@ -101,3 +106,5 @@ export const connectionTicketSchema = z.object({
 });
 export type ErrorSchema = z.infer<typeof errorSchema>;
 export type ConnectionTicketSchema = z.infer<typeof connectionTicketSchema>;
+
+export * from "./preview";
