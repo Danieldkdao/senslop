@@ -5,6 +5,27 @@ status: approved
 
 # Senslop — Technical Spec
 
+## Local architecture revision — October 8, 2026
+
+The owner requested a refactor to a CLI-bundled Next.js workspace. This section supersedes the cloud-review transport, dashboard, and code-storage architecture described below. The previous design remains a historical reference for deferred product behavior, not instructions to implement cloud uploads.
+
+- `apps/web` keeps its existing hosted account, verification, device approval, and Postgres authentication integration. Its protected dashboard renders only “dashboard”. Local review does not require that account.
+- `apps/local` owns the review workspace, existing diff views/settings, file search/navigation, inline comments, notes, Material icons, and responsive panels. It contains no Better Auth or database dependency. Its full production Next.js standalone output is bundled in the CLI.
+- `packages/ui` owns the existing generated shadcn primitives, shared visual components, helpers, and theme. Both Next.js apps reuse them. No new color palette or component style is introduced.
+- `senslop connect` starts a local empty workspace, opens its URL, and offers inspection in the same terminal. `senslop inspect` starts the same workspace with the selected frozen Git snapshot, then offers subsequent inspections interactively. Noninteractive commands remain running until stopped. JSON inspection remains a one-shot command without a server.
+- Repository development uses `pnpm dev:local`: the CLI runs from source and `--dev` launches the local workspace's installed `next dev`, preserving session checks, snapshot delivery, and process ownership. Dashboard and shared UI edits use Fast Refresh; CLI edits require restarting the command. Production builds and installed commands keep the standalone bundle path. Development mode requires the source checkout and installed dependencies, with no cloud configuration or production build.
+- The CLI owns the child process and uses IPC to prevent an orphaned server after parent death. SIGINT/SIGTERM and menu cancellation stop the child, with a bounded forced-stop fallback. Normal shutdown removes its private temporary snapshot directory.
+- The local server binds only to `127.0.0.1` on an available port. A random per-run capability establishes a local HttpOnly SameSite cookie. Host, origin, and capability checks protect source access; this is local transport protection, not account authentication.
+- The CLI publishes bounded snapshots atomically into a private temporary file. The browser reads `/api/preview` locally, using conditional polling to avoid repeatedly transferring unchanged source. Reload restores the snapshot while the process remains alive. Existing notes stay in browser memory and clear on refresh. Durable local review persistence is deferred.
+- The cloud preview endpoint and dashboard presence/upload UI are removed. Hosted device authorization, credential status/revocation, and account connection infrastructure remain independent of local inspection.
+- No AI provider, subscription, payment, sync, or durable review feature is added. Future managed inference must disclose cloud processing and remains separate from the local workspace.
+
+Build order is shared packages → local Next.js standalone output → CLI bundle. The CLI bundling step copies static assets, preserves required runtime assets while eliminating workspace symlink dependencies, and excludes environment files. The installed archive must be tested outside the monorepo without cloud environment variables. The user needs Node.js 24+ and Git, not the repository or a development Next.js server.
+
+Required verification covers current diff/notes behavior, hosted authentication routing, local request isolation, one-terminal interaction, all Git selection modes, JSON compatibility, clean installation, static/icon assets, reload, graceful shutdown, parent death, typechecking, lint, and production builds. No public release or commit is part of this refactor.
+
+## Previous cloud-review design — superseded
+
 ## How This Works, In Plain Language
 
 The CLI runs on the developer's computer. After browser-approved login, it reads the Git change the developer selects and runs read-only AI agents to find related definitions and types. The tools read locally, while their model requests pass through Senslop's authenticated cloud proxy. Senslop pays for inference and keeps its OpenRouter key on the server. A compact context map goes to the cloud with the actual selected code and diff; the summary is background context, not a screen the user must read.

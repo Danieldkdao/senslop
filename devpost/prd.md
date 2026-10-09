@@ -8,6 +8,10 @@ status: approved
 A website and installable CLI for developers who want to understand AI-generated code through an enjoyable, guided review.
 Source: `scope.md > Who It's For` and `scope.md > The Unique Kernel`.
 
+## Architecture revision — October 8, 2026
+
+The owner moved the existing review workspace into a Next.js application bundled with the CLI. Local inspection is account-free and runs in one terminal; hosted authentication stays in `apps/web`, whose dashboard now contains only “dashboard”. Source delivery is local, with no cloud preview relay. Current notes retain their in-memory behavior; persisted reviews, AI, managed inference, and subscriptions are not added by this pass. See `spec.md > Local architecture revision` for the implementation boundary. References below to account-connected uploads and cloud review storage describe the earlier direction and are superseded by this revision.
+
 ## The Core Journey
 
 Source: `scope.md > The Core Loop`.
