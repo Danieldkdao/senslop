@@ -1,6 +1,10 @@
 import type { ComponentProps } from "react";
 import { REGEXP_ONLY_DIGITS } from "input-otp";
-import { InputOTP, InputOTPGroup, InputOTPSlot } from "./ui/input-otp";
+import {
+  InputOTP,
+  InputOTPGroup,
+  InputOTPSlot,
+} from "@/components/ui/input-otp";
 
 type OTPInputProps = Omit<
   ComponentProps<typeof InputOTP>,

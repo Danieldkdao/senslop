@@ -42,7 +42,7 @@ export const ThemeToggle = () => {
     <DropdownMenuSub>
       <DropdownMenuSubTrigger
         disabled={!mounted}
-        className="gap-3 py-2 text-base"
+        className="gap-3 py-2 text-base whitespace-nowrap"
       >
         <Palette aria-hidden="true" className="size-4" />
         Change theme

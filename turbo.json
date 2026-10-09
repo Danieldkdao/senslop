@@ -47,6 +47,9 @@
     "@senslop/database#build": {
       "outputs": []
     },
+    "@senslop/ui#build": {
+      "outputs": []
+    },
     "@senslop/review-core#build": {
       "dependsOn": ["^build"],
       "outputs": []
