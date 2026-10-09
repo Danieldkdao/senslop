@@ -7,7 +7,6 @@ import {
   PROTOCOL_VERSION,
 } from "@senslop/contracts";
 import { PresenceRegistry, type Identity } from "./presence";
-import { mountPreviewRoutes } from "./features/preview/routes";
 
 export type PresenceConfig = {
   websiteOrigin: string;
@@ -75,8 +74,6 @@ export const createPresenceServer = (
       response.sendStatus(204);
     },
   );
-
-  mountPreviewRoutes(app, registry, dependencies);
 
   const handleError: ErrorRequestHandler = (
     error: unknown,

@@ -15,6 +15,8 @@
         "./packages/ui/src/components/theme-toggle.tsx"
       ],
       "@/components/file-icon": ["./packages/ui/src/components/file-icon.tsx"],
+      "@/features/review/*": ["./apps/local/src/features/review/*"],
+      "@/features/workspace/*": ["./apps/local/src/features/workspace/*"],
       "@/*": ["./apps/web/src/*"]
     },
     "jsx": "react-jsx",

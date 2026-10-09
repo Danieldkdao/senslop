@@ -75,6 +75,18 @@ export default defineConfig({
         ),
       },
       {
+        find: "@/features/review",
+        replacement: fileURLToPath(
+          new URL("./apps/local/src/features/review", import.meta.url),
+        ),
+      },
+      {
+        find: "@/features/workspace",
+        replacement: fileURLToPath(
+          new URL("./apps/local/src/features/workspace", import.meta.url),
+        ),
+      },
+      {
         find: "@",
         replacement: fileURLToPath(new URL("./apps/web/src", import.meta.url)),
       },
