@@ -13,12 +13,11 @@ import {
   text,
 } from "@clack/prompts";
 import { simpleGit } from "simple-git";
-import { sendInspection } from "./features/inspection/send-inspection.js";
+import { runWorkspace } from "./features/workspace/run-workspace.js";
 import { collectSnapshot } from "./features/git/snapshot.js";
 import { requireCredentials } from "./features/auth/credentials.js";
 import { fetchStatus } from "./features/connection/fetch-status.js";
 import { login } from "./features/auth/login.js";
-import { connect } from "./features/connection/connect.js";
 import { logout } from "./features/auth/logout.js";
 import {
   sourceSelectionSchema,
@@ -31,7 +30,7 @@ export const HELP = `Senslop — understand your local code changes
 Usage: senslop COMMAND [options]
 
   login [--url URL]   Sign in with a browser-approved device code
-  connect             Keep CLI presence connected (Ctrl+C stops it)
+  connect             Open the local workspace and inspect in this terminal
   status              Check your saved account credential
   logout              Revoke and remove the CLI credential
   inspect --commit REF        Inspect one commit (first-parent delta)
@@ -42,9 +41,9 @@ Usage: senslop COMMAND [options]
 Run without arguments for a command menu. Interactive inspect prompts for its source.
 Options: --json (inspect; requires an explicit source), --help, --version
 
-Keep senslop connect running in a second terminal for inspect.
-Inspect streams selected changes to the open dashboard without persistence or AI.
-Add --json for a local-only snapshot without upload.
+Connect and inspect start the bundled local Next.js app without account login.
+Keep this terminal open; Ctrl+C stops the app. Source stays on this computer.
+Add --json to print a snapshot without starting the app.
 Inspection accepts small selections; JSON output includes future review eligibility.
 `;
 
@@ -140,9 +139,12 @@ export const sourceFromOptions = (values: {
   return { kind: "working-tree" };
 };
 
-const promptSource = async (): Promise<SourceSelectionSchema | null> => {
+const promptSource = async (
+  signal?: AbortSignal,
+): Promise<SourceSelectionSchema | null> => {
   const kind = await select({
     message: "Which changes would you like to inspect?",
+    signal,
     options: [
       { value: "working-tree" as const, label: "Uncommitted changes" },
       { value: "commit" as const, label: "One commit" },
@@ -156,12 +158,14 @@ const promptSource = async (): Promise<SourceSelectionSchema | null> => {
     const branches = await simpleGit(process.cwd()).branchLocal();
     const branch = await select({
       message: "Which branch should HEAD be compared to?",
+      signal,
       options: branches.all.map((value) => ({ value, label: value })),
     });
     return isCancel(branch) ? null : { kind, branch, base: "HEAD" };
   }
   const revision = await text({
     message: kind === "commit" ? "Which commit?" : "Which range?",
+    signal,
     placeholder: kind === "commit" ? "HEAD" : "HEAD~1..HEAD",
     initialValue: kind === "commit" ? "HEAD" : undefined,
     validate: (value) => {
@@ -180,6 +184,21 @@ const promptSource = async (): Promise<SourceSelectionSchema | null> => {
   );
 };
 
+const inspectFromPrompt = async (signal: AbortSignal) => {
+  const source = await promptSource(signal);
+  if (!source || signal.aborted) return null;
+  const progress = spinner({ signal });
+  progress.start("Freezing your selected Git changes…");
+  try {
+    const snapshot = await collectSnapshot({ cwd: process.cwd(), source });
+    progress.stop("Local snapshot frozen.");
+    return snapshot;
+  } catch (error) {
+    progress.error("Snapshot could not be collected.");
+    throw error;
+  }
+};
+
 export const main = async (args = process.argv.slice(2)) => {
   const interactive = Boolean(process.stdin.isTTY && process.stdout.isTTY);
   if (!args.length && interactive) {
@@ -187,9 +206,9 @@ export const main = async (args = process.argv.slice(2)) => {
       message: "What would you like to do?",
       options: [
         { value: "login", label: "Sign in" },
-        { value: "connect", label: "Connect this CLI to the website" },
+        { value: "connect", label: "Open the local review workspace" },
         { value: "status", label: "Check account status" },
-        { value: "inspect", label: "Inspect changes in the website" },
+        { value: "inspect", label: "Inspect changes locally" },
         { value: "logout", label: "Sign out" },
       ],
     });
@@ -231,12 +250,17 @@ export const main = async (args = process.argv.slice(2)) => {
       url = value;
     }
     if (await login(url))
-      outro("Run senslop connect to keep your account connected.");
+      outro(
+        "Cloud account connected. Local inspection also works without login.",
+      );
     return;
   }
   if (command === "connect") {
-    await connect();
-    outro("CLI disconnected.");
+    await runWorkspace({
+      interactive,
+      inspect: inspectFromPrompt,
+    });
+    outro("Local app stopped.");
     return;
   }
   if (command === "logout") {
@@ -255,7 +279,9 @@ export const main = async (args = process.argv.slice(2)) => {
         );
       progress.stop("Account verified.");
       log.success(`Signed in as ${status.user.name} (${status.user.email}).`);
-      outro("Run senslop connect to maintain website presence.");
+      outro(
+        "Cloud account verified. Run senslop connect to open your local workspace.",
+      );
     } catch (error) {
       progress.error("Could not verify the account.");
       throw error;
@@ -286,22 +312,12 @@ export const main = async (args = process.argv.slice(2)) => {
     throw error;
   }
   if (!values.json) {
-    const delivery = spinner();
-    delivery.start(
-      `Sending ${snapshot.files.length} files to your open dashboard…`,
-    );
-    try {
-      const result = await sendInspection(snapshot);
-      delivery.stop(`Delivered ${result.fileCount} files.`);
-      outro(
-        "Preview is live in your dashboard. It disappears when you reload; nothing was saved.",
-      );
-    } catch (error) {
-      delivery.error(
-        "Inspection was not delivered. Keep connect running and your dashboard open under the same account.",
-      );
-      throw error;
-    }
+    await runWorkspace({
+      interactive,
+      snapshot,
+      inspect: inspectFromPrompt,
+    });
+    outro("Local app stopped.");
     return;
   }
   console.log(JSON.stringify(snapshot, null, 2));

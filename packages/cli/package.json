@@ -4,11 +4,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "tsup",
+    "build": "tsup && node scripts/bundle-local-app.mjs",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src tests",
     "test": "vitest run --config ../../vitest.config.mts packages/cli",
-    "dev": "tsup --watch",
+    "dev": "tsup --watch --onSuccess \"node scripts/bundle-local-app.mjs\"",
     "pack:check": "npm pack --dry-run"
   },
   "devDependencies": {
@@ -17,7 +17,8 @@
     "@types/ws": "^8",
     "tsup": "8.5.1",
     "tsx": "4.21.0",
-    "typescript": "5.9.3"
+    "typescript": "5.9.3",
+    "@senslop/local": "workspace:*"
   },
   "bin": {
     "senslop": "./dist/index.js"

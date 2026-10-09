@@ -503,6 +503,9 @@ importers:
       '@senslop/contracts':
         specifier: workspace:*
         version: link:../contracts
+      '@senslop/local':
+        specifier: workspace:*
+        version: link:../../apps/local
       '@types/node':
         specifier: ^24
         version: 24.19.1

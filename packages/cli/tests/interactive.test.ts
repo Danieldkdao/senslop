@@ -13,24 +13,19 @@ const prompts = vi.hoisted(() => ({
 }));
 const commands = vi.hoisted(() => ({
   login: vi.fn(),
-  connect: vi.fn(),
+  runWorkspace: vi.fn(),
   logout: vi.fn(),
   collectSnapshot: vi.fn(),
-  sendInspection: vi.fn(),
 }));
 
 vi.mock("@clack/prompts", () => prompts);
 vi.mock("../src/features/auth/login.js", () => ({ login: commands.login }));
 vi.mock("../src/features/auth/logout.js", () => ({ logout: commands.logout }));
-vi.mock("../src/features/connection/connect.js", () => ({
-  connect: commands.connect,
+vi.mock("../src/features/workspace/run-workspace.js", () => ({
+  runWorkspace: commands.runWorkspace,
 }));
 vi.mock("../src/features/git/snapshot.js", () => ({
   collectSnapshot: commands.collectSnapshot,
-}));
-
-vi.mock("../src/features/inspection/send-inspection.js", () => ({
-  sendInspection: commands.sendInspection,
 }));
 
 import { main } from "../src/index.js";
@@ -56,7 +51,6 @@ beforeEach(() => {
   });
   process.exitCode = 0;
   commands.collectSnapshot.mockResolvedValue(snapshot);
-  commands.sendInspection.mockResolvedValue({ fileCount: 1 });
 });
 
 afterEach(() => {
@@ -73,7 +67,7 @@ test("an interactive invocation offers a command menu", async () => {
   expect(prompts.select).toHaveBeenCalledWith(
     expect.objectContaining({ message: "What would you like to do?" }),
   );
-  expect(commands.connect).toHaveBeenCalledOnce();
+  expect(commands.runWorkspace).toHaveBeenCalledOnce();
 });
 
 test("login asks for a website origin when not supplied", async () => {
@@ -83,14 +77,16 @@ test("login asks for a website origin when not supplied", async () => {
   expect(prompts.text).toHaveBeenCalledOnce();
 });
 
-test("inspection prompts for a source and streams it to the dashboard", async () => {
+test("inspection prompts for a source and opens an account-free local workspace", async () => {
   prompts.select.mockResolvedValueOnce("working-tree");
   await main(["inspect"]);
   expect(commands.collectSnapshot).toHaveBeenCalledWith({
     cwd: process.cwd(),
     source: { kind: "working-tree" },
   });
-  expect(commands.sendInspection).toHaveBeenCalledWith(snapshot);
+  expect(commands.runWorkspace).toHaveBeenCalledWith(
+    expect.objectContaining({ snapshot }),
+  );
   expect(process.exitCode).toBe(0);
 });
 
@@ -111,7 +107,7 @@ test("JSON inspection never prompts or writes decorative output", async () => {
   expect(prompts.intro).not.toHaveBeenCalled();
   expect(prompts.spinner).not.toHaveBeenCalled();
   expect(prompts.select).not.toHaveBeenCalled();
-  expect(commands.sendInspection).not.toHaveBeenCalled();
+  expect(commands.runWorkspace).not.toHaveBeenCalled();
 });
 
 test("JSON inspection requires an explicit source even in a terminal", async () => {
