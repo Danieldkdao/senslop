@@ -9,6 +9,7 @@
   "scripts": {
     "dev": "dotenv -e .env -- turbo run dev",
     "dev:web": "pnpm --filter @senslop/web dev",
+    "dev:local": "tsx packages/cli/src/index.ts connect --dev",
     "build": "dotenv -e .env -- turbo run build",
     "typecheck": "dotenv -e .env -- turbo run typecheck && tsc --project tsconfig.tests.json",
     "lint": "turbo run lint",

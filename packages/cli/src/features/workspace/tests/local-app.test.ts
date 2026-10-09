@@ -1,5 +1,12 @@
 import { afterEach, expect, test } from "vitest";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  realpath,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { startLocalApp } from "../local-app.js";
@@ -103,3 +110,86 @@ test("a missing bundled server explains that the CLI must be built", async () =>
     startLocalApp({ serverPath: "/missing/senslop/server.js" }),
   ).rejects.toThrow(/build|bundle/i);
 });
+
+test("development launches the workspace Next CLI without a production bundle", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "senslop-development-test-"));
+  directories.push(directory);
+  const nextDirectory = join(directory, "node_modules/next");
+  await mkdir(join(nextDirectory, "dist/bin"), { recursive: true });
+  await writeFile(join(directory, "package.json"), '{"name":"local-fixture"}');
+  await writeFile(join(nextDirectory, "package.json"), '{"name":"next"}');
+  await writeFile(
+    join(nextDirectory, "dist/bin/next.js"),
+    `const http = require('node:http');
+    const args = process.argv.slice(2);
+    http.createServer((req, res) => {
+      res.setHeader('X-Senslop-Session', process.env.SENSLOP_LOCAL_TOKEN);
+      res.end(JSON.stringify({ args, cwd: process.cwd(), mode: process.env.NODE_ENV }));
+    }).listen(Number(args[args.indexOf('--port') + 1]), args[args.indexOf('--hostname') + 1]);`,
+  );
+  const app = await startLocalApp({
+    development: true,
+    appDirectory: directory,
+    serverPath: "/missing/production/server.js",
+  });
+  try {
+    const response = await fetch(new URL("/api/health", app.origin));
+    const data = (await response.json()) as {
+      mode: string;
+      cwd: string;
+      args: string[];
+    };
+    expect(data.mode).toBe("development");
+    expect(data.cwd).toBe(await realpath(directory));
+    expect(data.args).toEqual([
+      "dev",
+      "--hostname",
+      "127.0.0.1",
+      "--port",
+      new URL(app.origin).port,
+    ]);
+  } finally {
+    await app.stop();
+  }
+  await expect(fetch(app.origin)).rejects.toThrow();
+});
+
+test("a missing development workspace explains the checkout requirement", async () => {
+  await expect(
+    startLocalApp({ development: true, appDirectory: "/missing/workspace" }),
+  ).rejects.toThrow(/development.*checkout|checkout.*development/i);
+});
+
+// This opt-in controls test tooling, rather than application environment configuration.
+test.skipIf(process.env.RUN_LOCAL_DEV_TESTS !== "1")(
+  "the real Next development app serves the protected dashboard and shared styles, then releases its port",
+  async () => {
+    const app = await startLocalApp({ development: true });
+    try {
+      expect((await fetch(app.origin)).status).toBe(403);
+      const session = await fetch(app.url, { redirect: "manual" });
+      expect(session.status).toBe(307);
+      const cookie = session.headers.get("set-cookie")!.split(";")[0]!;
+      const page = await fetch(app.origin, { headers: { Cookie: cookie } });
+      expect(page.status).toBe(200);
+      const html = await page.text();
+      expect(html).toContain("Review canvas");
+      const css = html.match(/href="([^"]*\/_next\/static\/[^"]+\.css)"/)?.[1];
+      expect(css).toBeTruthy();
+      const stylesheet = await fetch(new URL(css!, app.origin));
+      expect(stylesheet.status).toBe(200);
+      expect(await stylesheet.text()).toContain("--background");
+      expect(
+        await (
+          await fetch(`${app.origin}/api/preview`, {
+            headers: { Cookie: cookie },
+          })
+        ).json(),
+      ).toBeNull();
+    } finally {
+      await app.stop();
+    }
+    await expect(fetch(app.origin)).rejects.toThrow();
+  },
+  60000,
+);

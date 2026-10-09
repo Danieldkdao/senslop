@@ -6,6 +6,12 @@ const nextConfig: NextConfig = {
   images: { unoptimized: true },
   outputFileTracingRoot: fileURLToPath(new URL("../../", import.meta.url)),
   reactCompiler: true,
+  logging: {
+    // Keep snapshot polling and session capabilities out of the interactive terminal logs.
+    incomingRequests: {
+      ignore: [/^\/api\/(?:preview|health|session)(?:\?|$)/],
+    },
+  },
   outputFileTracingIncludes: {
     "/file-icons/*": [
       "./node_modules/material-icon-theme/package.json",

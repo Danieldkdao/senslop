@@ -9,6 +9,7 @@
     "lint": "eslint src tests",
     "test": "vitest run --config ../../vitest.config.mts packages/cli",
     "dev": "tsup --watch --onSuccess \"node scripts/bundle-local-app.mjs\"",
+    "dev:local": "tsx src/index.ts connect --dev",
     "pack:check": "npm pack --dry-run"
   },
   "devDependencies": {

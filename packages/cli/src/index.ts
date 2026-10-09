@@ -39,7 +39,7 @@ Usage: senslop COMMAND [options]
   inspect --branch NAME [--base REF]  Compare HEAD or REF to a branch
 
 Run without arguments for a command menu. Interactive inspect prompts for its source.
-Options: --json (inspect; requires an explicit source), --help, --version
+Options: --dev (connect/inspect; source checkout), --json (inspect; requires an explicit source), --help, --version
 
 Connect and inspect start the bundled local Next.js app without account login.
 Keep this terminal open; Ctrl+C stops the app. Source stays on this computer.
@@ -62,6 +62,7 @@ export const parseCommand = (args: string[]) => {
       base: { type: "string" },
       "working-tree": { type: "boolean" },
       json: { type: "boolean" },
+      dev: { type: "boolean" },
     },
   });
   const command = parsed.positionals[0];
@@ -77,14 +78,26 @@ export const parseCommand = (args: string[]) => {
     throw new Error(`Unknown command: ${command}. Run senslop --help.`);
   const allowed: Record<string, string[]> = {
     login: ["url"],
-    connect: [],
+    connect: ["dev"],
     status: [],
     logout: [],
-    inspect: ["commit", "range", "branch", "base", "working-tree", "json"],
+    inspect: [
+      "commit",
+      "range",
+      "branch",
+      "base",
+      "working-tree",
+      "json",
+      "dev",
+    ],
   };
   for (const option of Object.keys(parsed.values))
     if (!allowed[command].includes(option))
       throw new Error(`--${option} is not valid for ${command}.`);
+  if (parsed.values.dev && parsed.values.json)
+    throw new Error(
+      "--dev cannot be combined with --json; JSON inspection does not start an app.",
+    );
   return { command, values: parsed.values };
 };
 
@@ -257,6 +270,7 @@ export const main = async (args = process.argv.slice(2)) => {
   }
   if (command === "connect") {
     await runWorkspace({
+      development: values.dev,
       interactive,
       inspect: inspectFromPrompt,
     });
@@ -313,6 +327,7 @@ export const main = async (args = process.argv.slice(2)) => {
   }
   if (!values.json) {
     await runWorkspace({
+      development: values.dev,
       interactive,
       snapshot,
       inspect: inspectFromPrompt,

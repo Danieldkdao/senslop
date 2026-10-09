@@ -4,12 +4,14 @@ import { startLocalApp } from "./local-app.js";
 import type { FrozenSnapshot } from "../git/snapshot.js";
 
 type WorkspaceOptions = {
+  development?: boolean;
   interactive: boolean;
   snapshot?: FrozenSnapshot;
   inspect: (signal: AbortSignal) => Promise<FrozenSnapshot | null>;
 };
 
 export const runWorkspace = async ({
+  development = false,
   interactive,
   snapshot,
   inspect,
@@ -26,12 +28,16 @@ export const runWorkspace = async ({
   progress.start("Starting your local Next.js workspace…");
   let app: Awaited<ReturnType<typeof startLocalApp>> | undefined;
   try {
-    app = await startLocalApp({ signal: abort.signal });
+    app = await startLocalApp({ development, signal: abort.signal });
     if (snapshot) await app.setSnapshot(snapshot);
     progress.stop("Local workspace is running.");
     log.info(
       `Open ${app.url}\nKeep this terminal open. Ctrl+C stops the app. No cloud login is required.`,
     );
+    if (development)
+      log.info(
+        "Development mode: dashboard edits refresh automatically. Restart this command after editing CLI logic.",
+      );
     await open(app.url).catch(() =>
       log.warn("Could not open a browser automatically. Use the URL above."),
     );

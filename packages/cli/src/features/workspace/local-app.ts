@@ -1,4 +1,5 @@
 import { fork } from "node:child_process";
+import { createRequire } from "node:module";
 import { randomBytes, randomUUID } from "node:crypto";
 import {
   access,
@@ -20,6 +21,8 @@ import {
 } from "@senslop/contracts";
 
 type LocalAppOptions = {
+  development?: boolean;
+  appDirectory?: string;
   serverPath?: string;
   signal?: AbortSignal;
   startupTimeout?: number;
@@ -40,17 +43,34 @@ const availablePort = () =>
   });
 
 export const startLocalApp = async ({
+  development = false,
+  appDirectory,
   serverPath = fileURLToPath(
     new URL("./local-app/apps/local/server.js", import.meta.url),
   ),
   signal,
   startupTimeout = 30000,
 }: LocalAppOptions = {}) => {
+  let cwd = dirname(serverPath);
+  let entry = serverPath;
   try {
-    await access(serverPath);
+    if (development) {
+      cwd =
+        appDirectory ??
+        dirname(
+          createRequire(import.meta.url).resolve("@senslop/local/package.json"),
+        );
+      await access(join(cwd, "package.json"));
+      entry = createRequire(join(cwd, "package.json")).resolve(
+        "next/dist/bin/next",
+      );
+    }
+    await access(entry);
   } catch {
     throw new Error(
-      "The local Next.js app is missing from this CLI bundle. Rebuild or reinstall Senslop.",
+      development
+        ? "Development mode requires a Senslop source checkout with dependencies installed. Run pnpm install in the checkout."
+        : "The local Next.js app is missing from this CLI bundle. Rebuild or reinstall Senslop.",
     );
   }
   signal?.throwIfAborted();
@@ -75,11 +95,14 @@ export const startLocalApp = async ({
   const parentModule = fileURLToPath(
     new URL("./parent-monitor.mjs", import.meta.url),
   );
-  const child = fork(serverPath, [], {
-    cwd: dirname(serverPath),
+  const args = development
+    ? ["dev", "--hostname", "127.0.0.1", "--port", String(port)]
+    : [];
+  const child = fork(entry, args, {
+    cwd,
     env: {
       ...env,
-      NODE_ENV: "production",
+      NODE_ENV: development ? "development" : "production",
       NEXT_TELEMETRY_DISABLED: "1",
       HOSTNAME: "127.0.0.1",
       PORT: String(port),
@@ -88,11 +111,13 @@ export const startLocalApp = async ({
       SENSLOP_LOCAL_SNAPSHOT: snapshotPath,
     },
     execArgv: ["--import", pathToFileURL(parentModule).href],
-    stdio: ["ignore", "ignore", "pipe", "ipc"],
+    stdio: ["ignore", development ? "pipe" : "ignore", "pipe", "ipc"],
   });
+  child.stdout?.on("data", (chunk) => process.stderr.write(chunk));
   let stderr = "";
   child.stderr?.on("data", (chunk) => {
     stderr = (stderr + chunk.toString()).slice(-2000);
+    if (development) process.stderr.write(chunk);
   });
   let stopping = false;
   let ended = false;

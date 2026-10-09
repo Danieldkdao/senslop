@@ -70,6 +70,27 @@ test("an interactive invocation offers a command menu", async () => {
   expect(commands.runWorkspace).toHaveBeenCalledOnce();
 });
 
+test.each(["connect", "inspect"])(
+  "--dev routes %s to the development workspace",
+  async (command) => {
+    await main([
+      command,
+      "--dev",
+      ...(command === "inspect" ? ["--working-tree"] : []),
+    ]);
+    expect(commands.runWorkspace).toHaveBeenCalledWith(
+      expect.objectContaining({ development: true }),
+    );
+  },
+);
+
+test("--dev cannot be combined with one-shot JSON output", async () => {
+  await expect(
+    main(["inspect", "--working-tree", "--json", "--dev"]),
+  ).rejects.toThrow(/--dev.*--json/);
+  expect(commands.runWorkspace).not.toHaveBeenCalled();
+});
+
 test("login asks for a website origin when not supplied", async () => {
   prompts.text.mockResolvedValueOnce("http://localhost:3000");
   await main(["login"]);
