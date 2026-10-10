@@ -15,6 +15,7 @@ import {
 import { simpleGit } from "simple-git";
 import { runWorkspace } from "./features/workspace/run-workspace.js";
 import { collectSnapshot } from "./features/git/snapshot.js";
+import { inspectRepository } from "@senslop/review-core/git";
 import { requireCredentials } from "./features/auth/credentials.js";
 import { fetchStatus } from "./features/connection/fetch-status.js";
 import { login } from "./features/auth/login.js";
@@ -203,7 +204,11 @@ const inspectFromPrompt = async (signal: AbortSignal) => {
   const progress = spinner({ signal });
   progress.start("Freezing your selected Git changes…");
   try {
-    const snapshot = await collectSnapshot({ cwd: process.cwd(), source });
+    const inspection = await inspectRepository(process.cwd(), source);
+    const snapshot = {
+      ...inspection.snapshot,
+      repositoryFingerprint: inspection.fingerprint,
+    };
     progress.stop("Local snapshot frozen.");
     return snapshot;
   } catch (error) {
@@ -240,7 +245,7 @@ export const main = async (args = process.argv.slice(2)) => {
     console.log("0.1.0");
     return;
   }
-  if (!values.json) intro(`Senslop · ${command}`);
+  if (!values.json) intro(`Senslop: ${command}`);
   if (command === "login") {
     let url = values.url;
     if (!url) {
@@ -319,7 +324,15 @@ export const main = async (args = process.argv.slice(2)) => {
   progress?.start("Freezing your selected Git changes…");
   let snapshot;
   try {
-    snapshot = await collectSnapshot({ cwd: process.cwd(), source });
+    if (values.json)
+      snapshot = await collectSnapshot({ cwd: process.cwd(), source });
+    else {
+      const inspection = await inspectRepository(process.cwd(), source);
+      snapshot = {
+        ...inspection.snapshot,
+        repositoryFingerprint: inspection.fingerprint,
+      };
+    }
     progress?.stop("Local snapshot frozen.");
   } catch (error) {
     progress?.error("Snapshot could not be collected.");

@@ -10,17 +10,23 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { createServer } from "node:net";
-import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { homedir, tmpdir } from "node:os";
+import { dirname, isAbsolute, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { setTimeout as sleep } from "node:timers/promises";
 import {
   MAX_SNAPSHOT_BYTES,
   PROTOCOL_VERSION,
   previewUploadSchema,
+  localPreviewSchema,
 } from "@senslop/contracts";
 
+import { resolveRepository } from "@senslop/review-core/git";
+import { serverEnv } from "../../data/env/server.js";
+
 type LocalAppOptions = {
+  repository?: string;
+  dataDirectory?: string;
   development?: boolean;
   appDirectory?: string;
   serverPath?: string;
@@ -42,7 +48,28 @@ const availablePort = () =>
     });
   });
 
+export const applicationDataDirectory = () => {
+  switch (process.platform) {
+    case "darwin":
+      return join(homedir(), "Library", "Application Support", "Senslop");
+    case "win32":
+      return join(
+        serverEnv.LOCALAPPDATA ?? join(homedir(), "AppData", "Local"),
+        "Senslop",
+      );
+    default:
+      return join(
+        serverEnv.XDG_DATA_HOME && isAbsolute(serverEnv.XDG_DATA_HOME)
+          ? serverEnv.XDG_DATA_HOME
+          : join(homedir(), ".local", "share"),
+        "senslop",
+      );
+  }
+};
+
 export const startLocalApp = async ({
+  repository = process.cwd(),
+  dataDirectory,
   development = false,
   appDirectory,
   serverPath = fileURLToPath(
@@ -51,6 +78,8 @@ export const startLocalApp = async ({
   signal,
   startupTimeout = 30000,
 }: LocalAppOptions = {}) => {
+  const repositoryRoot = await resolveRepository(repository);
+  const userData = dataDirectory ?? applicationDataDirectory();
   let cwd = dirname(serverPath);
   let entry = serverPath;
   try {
@@ -88,9 +117,17 @@ export const startLocalApp = async ({
   const origin = `http://127.0.0.1:${port}`;
   // A runtime launcher must construct process env; never pass cloud secrets or ambient Node hooks.
   const env = Object.fromEntries(
-    ["PATH", "SystemRoot", "WINDIR", "TEMP", "TMP", "TZ"].flatMap((key) =>
-      process.env[key] ? [[key, process.env[key]!]] : [],
-    ),
+    [
+      "PATH",
+      "SystemRoot",
+      "WINDIR",
+      "TEMP",
+      "TMP",
+      "TZ",
+      "DBUS_SESSION_BUS_ADDRESS",
+      "XDG_RUNTIME_DIR",
+      "DISPLAY",
+    ].flatMap((key) => (process.env[key] ? [[key, process.env[key]!]] : [])),
   );
   const parentModule = fileURLToPath(
     new URL("./parent-monitor.mjs", import.meta.url),
@@ -109,6 +146,8 @@ export const startLocalApp = async ({
       SENSLOP_LOCAL_ORIGIN: origin,
       SENSLOP_LOCAL_TOKEN: token,
       SENSLOP_LOCAL_SNAPSHOT: snapshotPath,
+      SENSLOP_LOCAL_REPOSITORY: repositoryRoot,
+      SENSLOP_LOCAL_DATABASE: join(userData, "reviews.sqlite"),
     },
     execArgv: ["--import", pathToFileURL(parentModule).href],
     stdio: ["ignore", development ? "pipe" : "ignore", "pipe", "ipc"],
@@ -173,7 +212,15 @@ export const startLocalApp = async ({
       ...(snapshot as object),
       protocolVersion: PROTOCOL_VERSION,
     });
-    const body = JSON.stringify({ ...data, id: randomUUID() });
+    const body = JSON.stringify(
+      localPreviewSchema.parse({
+        ...data,
+        id: randomUUID(),
+        repositoryFingerprint: (
+          snapshot as { repositoryFingerprint?: string | null }
+        ).repositoryFingerprint,
+      }),
+    );
     if (Buffer.byteLength(body) > MAX_SNAPSHOT_BYTES)
       throw new Error(
         "Inspection exceeds the 20 MiB snapshot limit. Choose a smaller selection.",
@@ -185,6 +232,15 @@ export const startLocalApp = async ({
         const pending = join(directory, "preview.pending");
         await writeFile(pending, body, { mode: 0o600 });
         await rename(pending, snapshotPath);
+        const response = await fetch(`${origin}/api/preview`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}` },
+          signal: AbortSignal.timeout(10000),
+        });
+        if (!response.ok)
+          throw new Error(
+            "Could not save the inspection locally. Check application-data permissions and retry.",
+          );
       });
     return write;
   };

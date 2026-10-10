@@ -16,9 +16,13 @@ const commands = vi.hoisted(() => ({
   runWorkspace: vi.fn(),
   logout: vi.fn(),
   collectSnapshot: vi.fn(),
+  inspectRepository: vi.fn(),
 }));
 
 vi.mock("@clack/prompts", () => prompts);
+vi.mock("@senslop/review-core/git", () => ({
+  inspectRepository: commands.inspectRepository,
+}));
 vi.mock("../src/features/auth/login.js", () => ({ login: commands.login }));
 vi.mock("../src/features/auth/logout.js", () => ({ logout: commands.logout }));
 vi.mock("../src/features/workspace/run-workspace.js", () => ({
@@ -51,6 +55,10 @@ beforeEach(() => {
   });
   process.exitCode = 0;
   commands.collectSnapshot.mockResolvedValue(snapshot);
+  commands.inspectRepository.mockResolvedValue({
+    snapshot,
+    fingerprint: "f".repeat(64),
+  });
 });
 
 afterEach(() => {
@@ -101,12 +109,13 @@ test("login asks for a website origin when not supplied", async () => {
 test("inspection prompts for a source and opens an account-free local workspace", async () => {
   prompts.select.mockResolvedValueOnce("working-tree");
   await main(["inspect"]);
-  expect(commands.collectSnapshot).toHaveBeenCalledWith({
-    cwd: process.cwd(),
-    source: { kind: "working-tree" },
+  expect(commands.inspectRepository).toHaveBeenCalledWith(process.cwd(), {
+    kind: "working-tree",
   });
   expect(commands.runWorkspace).toHaveBeenCalledWith(
-    expect.objectContaining({ snapshot }),
+    expect.objectContaining({
+      snapshot: { ...snapshot, repositoryFingerprint: "f".repeat(64) },
+    }),
   );
   expect(process.exitCode).toBe(0);
 });
@@ -154,16 +163,16 @@ test.each([
   prompts.select.mockResolvedValueOnce(kind);
   prompts.text.mockResolvedValueOnce(revision);
   await main(["inspect"]);
-  expect(commands.collectSnapshot).toHaveBeenCalledWith({
-    cwd: process.cwd(),
+  expect(commands.inspectRepository).toHaveBeenCalledWith(
+    process.cwd(),
     source,
-  });
+  );
 });
 
 test("a failed inspection clears its progress indicator", async () => {
   const progress = { start: vi.fn(), stop: vi.fn(), error: vi.fn() };
   prompts.spinner.mockReturnValueOnce(progress);
-  commands.collectSnapshot.mockRejectedValueOnce(
+  commands.inspectRepository.mockRejectedValueOnce(
     new Error("not a Git repository"),
   );
   await expect(main(["inspect", "--working-tree"])).rejects.toThrow(

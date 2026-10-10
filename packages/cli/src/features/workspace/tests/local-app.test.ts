@@ -164,7 +164,9 @@ test("a missing development workspace explains the checkout requirement", async 
 test.skipIf(process.env.RUN_LOCAL_DEV_TESTS !== "1")(
   "the real Next development app serves the protected dashboard and shared styles, then releases its port",
   async () => {
-    const app = await startLocalApp({ development: true });
+    const dataDirectory = await mkdtemp(join(tmpdir(), "senslop-dev-data-"));
+    directories.push(dataDirectory);
+    const app = await startLocalApp({ development: true, dataDirectory });
     try {
       expect((await fetch(app.origin)).status).toBe(403);
       const session = await fetch(app.url, { redirect: "manual" });
