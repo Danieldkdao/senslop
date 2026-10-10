@@ -1,7 +1,7 @@
+import { Providers } from "@/components/providers";
 import { cn } from "@/lib/utils";
 import type { Metadata } from "next";
-import { Fraunces, Outfit, JetBrains_Mono } from "next/font/google";
-import { Providers } from "@/components/providers";
+import { Fraunces, JetBrains_Mono, Outfit } from "next/font/google";
 import "../global.css";
 
 const headings = Fraunces({

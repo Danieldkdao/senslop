@@ -1,19 +1,27 @@
 "use client";
 
-import { useCallback, useState, type ReactNode } from "react";
+import { useCallback, useRef, useState, type ReactNode } from "react";
 import dynamic from "next/dynamic";
 import { useLivePreview } from "./live-preview-provider";
 import { PreviewFiles } from "./preview-files";
-import { DiffSettings } from "./diff-settings";
+import { ReviewSettings } from "../../settings/components/review-settings";
 import { ReviewNotes } from "./review-notes";
 import { FileSearchDialog } from "./file-search-dialog";
 import { useReviewNavigation } from "../hooks/use-review-navigation";
 import { defaultDiffSettings } from "../constants";
-import type { DiffView, ReviewLine, ReviewNote } from "../types";
-import { formatFileStatus, formatPreviewSource } from "../lib/formatters";
-import { Files, NotebookPen, Search } from "lucide-react";
+import type { DiffView, ReviewLine } from "../types";
+import {
+  ArrowLeft,
+  ArrowRight,
+  Check,
+  Files,
+  NotebookPen,
+  Search,
+} from "lucide-react";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { FileIcon } from "@/components/file-icon";
+import { TooltipWrapper } from "@/components/ui/tooltip-wrapper";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
   ResizableHandle,
@@ -27,6 +35,8 @@ import {
   SheetTitle,
   SheetDescription,
 } from "@/components/ui/sheet";
+
+import { WorkspaceToolbar } from "../../workspace/components/workspace-toolbar";
 
 type ReviewWorkspaceProps = { children: ReactNode };
 
@@ -42,47 +52,72 @@ const PreviewDiff = dynamic(
 
 export const ReviewWorkspace = ({ children }: ReviewWorkspaceProps) => {
   const mobile = useIsMobile(1024);
-  const { preview, error } = useLivePreview();
+  const { preview, error, changeReview, refresh } = useLivePreview();
   const [selection, setSelection] = useState<{
     id: string;
     path: string;
   } | null>(null);
   const [view, setView] = useState<DiffView>("split");
   const [settings, setSettings] = useState(defaultDiffSettings);
-  const [notes, setNotes] = useState<ReviewNote[]>([]);
-  const reviewNotes = notes.filter((note) => note.previewId === preview?.id);
+  const reviewNotes = preview?.notes ?? [];
   const selectedFile =
     preview?.files.find(
       (file) => selection?.id === preview.id && file.path === selection.path,
-    ) ?? preview?.files[0];
+    ) ??
+    preview?.files.find((file) => file.path === preview.selectedPath) ??
+    preview?.files[0];
   const selectedIndex =
     preview?.files.findIndex((file) => file.path === selectedFile?.path) ?? -1;
   const selectFile = useCallback(
     (path: string) => {
-      if (preview) setSelection({ id: preview.id, path });
+      if (preview) {
+        setSelection({ id: preview.id, path });
+        void changeReview({ action: "select", path }).catch(() => {});
+      }
     },
-    [preview],
+    [preview, changeReview],
   );
+  const completionPending = useRef(false);
+  const completed =
+    !!selectedFile && !!preview?.completedPaths?.includes(selectedFile.path);
+  const toggleCompletion = useCallback(() => {
+    if (!selectedFile || completionPending.current) return;
+    completionPending.current = true;
+    void changeReview({
+      action: "complete",
+      path: selectedFile.path,
+      complete: !completed,
+    })
+      .catch(() => {})
+      .finally(() => {
+        completionPending.current = false;
+      });
+  }, [changeReview, selectedFile, completed]);
   const { searchOpen, setSearchOpen, navigateFile } = useReviewNavigation({
     preview,
     selectedPath: selectedFile?.path,
     onSelect: selectFile,
+    onToggleCompletion: toggleCompletion,
   });
-  const addNote = (body: string, line: ReviewLine | null = null) => {
+  const addNote = async (body: string, line: ReviewLine | null = null) => {
     if (!preview || !selectedFile) return;
-    setNotes((current) => [
-      ...current,
-      {
+    await changeReview({
+      action: "add-note",
+      note: {
         id: crypto.randomUUID(),
         previewId: preview.id,
         path: selectedFile.path,
         body,
         line,
       },
-    ]);
+    });
   };
-  const deleteNote = (id: string) =>
-    setNotes((current) => current.filter((note) => note.id !== id));
+  const deleteNote = async (id: string) => {
+    await changeReview({ action: "delete-note", id });
+  };
+  const editNote = async (id: string, body: string) => {
+    await changeReview({ action: "edit-note", id, body });
+  };
   const notesPanel = (drawer = false) => (
     <ReviewNotes
       drawer={drawer}
@@ -91,6 +126,7 @@ export const ReviewWorkspace = ({ children }: ReviewWorkspaceProps) => {
       notes={reviewNotes}
       onAddNote={addNote}
       onDeleteNote={deleteNote}
+      onEditNote={editNote}
       onSelectFile={selectFile}
     />
   );
@@ -103,8 +139,19 @@ export const ReviewWorkspace = ({ children }: ReviewWorkspaceProps) => {
   );
 
   const canvas = (
-    <main aria-label="Review canvas" className="flex h-full min-w-0 flex-col">
-      <header className="flex min-h-14 shrink-0 flex-wrap items-center gap-2 border-b border-border px-3 py-2 text-muted-foreground md:px-5">
+    <main
+      aria-label="Review canvas"
+      className={cn(
+        "flex h-full min-w-0 flex-col",
+        completed && "ring-1 ring-inset ring-primary/40",
+      )}
+    >
+      <header
+        className={cn(
+          "flex min-h-14 shrink-0 items-center gap-2 border-b border-border px-3 py-2 text-muted-foreground md:px-5",
+          completed && "border-primary/40 bg-primary/10",
+        )}
+      >
         {mobile && (
           <Sheet>
             <SheetTrigger
@@ -130,130 +177,113 @@ export const ReviewWorkspace = ({ children }: ReviewWorkspaceProps) => {
         <span className="min-w-0 flex-1 truncate text-foreground">
           {selectedFile?.path ?? "No file selected"}
         </span>
-        {selectedFile && (
-          <div className="flex shrink-0 gap-1" aria-label="Diff view">
-            <Button
-              variant={view === "split" ? "secondary" : "ghost"}
-              aria-pressed={view === "split"}
-              onClick={() => setView("split")}
-            >
-              Split
-            </Button>
-            <Button
-              variant={view === "unified" ? "secondary" : "ghost"}
-              aria-pressed={view === "unified"}
-              onClick={() => setView("unified")}
-            >
-              Unified
-            </Button>
-            <DiffSettings settings={settings} onChange={setSettings} />
-            <Button
-              variant="ghost"
-              size="icon"
-              aria-label="Find a file"
-              aria-keyshortcuts="Meta+K Control+K"
-              title="Find a file · ⌘K / Ctrl+K"
-              onClick={() => setSearchOpen(true)}
-            >
-              <Search aria-hidden="true" className="size-5" />
-            </Button>
-          </div>
-        )}
-        {mobile && (
-          <Sheet>
-            <SheetTrigger
-              render={
-                <Button variant="ghost" size="icon" aria-label="Open notes" />
-              }
-            >
-              <NotebookPen aria-hidden="true" className="size-5" />
-            </SheetTrigger>
-            <SheetContent
-              side="right"
-              className="gap-0 overflow-hidden p-0 text-base"
-            >
-              <SheetTitle className="sr-only">Notes and appearance</SheetTitle>
-              <SheetDescription className="sr-only">
-                Review notes and appearance settings.
-              </SheetDescription>
-              {notesPanel(true)}
-            </SheetContent>
-          </Sheet>
-        )}
+        <div
+          className="flex min-w-0 max-w-[45%] shrink-0 items-center gap-1 overflow-x-auto overscroll-x-contain md:max-w-[70%]"
+          aria-label="Workspace controls"
+        >
+          {selectedFile && (
+            <>
+              <TooltipWrapper content="Previous file">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label="Previous file"
+                  disabled={selectedIndex <= 0}
+                  onClick={() => navigateFile(-1)}
+                >
+                  <ArrowLeft aria-hidden="true" className="size-5" />
+                </Button>
+              </TooltipWrapper>
+              <TooltipWrapper content="Next file">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label="Next file"
+                  disabled={
+                    selectedIndex < 0 ||
+                    selectedIndex >= (preview?.files.length ?? 0) - 1
+                  }
+                  onClick={() => navigateFile(1)}
+                >
+                  <ArrowRight aria-hidden="true" className="size-5" />
+                </Button>
+              </TooltipWrapper>
+              <TooltipWrapper content="Toggle file completion (D)">
+                <Button
+                  variant={
+                    preview?.completedPaths?.includes(selectedFile.path)
+                      ? "secondary"
+                      : "ghost"
+                  }
+                  size="icon"
+                  aria-label={
+                    preview?.completedPaths?.includes(selectedFile.path)
+                      ? "Mark incomplete"
+                      : "Mark complete"
+                  }
+                  aria-pressed={
+                    preview?.completedPaths?.includes(selectedFile.path) ??
+                    false
+                  }
+                  aria-keyshortcuts="d"
+                  onClick={toggleCompletion}
+                >
+                  <Check aria-hidden="true" className="size-5" />
+                </Button>
+              </TooltipWrapper>
+              <TooltipWrapper content="Find a file (⌘K / Ctrl+K)">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label="Find a file"
+                  aria-keyshortcuts="Meta+K Control+K"
+                  onClick={() => setSearchOpen(true)}
+                >
+                  <Search aria-hidden="true" className="size-5" />
+                </Button>
+              </TooltipWrapper>
+            </>
+          )}
+          <WorkspaceToolbar />
+          <ReviewSettings
+            settings={settings}
+            onChange={setSettings}
+            view={view}
+            onViewChange={setView}
+          />
+          {mobile && (
+            <Sheet>
+              <SheetTrigger
+                render={
+                  <Button variant="ghost" size="icon" aria-label="Open notes" />
+                }
+              >
+                <NotebookPen aria-hidden="true" className="size-5" />
+              </SheetTrigger>
+              <SheetContent
+                side="right"
+                className="gap-0 overflow-hidden p-0 text-base"
+              >
+                <SheetTitle className="sr-only">Notes</SheetTitle>
+                <SheetDescription className="sr-only">
+                  Review notes for this snapshot.
+                </SheetDescription>
+                {notesPanel(true)}
+              </SheetContent>
+            </Sheet>
+          )}
+        </div>
       </header>
       {error && (
         <p role="alert" className="border-b p-4 text-destructive">
           {error}
+          <Button
+            variant="outline"
+            onClick={() => void refresh().catch(() => {})}
+          >
+            Retry loading review
+          </Button>
         </p>
-      )}
-      {preview && (
-        <div className="space-y-3 border-b bg-card px-5 py-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <p className="font-medium">
-                {formatPreviewSource(preview.source.kind)}
-              </p>
-              <p className="mt-1 text-muted-foreground">
-                {preview.source.base.slice(0, 8)} →{" "}
-                {preview.source.head?.slice(0, 8) ?? "working tree"}
-              </p>
-            </div>
-            <div className="flex gap-2">
-              <Button
-                variant="outline"
-                aria-label="Previous file"
-                disabled={selectedIndex <= 0}
-                onClick={() => navigateFile(-1)}
-              >
-                Previous
-              </Button>
-              <Button
-                variant="outline"
-                aria-label="Next file"
-                disabled={
-                  selectedIndex < 0 || selectedIndex >= preview.files.length - 1
-                }
-                onClick={() => navigateFile(1)}
-              >
-                Next
-              </Button>
-            </div>
-          </div>
-          {selectedFile && (
-            <p className="flex flex-wrap gap-x-4 text-muted-foreground">
-              <span>{formatFileStatus(selectedFile.status)}</span>
-              {selectedFile.oldPath &&
-                selectedFile.oldPath !== selectedFile.path && (
-                  <span className="break-all">From {selectedFile.oldPath}</span>
-                )}
-              <span className="text-primary">
-                +{selectedFile.added} additions
-              </span>
-              <span className="text-destructive">
-                −{selectedFile.deleted} deletions
-              </span>
-            </p>
-          )}
-          {preview.error && (
-            <p role="alert" className="text-destructive">
-              {preview.error} Received files below may be incomplete.
-            </p>
-          )}
-          {preview.excluded.length > 0 && (
-            <details className="text-muted-foreground">
-              <summary className="cursor-pointer">
-                {preview.excluded.length} excluded files
-              </summary>
-              <ul className="mt-2 space-y-1">
-                {preview.excluded.map((file) => (
-                  <li key={file.path} className="break-all">
-                    {file.path}: {file.reason}
-                  </li>
-                ))}
-              </ul>
-            </details>
-          )}
-        </div>
       )}
       <div className="min-h-0 flex-1 overflow-auto overscroll-contain">
         {preview ? (

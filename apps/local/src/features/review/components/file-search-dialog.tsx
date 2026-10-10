@@ -59,7 +59,7 @@ export const FileSearchDialog = ({
         ))}
       </CommandList>
       <p className="border-t px-3 py-2 text-base text-muted-foreground">
-        ↑ ↓ to browse · Enter to open · Esc to close
+        ↑ ↓ to browse, Enter to open, Esc to close
       </p>
     </Command>
   </CommandDialog>

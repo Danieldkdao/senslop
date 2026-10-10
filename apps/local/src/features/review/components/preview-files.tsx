@@ -1,13 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { FolderOpen, Search, Sprout, LoaderCircle } from "lucide-react";
+import { FolderOpen, Search, Sprout, LoaderCircle, Check } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { FileIcon } from "@/components/file-icon";
 import { cn } from "@/lib/utils";
 import type { LivePreview } from "../types";
 import {
   formatFileStatus,
+  formatFileReviewLabel,
   formatPreviewProgress,
   formatPreviewSource,
 } from "../lib/formatters";
@@ -54,7 +55,7 @@ export const PreviewFiles = ({
       ) : (
         <>
           <div className="space-y-4 border-b p-4">
-            <div className="space-y-1">
+            <div className="flex flex-col gap-1">
               <p className="font-medium">
                 {formatPreviewSource(preview.source.kind)}
               </p>
@@ -87,17 +88,23 @@ export const PreviewFiles = ({
           </div>
           <nav
             aria-label="Changed files"
-            className="min-h-0 flex-1 space-y-1 overflow-auto p-2"
+            className="min-h-0 flex-1 flex flex-col gap-1 overflow-auto p-2"
           >
             {files.map((file) => (
               <button
                 key={file.path}
                 type="button"
+                aria-label={formatFileReviewLabel(
+                  file.path,
+                  !!preview.completedPaths?.includes(file.path),
+                )}
                 aria-current={file.path === selectedPath ? "true" : undefined}
                 onClick={() => onSelect(file.path)}
                 className={cn(
-                  "preview-file-enter flex w-full items-start gap-3 rounded-lg px-3 py-3 text-left transition-colors hover:bg-sidebar-accent focus-visible:outline-2 focus-visible:outline-ring",
+                  "preview-file-enter flex w-full shrink-0 border border-transparent items-start gap-3 rounded-lg px-3 py-3 text-left transition-colors hover:bg-sidebar-accent focus-visible:outline-2 focus-visible:outline-ring",
                   file.path === selectedPath && "bg-sidebar-accent",
+                  preview.completedPaths?.includes(file.path) &&
+                    "border-primary/40 bg-primary/10 hover:bg-primary/15",
                 )}
               >
                 <span className="mt-0.5 shrink-0">
@@ -107,6 +114,12 @@ export const PreviewFiles = ({
                   <span className="block break-all font-medium">
                     {file.path}
                   </span>
+                  {preview.completedPaths?.includes(file.path) && (
+                    <span className="flex items-center gap-1 text-primary">
+                      <Check aria-hidden="true" className="size-4" />
+                      Completed
+                    </span>
+                  )}
                   <span className="mt-1 flex flex-wrap gap-x-3 text-muted-foreground">
                     <span>{formatFileStatus(file.status)}</span>
                     {file.binary ? (

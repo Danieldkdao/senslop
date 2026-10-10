@@ -7,7 +7,7 @@ export const formatPreviewSource = (kind: PreviewSourceKind) => {
     case "working-tree":
       return "Uncommitted changes";
     case "commit":
-      return "Commit changes";
+      return "Single commit";
     case "range":
       return "Commit range";
     case "branch":
@@ -88,3 +88,6 @@ export const formatReviewLineSide = (side: ReviewLineSide) => {
 
 export const formatReviewLine = (line: ReviewLine) =>
   `${formatReviewLineSide(line.side)} line ${line.lineNumber}`;
+
+export const formatFileReviewLabel = (path: string, completed: boolean) =>
+  completed ? `${path}: Completed` : path;

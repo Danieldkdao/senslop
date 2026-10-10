@@ -23,12 +23,52 @@ const state = vi.hoisted(() => ({
   preview: null as LivePreview | null,
   toastError: vi.fn(),
 }));
-vi.mock("../components/live-preview-provider", () => ({
-  useLivePreview: () => ({
-    preview: state.preview,
-    error: null,
-  }),
+vi.mock("../../workspace/components/workspace-toolbar", () => ({
+  WorkspaceToolbar: () => null,
 }));
+vi.mock("../components/live-preview-provider", async () => {
+  const React = await import("react");
+  return {
+    useLivePreview: () => {
+      const [, renderAgain] = React.useReducer((n: number) => n + 1, 0);
+      return {
+        preview: state.preview,
+        error: null,
+        refresh: async () => {},
+        changeReview: async (change: {
+          action: string;
+          note?: ReviewNote;
+          id?: string;
+          path?: string;
+          complete?: boolean;
+        }) => {
+          if (!state.preview) return;
+          const notes = state.preview.notes ?? [];
+          if (change.action === "add-note")
+            state.preview = {
+              ...state.preview,
+              notes: [...notes, change.note!],
+            };
+          if (change.action === "delete-note")
+            state.preview = {
+              ...state.preview,
+              notes: notes.filter((note) => note.id !== change.id),
+            };
+          if (change.action === "complete") {
+            const completed = new Set(state.preview.completedPaths ?? []);
+            if (change.complete) completed.add(change.path!);
+            else completed.delete(change.path!);
+            state.preview = {
+              ...state.preview,
+              completedPaths: [...completed],
+            };
+          }
+          renderAgain();
+        },
+      };
+    },
+  };
+});
 vi.mock("next/dynamic", () => ({
   default:
     () =>
@@ -145,7 +185,7 @@ test("arrow shortcuts leave text editing, modifiers and diff settings alone", as
   fireEvent.keyDown(input, { key: "ArrowRight", composed: true });
   host.remove();
   expect(screen.getByText("Diff for src/first.ts")).toBeTruthy();
-  await user.click(screen.getByRole("button", { name: "Diff settings" }));
+  await user.click(screen.getByRole("button", { name: "Settings" }));
   fireEvent.keyDown(document, { key: "ArrowRight" });
   expect(screen.getByText("Diff for src/first.ts")).toBeTruthy();
 });
@@ -248,7 +288,7 @@ test("dashboard layout surrounds its content with honest empty review panels", (
     screen.queryByRole("navigation", { name: "Main navigation" }),
   ).toBeNull();
   expect(screen.queryByRole("button", { name: "Get started" })).toBeNull();
-  expect(screen.getByRole("button", { name: "Appearance" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Settings" })).toBeTruthy();
 });
 
 test("desktop exposes two accessible sidebar resize handles", () => {
@@ -285,14 +325,12 @@ test("mobile hides sidebars and handles until a drawer is requested", async () =
   );
   await user.click(screen.getByRole("button", { name: "Open notes" }));
   const notes = await screen.findByRole("dialog", {
-    name: "Notes and appearance",
+    name: "Notes",
   });
   expect(
     within(notes).getByText("Select a file to start taking notes."),
   ).toBeTruthy();
-  expect(
-    within(notes).getByRole("button", { name: "Appearance" }),
-  ).toBeTruthy();
+  expect(within(notes).queryByRole("button", { name: "Settings" })).toBeNull();
   await user.click(within(notes).getByRole("button", { name: "Close" }));
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   expect(document.activeElement).toBe(
@@ -305,7 +343,7 @@ test("changing to desktop unmounts an open mobile drawer", async () => {
   const user = userEvent.setup();
   const view = render(<ReviewWorkspace>Setup steps</ReviewWorkspace>);
   await user.click(screen.getByRole("button", { name: "Open notes" }));
-  await screen.findByRole("dialog", { name: "Notes and appearance" });
+  await screen.findByRole("dialog", { name: "Notes" });
   state.mobile = false;
   view.rerender(<ReviewWorkspace>Setup steps</ReviewWorkspace>);
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
@@ -372,12 +410,16 @@ test("streamed files populate the sidebar, preserve selection and switch diff vi
   expect(
     view.container.querySelector("header img")?.getAttribute("src"),
   ).toContain("/react_ts.svg");
+  await user.click(screen.getByRole("button", { name: "Settings" }));
   await user.click(screen.getByRole("button", { name: "Unified" }));
+  await user.keyboard("{Escape}");
+  await user.click(screen.getByRole("button", { name: "Settings" }));
   expect(
     screen
       .getByRole("button", { name: "Unified" })
       .getAttribute("aria-pressed"),
   ).toBe("true");
+  await user.keyboard("{Escape}");
   expect(screen.getByText("Diff for second.tsx")).toBeTruthy();
   await user.click(screen.getByRole("button", { name: "Previous file" }));
   expect(screen.getByText("Diff for first.ts")).toBeTruthy();
@@ -389,7 +431,7 @@ test("the local workspace has appearance controls without account authentication
   expect(
     screen.queryByRole("button", { name: "Open account menu" }),
   ).toBeNull();
-  expect(screen.getByRole("button", { name: "Appearance" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Settings" })).toBeTruthy();
 });
 
 test("comments and standalone notes share local state across files and views, with no cross-review leakage", async () => {
@@ -442,7 +484,9 @@ test("comments and standalone notes share local state across files and views, wi
   );
   expect(within(notes).getByText("Inline feedback")).toBeTruthy();
   await user.click(screen.getByRole("button", { name: "Previous file" }));
+  await user.click(screen.getByRole("button", { name: "Settings" }));
   await user.click(screen.getByRole("button", { name: "Unified" }));
+  await user.keyboard("{Escape}");
   expect(
     within(screen.getByRole("main")).getByText("Inline feedback"),
   ).toBeTruthy();
@@ -453,13 +497,13 @@ test("comments and standalone notes share local state across files and views, wi
   view.rerender(<ReviewWorkspace>Setup</ReviewWorkspace>);
   await user.click(screen.getByRole("button", { name: "Open notes" }));
   expect(
-    within(
-      await screen.findByRole("dialog", { name: "Notes and appearance" }),
-    ).getByText("Standalone feedback"),
+    within(await screen.findByRole("dialog", { name: "Notes" })).getByText(
+      "Standalone feedback",
+    ),
   ).toBeTruthy();
   await user.keyboard("{Escape}");
   state.mobile = false;
-  state.preview = { ...state.preview, id: "review-two" };
+  state.preview = { ...state.preview, id: "review-two", notes: [] };
   view.rerender(<ReviewWorkspace>Setup</ReviewWorkspace>);
   expect(screen.queryByText("Standalone feedback")).toBeNull();
   screen.getByLabelText("Note").focus();
@@ -469,5 +513,45 @@ test("comments and standalone notes share local state across files and views, wi
   expect(await screen.findByText("Unsaved note")).toBeTruthy();
   view.unmount();
   render(<ReviewWorkspace>Setup</ReviewWorkspace>);
-  expect(screen.queryByText("Unsaved note")).toBeNull();
+  expect(screen.getByText("Unsaved note")).toBeTruthy();
+});
+
+test("d toggles persisted completion with header/sidebar indicators, without interfering with typing or dialogs", async () => {
+  setNavigationPreview();
+  const user = userEvent.setup();
+  render(<ReviewWorkspace>Setup</ReviewWorkspace>);
+  const canvas = screen.getByRole("main", { name: "Review canvas" });
+  const controls = screen.getByLabelText("Workspace controls");
+  expect(controls.classList.contains("max-w-[45%]")).toBe(true);
+  expect(controls.classList.contains("overflow-x-auto")).toBe(true);
+  fireEvent.keyDown(document, { key: "d" });
+  expect(state.preview?.completedPaths).toEqual(["src/first.ts"]);
+  expect(
+    within(canvas)
+      .getByRole("button", { name: "Mark incomplete" })
+      .getAttribute("aria-pressed"),
+  ).toBe("true");
+  expect(canvas.classList.contains("ring-primary/40")).toBe(true);
+  expect(
+    screen
+      .getByRole("button", { name: /src\/first.ts: Completed/ })
+      .classList.contains("bg-primary/10"),
+  ).toBe(true);
+  fireEvent.keyDown(document, { key: "d", repeat: true });
+  fireEvent.keyDown(document, { key: "d", ctrlKey: true });
+  fireEvent.keyDown(document, { key: "d", isComposing: true });
+  fireEvent.keyDown(screen.getByLabelText("Note"), { key: "d" });
+  expect(state.preview?.completedPaths).toEqual(["src/first.ts"]);
+  await user.click(screen.getByRole("button", { name: "Settings" }));
+  fireEvent.keyDown(document, { key: "d" });
+  expect(state.preview?.completedPaths).toEqual(["src/first.ts"]);
+  await user.keyboard("{Escape}");
+  fireEvent.keyDown(document, { key: "d" });
+  expect(state.preview?.completedPaths).toEqual([]);
+  expect(
+    within(canvas)
+      .getByRole("button", { name: "Mark complete" })
+      .getAttribute("aria-pressed"),
+  ).toBe("false");
+  expect(canvas.classList.contains("ring-primary/40")).toBe(false);
 });

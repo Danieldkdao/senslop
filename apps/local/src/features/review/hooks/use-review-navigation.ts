@@ -7,12 +7,14 @@ type ReviewNavigationOptions = {
   preview: LivePreview | null;
   selectedPath?: string;
   onSelect: (path: string) => void;
+  onToggleCompletion?: () => void;
 };
 
 export const useReviewNavigation = ({
   preview,
   selectedPath,
   onSelect,
+  onToggleCompletion,
 }: ReviewNavigationOptions) => {
   const [searchOpen, setSearchOpen] = useState(false);
   const navigateFile = useCallback(
@@ -66,13 +68,18 @@ export const useReviewNavigation = ({
           )
       )
         return;
+      if (event.key.toLowerCase() === "d" && onToggleCompletion) {
+        event.preventDefault();
+        if (!event.repeat) onToggleCompletion();
+        return;
+      }
       if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
       event.preventDefault();
       navigateFile(event.key === "ArrowLeft" ? -1 : 1);
     };
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [navigateFile, preview, searchOpen]);
+  }, [navigateFile, preview, searchOpen, onToggleCompletion]);
 
   return { searchOpen, setSearchOpen, navigateFile };
 };
