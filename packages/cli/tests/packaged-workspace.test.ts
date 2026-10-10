@@ -1,11 +1,14 @@
 import { afterEach, expect, test } from "vitest";
 import { execFile, spawn, type ChildProcess } from "node:child_process";
+import { randomUUID } from "node:crypto";
+import { createServer } from "node:http";
 import { once } from "node:events";
 import {
   mkdir,
   mkdtemp,
   readFile,
   readdir,
+  realpath,
   rm,
   writeFile,
 } from "node:fs/promises";
@@ -15,9 +18,17 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { setTimeout as sleep } from "node:timers/promises";
 
+import { LocalStore } from "@senslop/review-core/storage";
+import { applicationDataDirectory } from "../src/features/workspace/local-app";
+import { ProviderService } from "../../../apps/local/src/features/providers/lib/provider-service";
+import { osCredentials } from "../../../apps/local/src/services/credentials/os-credentials";
+
 const execute = promisify(execFile);
 const children = new Set<ChildProcess>();
 let scratch: string | undefined;
+const fixtureRepositories = new Set<string>();
+let fixtureConnection: string | undefined;
+let priorDefault: string | null | undefined;
 afterEach(async () => {
   for (const child of children) {
     if (child.exitCode === null && child.signalCode === null) {
@@ -27,6 +38,30 @@ afterEach(async () => {
     }
   }
   children.clear();
+  if (fixtureRepositories.size) {
+    const store = new LocalStore(
+      join(applicationDataDirectory(), "reviews.sqlite"),
+    );
+    try {
+      const service = new ProviderService(store, osCredentials);
+      if (
+        fixtureConnection &&
+        (await service.list()).connections.some(
+          (connection) => connection.id === fixtureConnection,
+        )
+      )
+        await service.delete(fixtureConnection);
+      if (priorDefault !== undefined) await service.setDefault(priorDefault);
+      for (const repository of fixtureRepositories)
+        for (const review of store.listReviews(repository))
+          store.deleteReview(repository, review.id);
+    } finally {
+      store.close();
+    }
+  }
+  fixtureRepositories.clear();
+  fixtureConnection = undefined;
+  priorDefault = undefined;
   if (scratch) await rm(scratch, { recursive: true, force: true });
 });
 
@@ -84,11 +119,20 @@ packageTest(
       { mode: 0o755 },
     );
     const packageDirectory = fileURLToPath(new URL("../", import.meta.url));
+    const runtimeCache = join(
+      packageDirectory,
+      "dist/local-app/apps/local/.next/server/route-cache/packaging-test",
+    );
+    await mkdir(runtimeCache, { recursive: true });
+    await writeFile(
+      join(runtimeCache, "cached.html"),
+      "disposable-runtime-cache",
+    );
     const packed = await execute(
       "npm",
       ["pack", "--json", "--pack-destination", scratch],
       { cwd: packageDirectory, maxBuffer: 8 * 1024 * 1024 },
-    );
+    ).finally(() => rm(runtimeCache, { recursive: true, force: true }));
     const archive = JSON.parse(packed.stdout)[0] as {
       filename: string;
       files: { path: string }[];
@@ -98,6 +142,12 @@ packageTest(
       true,
     );
     expect(paths.some((path) => path.includes(".next/static/"))).toBe(true);
+    expect(paths.some((path) => path.includes("/route-cache/"))).toBe(false);
+    expect(
+      paths.some((path) =>
+        /\.next\/node_modules\/@napi-rs\/keyring-[^/]+\/index\.js$/.test(path),
+      ),
+    ).toBe(true);
     expect(
       paths.some((path) =>
         /(^|\/)\.env|better-auth|node-mailjet|senslop\/database/.test(path),
@@ -121,6 +171,7 @@ packageTest(
     const cli = join(installation, "node_modules/@senslop/cli/dist/index.js");
     const repo = join(scratch, "repo");
     await execute("git", ["init", "--initial-branch=main", repo]);
+    fixtureRepositories.add(await realpath(repo));
     const git = (args: string[]) => execute("git", args, { cwd: repo });
     await git(["config", "user.name", "Senslop fixture"]);
     await git(["config", "user.email", "fixture@example.invalid"]);
@@ -151,6 +202,8 @@ packageTest(
       expect(page.status).toBe(200);
       const html = await page.text();
       expect(html).toContain("Review canvas");
+      expect(html).toContain("New review");
+      expect(html).toContain("Use the New review button");
       expect(html).not.toContain("Open account menu");
       const response = await fetch(`${origin}/api/preview`, { headers });
       const snapshot = (await response.json()) as {
@@ -209,13 +262,173 @@ packageTest(
     const { child, url } = await start(cli, repo, ["connect"]);
     const session = await fetch(url, { redirect: "manual" });
     const cookie = session.headers.get("set-cookie")!.split(";")[0]!;
+    const origin = new URL(url).origin;
+    const headers = { Cookie: cookie };
+    const post = async (path: string, body: unknown) => {
+      const response = await fetch(`${origin}${path}`, {
+        method: "POST",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const result = await response.json();
+      expect(response.ok, result?.message).toBe(true);
+      return result;
+    };
     expect(
       await (
         await fetch(`${new URL(url).origin}/api/preview`, {
           headers: { Cookie: cookie },
         })
       ).json(),
-    ).toBeNull();
+    ).toHaveProperty("files");
+    const browserSources = [
+      { kind: "working-tree" },
+      { kind: "commit", commit: "feature" },
+      { kind: "range", base: "main", head: "feature" },
+      { kind: "branch", branch: "feature", base: "HEAD" },
+    ];
+    let browserReview;
+    for (const source of browserSources)
+      browserReview = await post("/api/workspace", {
+        action: "inspect",
+        source,
+      });
+    expect(browserReview).toHaveProperty("hash");
+    const browserId = browserReview.id;
+    const note = {
+      id: randomUUID(),
+      previewId: browserId,
+      path: "sample.ts",
+      body: "Persistent packaged feedback",
+      line: {
+        side: "additions",
+        lineNumber: 1,
+        code: "export const sample = 2;",
+      },
+    };
+    await post("/api/workspace", {
+      action: "change",
+      id: browserId,
+      change: { action: "add-note", note },
+    });
+    await post("/api/workspace", {
+      action: "change",
+      id: browserId,
+      change: { action: "complete", path: "sample.ts", complete: true },
+    });
+    await post("/api/workspace", {
+      action: "change",
+      id: browserId,
+      change: { action: "rename", title: "Packaged saved review" },
+    });
+    const searched = await (
+      await fetch(`${origin}/api/workspace?history=1&search=Packaged%20saved`, {
+        headers,
+      })
+    ).json();
+    expect(searched.repository).toBeNull();
+    expect(searched.history.map((review: { id: string }) => review.id)).toEqual(
+      [browserId],
+    );
+    expect(
+      (
+        await (
+          await fetch(
+            `${origin}/api/workspace?history=1&search=missing-title`,
+            { headers },
+          )
+        ).json()
+      ).history,
+    ).toEqual([]);
+    const refreshed = await (
+      await fetch(`${origin}/api/preview`, { headers })
+    ).json();
+    expect(refreshed.notes).toEqual([note]);
+    expect(refreshed.completedPaths).toEqual(["sample.ts"]);
+    await writeFile(join(repo, "sample.ts"), "export const sample = 4;\n");
+    const metadata = await (
+      await fetch(`${origin}/api/workspace`, { headers })
+    ).json();
+    expect(metadata.repository.fingerprint).not.toBe(refreshed.fingerprint);
+    const hostile = await fetch(`${origin}/api/workspace`, {
+      method: "POST",
+      headers: {
+        ...headers,
+        Origin: "https://evil.example",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        action: "inspect",
+        source: { kind: "working-tree" },
+      }),
+    });
+    expect(hostile.status).toBe(403);
+    const escaped = await fetch(`${origin}/api/workspace`, {
+      method: "POST",
+      headers: { ...headers, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "inspect",
+        source: { kind: "working-tree", cwd: "/another/repository" },
+      }),
+    });
+    expect(escaped.ok).toBe(false);
+    const providerKey = randomUUID();
+    let probeRequests = 0;
+    const provider = createServer((request, response) => {
+      probeRequests++;
+      expect(request.method).toBe("GET");
+      expect(request.url).toBe("/api/tags");
+      expect(request.headers.authorization).toBe(`Bearer ${providerKey}`);
+      response.setHeader("Content-Type", "application/json");
+      response.end(JSON.stringify({ models: [{ name: "packaged-model" }] }));
+    });
+    provider.listen(0, "127.0.0.1");
+    await once(provider, "listening");
+    const address = provider.address();
+    if (!address || typeof address === "string")
+      throw new Error("Missing provider port");
+    let connectionId: string | undefined;
+    try {
+      const saved = await post("/api/providers", {
+        action: "save",
+        connection: {
+          provider: "ollama",
+          name: "Packaged credential test",
+          baseURL: `http://127.0.0.1:${address.port}`,
+          model: "",
+          contextWindow: 8192,
+          apiKey: providerKey,
+        },
+      });
+      connectionId = saved.connection.id;
+      fixtureConnection = connectionId;
+      expect(saved.connection.configured).toBe(true);
+      expect(JSON.stringify(saved)).not.toContain(providerKey);
+      expect(probeRequests).toBe(0);
+      priorDefault = (
+        await (await fetch(`${origin}/api/providers`, { headers })).json()
+      ).defaultId;
+      await post("/api/providers", { action: "default", id: connectionId });
+      const tested = await post("/api/providers", {
+        action: "test",
+        id: connectionId,
+      });
+      expect(tested.models).toEqual(["packaged-model"]);
+      const models = await post("/api/providers", {
+        action: "models",
+        id: connectionId,
+      });
+      expect(models.models).toEqual(["packaged-model"]);
+      expect(probeRequests).toBe(2);
+      const settingsPage = await fetch(`${origin}/settings/providers`, {
+        headers,
+      });
+      expect(settingsPage.status).toBe(404);
+      const workspacePage = await fetch(origin, { headers });
+      expect(await workspacePage.text()).toContain("Settings");
+    } finally {
+      await new Promise<void>((resolve) => provider.close(() => resolve()));
+    }
     const ended = once(child, "exit");
     child.kill("SIGTERM");
     await ended;
@@ -223,6 +436,75 @@ packageTest(
     expect(
       (await readFile(join(scratch, "browser-open.txt"), "utf8")).trim(),
     ).toBe(url);
+    const restarted = await start(cli, repo, ["connect"]);
+    const restartOrigin = new URL(restarted.url).origin;
+    const restartSession = await fetch(restarted.url, { redirect: "manual" });
+    const restartHeaders = {
+      Cookie: restartSession.headers.get("set-cookie")!.split(";")[0]!,
+    };
+    const restored = await (
+      await fetch(`${restartOrigin}/api/preview`, { headers: restartHeaders })
+    ).json();
+    expect(restored).toMatchObject({
+      id: browserId,
+      title: "Packaged saved review",
+      notes: [note],
+      completedPaths: ["sample.ts"],
+    });
+    const configurations = await (
+      await fetch(`${restartOrigin}/api/providers`, { headers: restartHeaders })
+    ).json();
+    expect(configurations.defaultId).toBe(connectionId);
+    expect(
+      configurations.connections.find(
+        (item: { id: string }) => item.id === connectionId,
+      ),
+    ).toMatchObject({ configured: true, contextWindow: 8192 });
+    expect(JSON.stringify(configurations)).not.toContain(providerKey);
+    const remove = await fetch(`${restartOrigin}/api/providers`, {
+      method: "POST",
+      headers: { ...restartHeaders, "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "delete", id: connectionId }),
+    });
+    expect(remove.ok).toBe(true);
+    expect(await remove.json()).toHaveProperty("warning", null);
+    const secondRepo = join(scratch, "second-repo");
+    await execute("git", ["clone", "--no-hardlinks", repo, secondRepo]);
+    const separate = await start(cli, secondRepo, ["connect"]);
+    const separateSession = await fetch(separate.url, { redirect: "manual" });
+    const separateHeaders = {
+      Cookie: separateSession.headers.get("set-cookie")!.split(";")[0]!,
+    };
+    const separateMetadata = await (
+      await fetch(`${new URL(separate.url).origin}/api/workspace`, {
+        headers: separateHeaders,
+      })
+    ).json();
+    expect(separateMetadata.history).toEqual([]);
+    const separateEnded = once(separate.child, "exit");
+    separate.child.kill("SIGTERM");
+    await separateEnded;
+    children.delete(separate.child);
+    const history = await (
+      await fetch(`${restartOrigin}/api/workspace`, { headers: restartHeaders })
+    ).json();
+    for (const review of history.history) {
+      const deleted = await fetch(`${restartOrigin}/api/workspace`, {
+        method: "POST",
+        headers: { ...restartHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "delete", id: review.id }),
+      });
+      expect(deleted.ok).toBe(true);
+    }
+    expect(
+      await (
+        await fetch(`${restartOrigin}/api/preview`, { headers: restartHeaders })
+      ).json(),
+    ).toBeNull();
+    const restartEnded = once(restarted.child, "exit");
+    restarted.child.kill("SIGTERM");
+    await restartEnded;
+    children.delete(restarted.child);
     // Graceful sessions are removed; the SIGKILL fixture is cleaned with its enclosing scratch folder.
     const entries = await readdir(scratch);
     expect(
