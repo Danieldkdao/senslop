@@ -2,10 +2,11 @@ import type {
   PreviewExcludedSchema,
   PreviewFileSchema,
   PreviewSourceSchema,
+  SavedReviewSchema,
 } from "@senslop/contracts";
 import type { ReviewLineSide } from "./schemas";
 
-export type LivePreview = {
+export type LivePreview = Partial<SavedReviewSchema> & {
   id: string;
   source: PreviewSourceSchema;
   expectedFiles: number;

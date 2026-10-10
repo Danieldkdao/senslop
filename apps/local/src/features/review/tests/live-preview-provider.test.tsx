@@ -103,3 +103,23 @@ test("invalid local responses never replace a usable snapshot", async () => {
   expect(screen.getByText(/Empty/)).toBeTruthy();
   expect(screen.queryByText("bad.ts")).toBeNull();
 });
+test("local storage recovery messages reach the browser", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi
+      .fn()
+      .mockResolvedValue({
+        ok: false,
+        status: 503,
+        json: async () => ({
+          message: "Upgrade the CLI to open this local data.",
+        }),
+      }),
+  );
+  render(
+    <LivePreviewProvider>
+      <Consumer />
+    </LivePreviewProvider>,
+  );
+  expect(await screen.findByText(/Upgrade the CLI/)).toBeTruthy();
+});
