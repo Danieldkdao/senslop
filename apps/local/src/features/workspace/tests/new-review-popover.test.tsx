@@ -44,6 +44,7 @@ test("the extracted form validates range endpoints, retains a failed selection, 
   );
   expect(inspect).not.toHaveBeenCalled();
   await user.type(screen.getByLabelText("Ancestor commit"), "HEAD~1");
+  await user.tab();
   await user.click(screen.getByRole("button", { name: "Inspect changes" }));
   await waitFor(() =>
     expect(inspect).toHaveBeenCalledWith({
@@ -86,4 +87,61 @@ test("repository loading disables inspection and displays the appropriate state"
       .getByRole("button", { name: "Inspect changes" })
       .hasAttribute("disabled"),
   ).toBe(true);
+});
+
+test("revision combobox searches commit subjects, selects IDs, and accepts custom Git revisions", async () => {
+  const inspect = vi.fn().mockResolvedValue(false);
+  const user = userEvent.setup();
+  render(
+    <NewReviewPopover
+      metadata={{
+        ...metadata,
+        repository: {
+          ...metadata.repository!,
+          commits: [
+            {
+              id: "c".repeat(40),
+              subject: "Fix model discovery",
+              date: "2026-10-10T00:00:00Z",
+            },
+          ],
+        },
+      }}
+      preview={null}
+      loading={false}
+      busy={false}
+      error={null}
+      onInspect={inspect}
+    />,
+  );
+  await user.click(screen.getByRole("button", { name: "New review" }));
+  await user.click(screen.getByLabelText("Changes to inspect"));
+  await user.click(
+    await screen.findByRole("option", { name: "Single commit" }),
+  );
+  const input = screen.getByRole("combobox", {
+    name: "Commit: latest is HEAD",
+  });
+  await user.clear(input);
+  await user.type(input, "model discovery");
+  await user.click(
+    await screen.findByRole("option", { name: /Fix model discovery/ }),
+  );
+  await user.click(screen.getByRole("button", { name: "Inspect changes" }));
+  await waitFor(() =>
+    expect(inspect).toHaveBeenLastCalledWith({
+      kind: "commit",
+      commit: "c".repeat(40),
+    }),
+  );
+  await user.clear(input);
+  await user.type(input, "HEAD~2");
+  await user.tab();
+  await user.click(screen.getByRole("button", { name: "Inspect changes" }));
+  await waitFor(() =>
+    expect(inspect).toHaveBeenLastCalledWith({
+      kind: "commit",
+      commit: "HEAD~2",
+    }),
+  );
 });

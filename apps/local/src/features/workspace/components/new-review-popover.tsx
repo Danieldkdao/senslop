@@ -11,7 +11,14 @@ import {
 import { Plus } from "lucide-react";
 import { TooltipWrapper } from "@/components/ui/tooltip-wrapper";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import {
+  Combobox,
+  ComboboxInput,
+  ComboboxContent,
+  ComboboxList,
+  ComboboxItem,
+  ComboboxEmpty,
+} from "@/components/ui/combobox";
 import {
   Select,
   SelectContent,
@@ -79,7 +86,6 @@ export const NewReviewPopover = ({
 }: NewReviewPopoverProps) => {
   const [open, setOpen] = useState(false);
   const {
-    register,
     handleSubmit,
     control,
     formState: { errors },
@@ -94,6 +100,17 @@ export const NewReviewPopover = ({
     },
   });
   const kind = useWatch({ control, name: "kind" });
+  const revisions = [
+    "HEAD",
+    ...(metadata?.repository?.commits.map((commit) => commit.id) ?? []),
+  ];
+  const formatRevisionLabel = (revision: string) => {
+    if (revision === "HEAD") return "Latest commit: local HEAD";
+    const commit = metadata?.repository?.commits.find(
+      (commit) => commit.id === revision,
+    );
+    return commit ? `${commit.id.slice(0, 8)}: ${commit.subject}` : revision;
+  };
   const inspect = handleSubmit(async (values) => {
     let source: SourceSelectionSchema = { kind: "working-tree" };
     switch (values.kind) {
@@ -119,14 +136,56 @@ export const NewReviewPopover = ({
   const revisionInput = (name: "commit" | "head" | "base", label: string) => (
     <div className="min-w-0 flex-1 flex flex-col gap-1">
       <label htmlFor={`git-${name}`}>{label}</label>
-      <Input
-        id={`git-${name}`}
-        list="local-commits"
-        placeholder={name === "base" ? "HEAD" : undefined}
-        className="text-base"
-        aria-invalid={!!errors[name]}
-        aria-describedby={errors[name] ? `git-${name}-error` : undefined}
-        {...register(name)}
+      <Controller
+        control={control}
+        name={name}
+        render={({ field }) => (
+          <Combobox
+            items={revisions}
+            value={field.value || null}
+            inputValue={field.value}
+            onValueChange={(value) => {
+              if (value !== null) field.onChange(value);
+            }}
+            onInputValueChange={(value, details) => {
+              if (details.reason === "input-change") field.onChange(value);
+            }}
+            filter={(revision, query) =>
+              `${revision} ${formatRevisionLabel(revision)}`
+                .toLowerCase()
+                .includes(query.toLowerCase())
+            }
+          >
+            <ComboboxInput
+              id={`git-${name}`}
+              name={field.name}
+              ref={field.ref}
+              onBlur={field.onBlur}
+              placeholder={name === "base" ? "HEAD" : undefined}
+              className="w-full text-base **:data-[slot=input-group-control]:text-base"
+              aria-invalid={!!errors[name]}
+              aria-describedby={errors[name] ? `git-${name}-error` : undefined}
+            />
+            <ComboboxContent className="text-base">
+              <ComboboxEmpty className="p-3 text-base">
+                No matching commits. You can use the revision you typed.
+              </ComboboxEmpty>
+              <ComboboxList>
+                {(revision: string) => (
+                  <ComboboxItem
+                    key={revision}
+                    value={revision}
+                    className="text-base"
+                  >
+                    <span className="truncate">
+                      {formatRevisionLabel(revision)}
+                    </span>
+                  </ComboboxItem>
+                )}
+              </ComboboxList>
+            </ComboboxContent>
+          </Combobox>
+        )}
       />
       {errors[name] && (
         <p id={`git-${name}-error`} role="alert" className="text-destructive">
@@ -202,16 +261,6 @@ export const NewReviewPopover = ({
                 )}
               />
             </div>
-            <datalist id="local-commits" className="font-sans">
-              <option value="HEAD" className="font-sans">
-                Latest commit: local HEAD
-              </option>
-              {metadata?.repository?.commits.map((commit) => (
-                <option key={commit.id} value={commit.id} className="font-sans">
-                  {commit.id.slice(0, 8)}: {commit.subject}
-                </option>
-              ))}
-            </datalist>
             {kind === "commit" &&
               revisionInput("commit", "Commit: latest is HEAD")}
             {kind === "range" && (
