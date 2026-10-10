@@ -54,25 +54,12 @@ export const previewUploadSchema = z.object({
 });
 export type PreviewUploadSchema = z.infer<typeof previewUploadSchema>;
 
-export const previewEventSchema = z.discriminatedUnion("type", [
-  z.object({
-    type: z.literal("preview.start"),
-    previewId: z.uuid(),
-    source: previewSourceSchema,
-    fileCount: z.number().int().positive().max(2000),
-    excluded: z.array(previewExcludedSchema).max(2000),
-  }),
-  z.object({
-    type: z.literal("preview.file"),
-    previewId: z.uuid(),
-    index: z.number().int().nonnegative(),
-    file: previewFileSchema,
-  }),
-  z.object({ type: z.literal("preview.complete"), previewId: z.uuid() }),
-  z.object({
-    type: z.literal("preview.failed"),
-    previewId: z.uuid(),
-    message: z.string().max(512),
-  }),
-]);
-export type PreviewEventSchema = z.infer<typeof previewEventSchema>;
+export const localPreviewSchema = previewUploadSchema.extend({
+  id: z.uuid(),
+  repositoryFingerprint: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/)
+    .nullable()
+    .optional(),
+});
+export type LocalPreviewSchema = z.infer<typeof localPreviewSchema>;

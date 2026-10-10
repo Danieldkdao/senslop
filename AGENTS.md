@@ -1,3 +1,7 @@
+## Branch naming
+
+- Use conventional branch names such as `feat/local-ai-review`, with a short description of the work. Use ordinary feature names in branches and progress updates instead of Devpost chunk or slice labels.
+
 <!-- BEGIN:nextjs-agent-rules -->
 
 # This is NOT the Next.js you know
@@ -35,10 +39,12 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 - If you have ran the application to test it, make sure to stop the application before returning your response. Do not leave the application running in the background while you are responding. Note that this only applies if YOU ran the application to test it, if the user ran it and you just used that instance, you do not need to stop it.
 - Before creating a helper or implementing reusable logic, search the codebase with `rg` for equivalent behavior, not just the proposed function name. Inspect relevant helper, utility, formatter, hook, and service files in shared folders and feature folders, plus their callers, to find implementations that already solve the same problem. Reuse or extend a suitable implementation before adding another. Create new logic only after this search finds no suitable implementation; keep feature-specific helpers in their feature folder and genuinely shared helpers in the appropriate shared folder.
 - For table enums, export them from a `shared.ts` file in the root of the `db` folder. For each enum, you should export three things.
+
 1. An array of all the enum values, for example `export const projectStatuses = ['draft', 'published', 'archived'] as const;`
 2. A type that represents the enum values, for example `export type ProjectStatus = (typeof ProjectStatusValues)[number];`
 3. The enum itself using PgEnum, for example `export const projectStatusEnum = pgEnum('project_statuses', projectStatuses);`
-Note the naming conventions for each.
+   Note the naming conventions for each.
+
 - Generally, put all types in the `lib/types.ts` file, unless they are specific to a feature or resource, in which case they should be defined in that feature's folder or belong to a certain component. For example, types related to projects should be defined in `features/projects/types.ts`. On the other hand, types related to components like prop types and types related to those should live in the same file as the component. Similarly, put all shared constants in the `lib/constants.ts` file, unless they are specific to a feature or resource, in which case they should be defined in that feature's folder. Same component rule for constants and functions as the types. For example, constants related to projects should be defined in `features/projects/constants.ts`. Do not create your own files in the lib folder that have both types, constants, and functions related to some resource or functionality because that gets messy and hard to maintain. Keep the lib folder for shared types, constants, and functions that are used across the application.
 - For all tables, make sure to export all relations defined along with two types. A select type and an insert type. For example, for the `projects` table, you should export `ProjectSelectData` and `ProjectInsertData` from the `ProjectTable.$inferSelect` and `ProjectTable.$inferInsert` respectively.
 - Export each Zod schema's inferred type from the same file, using the schema variable's name in PascalCase with the `Schema` suffix. For example, `createProjectSchema` exports `type CreateProjectSchema = z.infer<typeof createProjectSchema>`.
@@ -54,6 +60,8 @@ Read the exact versioned docs at https://docs.expo.dev/versions/v57.0.0/ before 
 ## Project conventions
 
 - Use exactly one blank line between imports and main code, between functions, and between unrelated definitions. Keep each Zod schema directly adjacent to its inferred type. Never add multiple blank lines; run formatting on changed authored files.
+- Use shadcn/ui Select for application selection controls, following the installed Base UI composition API.
+- Use a Lucide dot icon or structured spacing to separate UI metadata; avoid the literal middle-dot character in authored UI text.
 - Add shadcn components through the installed CLI using the existing `components.json`. Preserve generated primitives and the owner's theme. Follow the selected Base UI composition API in application callers.
 - Generate Better Auth tables with the web package's `auth` command into one schema file. Never manually edit or split that generated schema or duplicate its table mapping in auth configuration. Generated names and formatting are exempt from authored table and function conventions; application tables remain convention-aligned.
 - Use `getCurrentUser` from `src/lib/auth/helpers.ts` for server-side user/session reads. Pass request headers in Proxy and API routes; server components use its request-context default. Browser components use Better Auth client hooks, and standalone services validate through the authenticated web API.

@@ -90,7 +90,7 @@ export const UserMenu = () => {
           align="end"
           className="w-64 max-w-(--available-width)"
         >
-          <div className="space-y-1 px-3 py-3">
+          <div className="flex flex-col gap-1 px-3 py-3">
             <p className="wrap-break-word text-base font-medium">{user.name}</p>
             <p className="break-all text-base text-muted-foreground">
               {user.email}

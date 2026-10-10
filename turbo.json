@@ -47,9 +47,18 @@
     "@senslop/database#build": {
       "outputs": []
     },
+    "@senslop/ui#build": {
+      "outputs": []
+    },
     "@senslop/review-core#build": {
       "dependsOn": ["^build"],
       "outputs": []
+    },
+    "@senslop/cli#typecheck": {
+      "dependsOn": ["@senslop/contracts#build"]
+    },
+    "@senslop/cli#lint": {
+      "dependsOn": ["@senslop/contracts#build"]
     }
   },
   "globalDependencies": [".env"]

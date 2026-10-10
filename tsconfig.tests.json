@@ -3,6 +3,20 @@
   "compilerOptions": {
     "noEmit": true,
     "paths": {
+      "@/components/ui/*": ["./packages/ui/src/components/ui/*"],
+      "@/hooks/use-mobile": ["./packages/ui/src/hooks/use-mobile.ts"],
+      "@/lib/utils": ["./packages/ui/src/lib/utils.ts"],
+      "@/lib/constants": ["./packages/ui/src/lib/constants.ts"],
+      "@/lib/types": ["./packages/ui/src/lib/types.ts"],
+      "@/lib/formatters": ["./packages/ui/src/lib/formatters.ts"],
+      "@/components/providers": ["./packages/ui/src/components/providers.tsx"],
+      "@/components/buddy": ["./packages/ui/src/components/buddy.tsx"],
+      "@/components/theme-toggle": [
+        "./packages/ui/src/components/theme-toggle.tsx"
+      ],
+      "@/components/file-icon": ["./packages/ui/src/components/file-icon.tsx"],
+      "@/features/review/*": ["./apps/local/src/features/review/*"],
+      "@/features/workspace/*": ["./apps/local/src/features/workspace/*"],
       "@/*": ["./apps/web/src/*"]
     },
     "jsx": "react-jsx",

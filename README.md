@@ -1,70 +1,67 @@
 # Senslop
 
-A website and local CLI for guided review of AI-generated code. The approved scope and contracts live in `devpost/scope.md`, `devpost/prd.md`, and `devpost/spec.md`; progress is in `devpost/checklist.md`.
+A local browser workspace for reviewing Git changes. `apps/local` is bundled into `packages/cli`; the CLI starts and stops its protected loopback server. Local review needs no cloud account. The hosted `apps/web` keeps its authentication and placeholder dashboard.
 
-## Current build checkpoint
+The current requirements and historical decisions live in [devpost/prd.md](devpost/prd.md) and [devpost/spec.md](devpost/spec.md). The October 9 additions authorize browser inspection, durable local reviews, and provider configuration. AI generation remains future work.
 
-Slice one is implemented locally on `build/slice-1-foundations`: monorepo, styled Next.js landing/account/setup pages, Better Auth device login, CLI basics, frozen Git inspection, Drizzle auth/presence schema and a separate WebSocket service. Review uploads, AI preparation, annotations and sync are later slices. The landing page is a name-only placeholder; the dashboard uses an empty review shell with real connection status.
+## Run locally
 
-The owner reviewed and approved this foundation branch for grouped commits and GitHub publication. Automated database/auth/presence checks have passed. Remaining live email delivery and completed provider OAuth checks are recorded separately; later review/upload slices remain unimplemented.
-
-## What to configure now
-
-Requires Node.js 24+ and pnpm 12.8.1. Install dependencies with `pnpm install`.
-
-1. Create or choose a Neon project in the Neon console. Create an isolated **development branch**. Confirm your plan's branch/compute limits and costs in the console; no free-tier assumption is made. Do not use a production branch.
-2. Keep local configuration in the root `.env`; `.env.example` lists the required keys. Package commands load that file through `dotenv-cli` without custom launcher scripts.
-3. Open `.env` in your editor. From that development branch's Connect dialog, paste the **pooled** connection string into `DATABASE_URL` and the **direct/unpooled** string into `DATABASE_URL_UNPOOLED`. Keep `SENSLOP_DATABASE_BRANCH=development`, the localhost website URL and connection URL. Never paste credentials into chat or commit this file.
-4. Run `pnpm --filter @senslop/web auth` to regenerate the single auth schema, `pnpm db:generate` to generate migration SQL, and `pnpm db:migrate` to apply it. The migration runner refuses pooled URLs and requires the development label. That label is a guard, not proof of branch identity: confirm the URLs belong to the development branch in the console.
-5. Run `pnpm dev` to start web, the connection service and a CLI build watcher. Regenerate schemas and migrations after changing auth plugins. Trigger.dev is added with the review-preparation slice; it is not a fake worker in this checkpoint.
-6. Open http://localhost:3000/signup, create an account (password minimum 12 characters), verify the emailed code, and sign in. Build the CLI with `pnpm --filter @senslop/cli build` if needed. In the root of this repository run:
+Requires Node.js 24+, Git, and pnpm 12.8.1 for development.
 
 ```sh
-node packages/cli/dist/index.js login --url http://localhost:3000
+pnpm install
+pnpm exec turbo run build --filter=@senslop/cli
 node packages/cli/dist/index.js connect
 ```
 
-Login opens the approval page in your default browser and prints its URL and code as a fallback. Sign in, enter the code from your own terminal into the blank field, check it, and explicitly approve. Keep `connect` running in that terminal; use a second terminal for other commands. The website setup checklist changes automatically when presence arrives. Ctrl+C disconnects without signing out. `logout` revokes the credential and removes its private local file.
-
-No npm account is needed for local use. The current web environment schema requires Mailjet, Google, GitHub, OpenRouter and Trigger.dev configuration. Configure `MAILJET_API_KEY`, `MAILJET_API_SECRET`, and a Mailjet-verified `SENDER_EMAIL` in the root `.env`; restart running dev servers after adding environment variables. Model IDs and bounded operator budgets are checked before real AI requests in slice two. Railway and public npm release are later distribution checkpoints.
-
-## Run the web app on its own
-
-Run `pnpm dev:web` or `pnpm --filter @senslop/web dev`; both use Next.js tooling and the root `.env`. The connection service is started separately with `pnpm --filter @senslop/connection-server dev` or together with `pnpm dev`.
-
-Google OAuth needs `http://localhost:3000/api/auth/callback/google` registered as an authorized redirect URI. GitHub OAuth needs `http://localhost:3000/api/auth/callback/github` as its callback URL. Production uses the website's HTTPS origin. Sign-in preserves the CLI device approval destination and still requires explicit code approval. Email/password accounts must verify their email with a six-digit code before signing in. OTP verification returns to the saved CLI destination; Google and GitHub continue through their provider flows. The landing page is public; dashboard/device pages require a verified session. Signed-in visitors to login/signup return to their saved destination or the dashboard.
-
-## Inspect Git inputs locally
+Open the printed browser URL, select changes, and click **Inspect changes**. Keep that terminal open; Ctrl+C shuts down its server. You can also inspect directly:
 
 ```sh
-node packages/cli/dist/index.js --help
+node packages/cli/dist/index.js inspect --working-tree
 node packages/cli/dist/index.js inspect --commit HEAD
 node packages/cli/dist/index.js inspect --range BASE..HEAD
-node packages/cli/dist/index.js inspect --working-tree
+node packages/cli/dist/index.js inspect --branch feature --base main
 ```
 
-To inspect a different repository, change to its directory and invoke Senslop using the absolute path to this repository's `packages/cli/dist/index.js`. `inspect --json` prints exact selected contents; avoid sharing that output indiscriminately. Inspection does not upload code or invoke AI. Five text files must each have ten added+deleted lines for eligibility; smaller files stay included. Binary files are metadata only. Credential-like paths, symlinks and unsupported entries are explicitly reported. This path policy does not guarantee arbitrary source text contains no secrets. Limits reject excessive input rather than truncating it.
+Run from the repository you want to review. Browser operations stay bound to that repository. Latest commit means local HEAD; inspection never fetches, pulls, checks out, or modifies Git state. The terminal menu remains available in an interactive terminal. `--json` produces pure JSON without a dashboard.
 
-## Review the boundaries
+Use **Saved reviews** to reopen, rename, or explicitly delete frozen snapshots and their notes/progress. Browser refreshes and CLI restarts preserve them. The dashboard indicates when the current repository differs from the inspection state. Repository histories stay separate.
 
-- `apps/web`: Next.js browser UI and authenticated HTTP APIs; OpenRouter and task integration arrive later.
-- `apps/connection-server`: Express/ws presence, one-use tickets and heartbeat revalidation. Run one replica initially.
-- `packages/cli`: Local command parsing, credential storage, Git snapshots and bundled executable.
-- `packages/contracts`: Shared source/protocol/presence/eligibility definitions.
-- `packages/database`: Server-side pg/Drizzle auth/presence schema and migrations. Never imported into CLI or client UI.
-- `packages/review-core`: Reserved for deterministic ordering, coverage, sync matching and prompt logic in later slices.
+Open **Settings → Providers** to securely save API keys and select a default for future reviews. Only the twelve requested providers are supported. Remote keys save on Enter or when you leave the key form; shared password inputs provide reveal/hide controls. Local providers offer endpoint presets and context options. Model selection belongs to a future review flow. Saving automatically checks the saved connection and shows feedback; failed checks keep securely saved settings and remain visible across settings refreshes until another check replaces them or settings close. Retry uses the saved credential. API keys are stored in the OS credential store; other configuration is SQLite. A remote compatible endpoint is identified as remote. Saving settings does not invoke inference or send source.
 
-Internal packages currently export TypeScript source consumed by Next.js or bundled by tsup. Their build checks type safety; application builds produce runnable outputs. The CLI `bin` maps the installed `senslop` command to JavaScript with a Node shebang; it bundles workspace code. Building is not publishing. CLI packaging will be proven with an archive installed outside this monorepo before public release.
+See [packages/cli/README.md](packages/cli/README.md) for local storage locations, credential-store requirements, development mode, packaging, and troubleshooting.
 
-## Verify
+## Development and verification
 
 ```sh
+pnpm dev:local
 pnpm typecheck
 pnpm lint
 pnpm test
 pnpm build
 ```
 
-Tests run in Vitest with matchers, spies and fake timers. They use real Git repositories, the installed Better Auth plugins with a deterministic memory adapter, and real local sockets with injected identity/ticket fixtures. The default suite uses isolated fixtures. Opt-in Neon integration (`RUN_LIVE_TESTS=1` with the root `.env` loaded) additionally verifies persisted device approval, account isolation, one-use ticket consumption and logout revocation using disposable accounts. `RUN_LIVE_HTTP_TESTS=1` enables the actual Next/Express transport test when both apps are running; it verifies account-isolated presence, ticket replay rejection, disconnect/reconnect and immediate logout socket revocation. Actual browser appearance and completed provider OAuth remain hands-on checks. No credentials are logged.
+`dev:local` runs the local dashboard through the CLI with Next.js refresh and owned shutdown. The default behavioral suite uses isolated Git, persistence, provider, and transport fixtures. No dedicated schema tests are used.
 
-Environment variables are validated with T3 Env Core in each server or CLI env module. Standard commands load the root `.env`, and Turbo forwards all declared service variables. Builds validate configuration too. Application code imports the shared `db` directly. Migrations retain a separate direct connection and close it when finished.
+Opt-in verification exercises real local servers and disposable OS credentials:
+
+```sh
+RUN_LOCAL_DEV_TESTS=1 pnpm exec vitest run packages/cli/src/features/workspace/tests/local-app.test.ts
+RUN_OS_CREDENTIAL_TESTS=1 pnpm exec vitest run apps/local/src/services/credentials/tests/os-credentials.test.ts
+SENSLOP_PACK_TEST=1 pnpm exec vitest run packages/cli/tests/packaged-workspace.test.ts
+```
+
+The package check installs an npm archive outside the monorepo, exercises inspection and restart persistence, and verifies installed native credential storage. It removes its disposable review records and credentials afterward. Building and packing do not publish anything.
+
+## Architecture and hosted development
+
+- `apps/local`: protected local Next.js review UI, Git/history APIs, and provider settings. No hosted authentication or Postgres dependency.
+- `packages/cli`: Git commands, one-terminal lifecycle, disposable snapshot handoff, and standalone packaging.
+- `packages/review-core`: shared Git capture and local SQLite review storage.
+- `packages/contracts`: validated snapshot, note/progress, and nonsecret provider contracts.
+- `packages/ui`: generated UI primitives and the owner's theme.
+- `apps/web`, `apps/connection-server`, `packages/database`: existing hosted account/device/presence services. They do not receive local source, snapshots, notes, history, or provider keys.
+
+Hosted development still uses the root `.env` with typed T3 Env Core validation. `.env.example` documents its service variables. Choose an isolated Neon development branch before applying migrations; pooled and direct URLs have separate roles. `pnpm --filter @senslop/web auth` regenerates the single auth schema; `pnpm db:generate` and `pnpm db:migrate` manage hosted migrations. `pnpm dev:web` runs the website; `pnpm dev` also starts the presence service and CLI watcher. Mailjet and OAuth configuration are needed for their corresponding hosted account flows. None are prerequisites for local review.
+
+The local workspace uses one file header: **New review** opens Git selection, **Saved reviews** searches local history, and **Settings** combines appearance, editor, and provider configuration. Remote API keys save on blur or Enter; models can be chosen later. Nested settings contents expand/collapse. Below the Editor controls, a live sample diff previews every display setting, including word/character highlighting, unchanged context, and wrapping. Press `d` to toggle completion for the selected file. Completed files show checkmarks and themed outlines. Enter submits notes and comments, while Shift+Enter adds a newline.

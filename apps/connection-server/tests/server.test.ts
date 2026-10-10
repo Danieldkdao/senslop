@@ -163,6 +163,14 @@ test("HTTP routes enforce authorization before bounded JSON validation", async (
   try {
     expect(await (await fetch(`${baseURL}/health`)).text()).toBe("ok");
     expect((await fetch(`${baseURL}/missing`)).status).toBe(404);
+    expect(
+      (
+        await fetch(`${baseURL}/preview`, {
+          method: "POST",
+          body: "source must stay local",
+        })
+      ).status,
+    ).toBe(404);
     expect((await disconnect("x".repeat(2048), false)).status).toBe(401);
     expect((await disconnect("{")).status).toBe(400);
     expect((await disconnect(JSON.stringify({ sessionId: "" }))).status).toBe(

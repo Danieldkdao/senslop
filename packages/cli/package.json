@@ -4,11 +4,12 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "tsup",
+    "build": "tsup && node scripts/bundle-local-app.mjs",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src tests",
     "test": "vitest run --config ../../vitest.config.mts packages/cli",
-    "dev": "tsup --watch",
+    "dev": "tsup --watch --onSuccess \"node scripts/bundle-local-app.mjs\"",
+    "dev:local": "tsx src/index.ts connect --dev",
     "pack:check": "npm pack --dry-run"
   },
   "devDependencies": {
@@ -17,7 +18,9 @@
     "@types/ws": "^8",
     "tsup": "8.5.1",
     "tsx": "4.21.0",
-    "typescript": "5.9.3"
+    "typescript": "5.9.3",
+    "@senslop/local": "workspace:*",
+    "@senslop/review-core": "workspace:*"
   },
   "bin": {
     "senslop": "./dist/index.js"
@@ -36,6 +39,7 @@
     "open": "^11.0.4",
     "simple-git": "4.0.2",
     "ws": "8.22.0",
-    "zod": "4.6.5"
+    "zod": "4.6.5",
+    "@napi-rs/keyring": "2.1.0"
   }
 }

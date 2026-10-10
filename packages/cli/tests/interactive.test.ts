@@ -13,24 +13,23 @@ const prompts = vi.hoisted(() => ({
 }));
 const commands = vi.hoisted(() => ({
   login: vi.fn(),
-  connect: vi.fn(),
+  runWorkspace: vi.fn(),
   logout: vi.fn(),
   collectSnapshot: vi.fn(),
-  sendInspection: vi.fn(),
+  inspectRepository: vi.fn(),
 }));
 
 vi.mock("@clack/prompts", () => prompts);
+vi.mock("@senslop/review-core/git", () => ({
+  inspectRepository: commands.inspectRepository,
+}));
 vi.mock("../src/features/auth/login.js", () => ({ login: commands.login }));
 vi.mock("../src/features/auth/logout.js", () => ({ logout: commands.logout }));
-vi.mock("../src/features/connection/connect.js", () => ({
-  connect: commands.connect,
+vi.mock("../src/features/workspace/run-workspace.js", () => ({
+  runWorkspace: commands.runWorkspace,
 }));
 vi.mock("../src/features/git/snapshot.js", () => ({
   collectSnapshot: commands.collectSnapshot,
-}));
-
-vi.mock("../src/features/inspection/send-inspection.js", () => ({
-  sendInspection: commands.sendInspection,
 }));
 
 import { main } from "../src/index.js";
@@ -56,7 +55,10 @@ beforeEach(() => {
   });
   process.exitCode = 0;
   commands.collectSnapshot.mockResolvedValue(snapshot);
-  commands.sendInspection.mockResolvedValue({ fileCount: 1 });
+  commands.inspectRepository.mockResolvedValue({
+    snapshot,
+    fingerprint: "f".repeat(64),
+  });
 });
 
 afterEach(() => {
@@ -73,7 +75,28 @@ test("an interactive invocation offers a command menu", async () => {
   expect(prompts.select).toHaveBeenCalledWith(
     expect.objectContaining({ message: "What would you like to do?" }),
   );
-  expect(commands.connect).toHaveBeenCalledOnce();
+  expect(commands.runWorkspace).toHaveBeenCalledOnce();
+});
+
+test.each(["connect", "inspect"])(
+  "--dev routes %s to the development workspace",
+  async (command) => {
+    await main([
+      command,
+      "--dev",
+      ...(command === "inspect" ? ["--working-tree"] : []),
+    ]);
+    expect(commands.runWorkspace).toHaveBeenCalledWith(
+      expect.objectContaining({ development: true }),
+    );
+  },
+);
+
+test("--dev cannot be combined with one-shot JSON output", async () => {
+  await expect(
+    main(["inspect", "--working-tree", "--json", "--dev"]),
+  ).rejects.toThrow(/--dev.*--json/);
+  expect(commands.runWorkspace).not.toHaveBeenCalled();
 });
 
 test("login asks for a website origin when not supplied", async () => {
@@ -83,14 +106,17 @@ test("login asks for a website origin when not supplied", async () => {
   expect(prompts.text).toHaveBeenCalledOnce();
 });
 
-test("inspection prompts for a source and streams it to the dashboard", async () => {
+test("inspection prompts for a source and opens an account-free local workspace", async () => {
   prompts.select.mockResolvedValueOnce("working-tree");
   await main(["inspect"]);
-  expect(commands.collectSnapshot).toHaveBeenCalledWith({
-    cwd: process.cwd(),
-    source: { kind: "working-tree" },
+  expect(commands.inspectRepository).toHaveBeenCalledWith(process.cwd(), {
+    kind: "working-tree",
   });
-  expect(commands.sendInspection).toHaveBeenCalledWith(snapshot);
+  expect(commands.runWorkspace).toHaveBeenCalledWith(
+    expect.objectContaining({
+      snapshot: { ...snapshot, repositoryFingerprint: "f".repeat(64) },
+    }),
+  );
   expect(process.exitCode).toBe(0);
 });
 
@@ -111,7 +137,7 @@ test("JSON inspection never prompts or writes decorative output", async () => {
   expect(prompts.intro).not.toHaveBeenCalled();
   expect(prompts.spinner).not.toHaveBeenCalled();
   expect(prompts.select).not.toHaveBeenCalled();
-  expect(commands.sendInspection).not.toHaveBeenCalled();
+  expect(commands.runWorkspace).not.toHaveBeenCalled();
 });
 
 test("JSON inspection requires an explicit source even in a terminal", async () => {
@@ -137,16 +163,16 @@ test.each([
   prompts.select.mockResolvedValueOnce(kind);
   prompts.text.mockResolvedValueOnce(revision);
   await main(["inspect"]);
-  expect(commands.collectSnapshot).toHaveBeenCalledWith({
-    cwd: process.cwd(),
+  expect(commands.inspectRepository).toHaveBeenCalledWith(
+    process.cwd(),
     source,
-  });
+  );
 });
 
 test("a failed inspection clears its progress indicator", async () => {
   const progress = { start: vi.fn(), stop: vi.fn(), error: vi.fn() };
   prompts.spinner.mockReturnValueOnce(progress);
-  commands.collectSnapshot.mockRejectedValueOnce(
+  commands.inspectRepository.mockRejectedValueOnce(
     new Error("not a Git repository"),
   );
   await expect(main(["inspect", "--working-tree"])).rejects.toThrow(
