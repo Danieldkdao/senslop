@@ -3,7 +3,7 @@
 import { ReviewNoteForm } from "./review-note-form";
 
 type InlineCommentProps = {
-  onSubmit: (body: string) => void;
+  onSubmit: (body: string) => void | Promise<void>;
   onCancel: () => void;
 };
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useId } from "react";
+import { useId, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { cn } from "@/lib/utils";
@@ -11,17 +11,22 @@ import { FieldError } from "@/components/ui/field";
 import { reviewNoteSchema, type ReviewNoteSchema } from "../schemas";
 
 type ReviewNoteFormProps = {
-  onSubmit: (note: ReviewNoteSchema) => void;
+  onSubmit: (note: ReviewNoteSchema) => void | Promise<void>;
   isComment?: boolean;
-  onCancel?: () => void;
+  initialBody?: string;
+  submitLabel?: string;
+  onCancel?: () => void | Promise<void>;
 };
 
 export const ReviewNoteForm = ({
   onSubmit,
   isComment = false,
+  initialBody = "",
+  submitLabel,
   onCancel,
 }: ReviewNoteFormProps) => {
   const id = useId();
+  const [saveError, setSaveError] = useState<string | null>(null);
   const {
     register,
     handleSubmit,
@@ -30,12 +35,17 @@ export const ReviewNoteForm = ({
   } = useForm<ReviewNoteSchema>({
     resolver: zodResolver(reviewNoteSchema),
     defaultValues: {
-      body: "",
+      body: initialBody,
     },
   });
-  const submit = (note: ReviewNoteSchema) => {
-    onSubmit(note);
-    reset();
+  const submit = async (note: ReviewNoteSchema) => {
+    setSaveError(null);
+    try {
+      await onSubmit(note);
+      reset();
+    } catch (error) {
+      setSaveError((error as Error).message);
+    }
   };
   return (
     <form noValidate onSubmit={handleSubmit(submit)} className="space-y-3">
@@ -56,6 +66,16 @@ export const ReviewNoteForm = ({
           aria-invalid={!!errors.body}
           aria-describedby={errors.body ? `${id}-body-error` : undefined}
           {...register("body")}
+          onKeyDown={(event) => {
+            if (
+              event.key === "Enter" &&
+              !event.shiftKey &&
+              !event.nativeEvent.isComposing
+            ) {
+              event.preventDefault();
+              if (!isSubmitting) event.currentTarget.form?.requestSubmit();
+            }
+          }}
         />
         <FieldError
           id={`${id}-body-error`}
@@ -63,6 +83,11 @@ export const ReviewNoteForm = ({
           errors={[errors.body]}
         />
       </div>
+      {saveError && (
+        <p role="alert" className="text-base text-destructive">
+          {saveError} Your draft is retained; submit again to retry.
+        </p>
+      )}
       <div className="flex items-center gap-2">
         <Button
           type="submit"
@@ -70,7 +95,7 @@ export const ReviewNoteForm = ({
           disabled={isSubmitting}
         >
           <LoadingSwap isLoading={isSubmitting}>
-            {isComment ? "Comment" : "Add note"}
+            {submitLabel ?? (isComment ? "Comment" : "Add note")}
           </LoadingSwap>
         </Button>
         {onCancel && (
