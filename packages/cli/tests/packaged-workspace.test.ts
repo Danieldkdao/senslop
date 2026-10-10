@@ -374,7 +374,39 @@ packageTest(
     expect(escaped.ok).toBe(false);
     const providerKey = randomUUID();
     let probeRequests = 0;
+    let inferenceRequests = 0;
     const provider = createServer((request, response) => {
+      if (request.method === "POST" && request.url === "/api/chat") {
+        inferenceRequests++;
+        expect(request.headers.authorization).toBe(`Bearer ${providerKey}`);
+        let body = "";
+        request.on("data", (chunk: Buffer) => {
+          body += chunk.toString();
+        });
+        request.on("end", () => {
+          const input = JSON.parse(body);
+          expect(input.model).toBe("packaged-model");
+          expect(input.stream).toBe(false);
+          expect(input.options.num_ctx).toBe(8192);
+          expect(input.options.num_predict).toBe(2048);
+          response.setHeader("Content-Type", "application/json");
+          response.end(
+            JSON.stringify({
+              model: "packaged-model",
+              created_at: new Date().toISOString(),
+              message: {
+                role: "assistant",
+                content: "Packaged AI fixture response",
+              },
+              done: true,
+              done_reason: "stop",
+              prompt_eval_count: 1,
+              eval_count: 1,
+            }),
+          );
+        });
+        return;
+      }
       probeRequests++;
       expect(request.method).toBe("GET");
       expect(request.url).toBe("/api/tags");
@@ -420,6 +452,29 @@ packageTest(
       });
       expect(models.models).toEqual(["packaged-model"]);
       expect(probeRequests).toBe(2);
+      expect((await fetch(`${origin}/ai-test`)).status).toBe(403);
+      const aiPage = await fetch(`${origin}/ai-test`, { headers });
+      expect(aiPage.status).toBe(200);
+      expect(await aiPage.text()).toContain("AI test");
+      const catalog = await fetch(
+        `${origin}/api/providers/models?connectionId=${connectionId}`,
+        { headers },
+      );
+      expect(catalog.status).toBe(200);
+      expect(await catalog.json()).toMatchObject({
+        models: [
+          { id: "packaged-model", name: "Packaged Model", available: true },
+        ],
+        source: "live",
+      });
+      const reply = await post("/api/ai-test", {
+        connectionId,
+        modelId: "packaged-model",
+        messages: [{ role: "user", content: "Test packaged inference" }],
+      });
+      expect(reply).toEqual({ text: "Packaged AI fixture response" });
+      expect(inferenceRequests).toBe(1);
+
       const settingsPage = await fetch(`${origin}/settings/providers`, {
         headers,
       });
