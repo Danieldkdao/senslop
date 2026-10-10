@@ -1,31 +1,51 @@
-import { readFile, stat } from "node:fs/promises";
-import { serverEnv } from "@/data/env/server";
-import { localPreviewSchema } from "@senslop/contracts";
+import {
+  getWorkspace,
+  localWorkspaceError,
+  protectLocalRoute,
+} from "@/features/workspace/lib/server-workspace";
 
 export const GET = async (request: Request) => {
-  const path = serverEnv.SENSLOP_LOCAL_SNAPSHOT;
-  if (!path)
+  if (!protectLocalRoute(request))
     return Response.json(
-      { message: "Local snapshot path unavailable." },
-      { status: 503 },
+      { message: "Invalid local session." },
+      { status: 403 },
     );
   try {
-    const info = await stat(path);
-    const etag = `W/"${info.mtimeMs}-${info.size}"`;
+    const preview = await getWorkspace().current();
+    const etag = `W/"${preview?.id ?? "empty"}-${preview?.revision ?? 0}"`;
     const headers = { "Cache-Control": "no-store", ETag: etag };
     if (request.headers.get("if-none-match") === etag)
       return new Response(null, { status: 304, headers });
-    const preview = localPreviewSchema.parse(
-      JSON.parse(await readFile(path, "utf8")),
-    );
     return Response.json(preview, { headers });
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT")
-      return Response.json(null, { headers: { "Cache-Control": "no-store" } });
     return Response.json(
       {
-        message:
-          "Local snapshot could not be read. Inspect your changes again.",
+        message: localWorkspaceError(
+          error,
+          "Saved review could not be loaded. Check that your local application-data directory is writable, then retry. Your saved data has been retained.",
+        ),
+      },
+      { status: 503 },
+    );
+  }
+};
+
+export const POST = async (request: Request) => {
+  if (!protectLocalRoute(request))
+    return Response.json(
+      { message: "Invalid local session." },
+      { status: 403 },
+    );
+  try {
+    await getWorkspace().current();
+    return Response.json({ saved: true });
+  } catch (error) {
+    return Response.json(
+      {
+        message: localWorkspaceError(
+          error,
+          "Inspection could not be saved. Check application-data permissions and retry.",
+        ),
       },
       { status: 503 },
     );

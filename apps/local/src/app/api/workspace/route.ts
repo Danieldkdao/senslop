@@ -1,0 +1,115 @@
+import { z } from "zod";
+import { reviewChangeSchema } from "@senslop/contracts";
+import {
+  getWorkspace,
+  localWorkspaceError,
+  protectLocalRoute,
+  readLocalBody,
+} from "@/features/workspace/lib/server-workspace";
+
+const workspaceActionSchema = z.discriminatedUnion("action", [
+  z.object({ action: z.literal("inspect"), source: z.unknown() }).strict(),
+  z.object({ action: z.literal("open"), id: z.uuid() }).strict(),
+  z.object({ action: z.literal("delete"), id: z.uuid() }).strict(),
+  z
+    .object({
+      action: z.literal("change"),
+      id: z.uuid(),
+      change: reviewChangeSchema,
+    })
+    .strict(),
+]);
+export type WorkspaceActionSchema = z.infer<typeof workspaceActionSchema>;
+
+export const GET = async (request: Request) => {
+  if (!protectLocalRoute(request))
+    return Response.json(
+      { message: "Invalid local session." },
+      { status: 403 },
+    );
+  try {
+    const workspace = getWorkspace();
+    const root = await workspace.root();
+    const repository = new URL(request.url).searchParams.has("history")
+      ? null
+      : await workspace.repository().catch(() => null);
+    return Response.json(
+      {
+        repository,
+        root,
+        history: workspace.store.listReviews(
+          root,
+          new URL(request.url).searchParams.get("search") ?? "",
+        ),
+      },
+      { headers: { "Cache-Control": "no-store" } },
+    );
+  } catch (error) {
+    return Response.json(
+      {
+        message: localWorkspaceError(
+          error,
+          "Local history is unavailable. Check application-data directory permissions and retry.",
+        ),
+      },
+      { status: 503 },
+    );
+  }
+};
+
+export const POST = async (request: Request) => {
+  if (!protectLocalRoute(request))
+    return Response.json(
+      { message: "Invalid local session." },
+      { status: 403 },
+    );
+  let action: WorkspaceActionSchema;
+  try {
+    action = workspaceActionSchema.parse(await readLocalBody(request));
+  } catch {
+    return Response.json(
+      {
+        message:
+          "Invalid workspace request. Check the selection or note and retry.",
+      },
+      { status: 400 },
+    );
+  }
+  try {
+    const workspace = getWorkspace();
+    const root = await workspace.root();
+    switch (action.action) {
+      case "inspect":
+        return Response.json(await workspace.inspect(action.source));
+      case "open":
+        return Response.json(workspace.store.openReview(root, action.id));
+      case "change":
+        return Response.json(
+          workspace.store.changeReview(root, action.id, action.change),
+        );
+      case "delete":
+        workspace.store.deleteReview(root, action.id);
+        return Response.json(null);
+    }
+  } catch (error) {
+    const message =
+      error instanceof z.ZodError
+        ? "Check the Git selection and retry."
+        : (error as Error).message;
+    const safe =
+      /Git|snapshot|ancestor|selection|changed|revision|not found|does not belong|line does not match|repository root/.test(
+        message,
+      );
+    return Response.json(
+      {
+        message: localWorkspaceError(
+          error,
+          safe
+            ? message
+            : "Local save failed. Your saved reviews are retained. Check application-data directory permissions and retry.",
+        ),
+      },
+      { status: 422 },
+    );
+  }
+};
