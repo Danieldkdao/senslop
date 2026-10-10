@@ -60,6 +60,8 @@ Read the exact versioned docs at https://docs.expo.dev/versions/v57.0.0/ before 
 ## Project conventions
 
 - Use exactly one blank line between imports and main code, between functions, and between unrelated definitions. Keep each Zod schema directly adjacent to its inferred type. Never add multiple blank lines; run formatting on changed authored files.
+- Use shadcn/ui Select for application selection controls, following the installed Base UI composition API.
+- Use a Lucide dot icon or structured spacing to separate UI metadata; avoid the literal middle-dot character in authored UI text.
 - Add shadcn components through the installed CLI using the existing `components.json`. Preserve generated primitives and the owner's theme. Follow the selected Base UI composition API in application callers.
 - Generate Better Auth tables with the web package's `auth` command into one schema file. Never manually edit or split that generated schema or duplicate its table mapping in auth configuration. Generated names and formatting are exempt from authored table and function conventions; application tables remain convention-aligned.
 - Use `getCurrentUser` from `src/lib/auth/helpers.ts` for server-side user/session reads. Pass request headers in Proxy and API routes; server components use its request-context default. Browser components use Better Auth client hooks, and standalone services validate through the authenticated web API.

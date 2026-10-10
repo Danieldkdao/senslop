@@ -5,8 +5,57 @@ status: approved
 
 # Senslop — Product Requirements
 
+## Persistent connection feedback and editor preview — October 9, 2026
+
+The owner authorized these two refinements to the existing settings flow. Earlier sections remain historical context.
+
+- Automatic connection-check feedback remains visible after saving and refreshing the configured provider. A failed check keeps its destructive message and retry action until another check replaces it or settings close; it does not disappear on a settings refresh. Secure storage remains independent of provider validity.
+- Below the Editor review controls, show a live sample diff using the workspace renderer and theme. The sample includes word and single-character edits, additions, deletions, unchanged context, and long lines. Split/unified view, every indicator and inline-highlight style, backgrounds, wrapping, and line numbers update immediately. Sample code creates no reviews, notes, or repository changes.
+
+## Automatic connection feedback and workspace refinements — October 9, 2026
+
+The owner authorized these follow-up changes. Earlier decisions below remain historical context; this section supersedes their manual connection-testing and navigation details.
+
+- Remote API keys save on Enter or leaving the key form, then automatically check the saved connection. Local API-key blur and configuration submission likewise save and check. Reveal/hide focus stays within the key field and never submits. Secure-storage failures retain the draft and skip the network request. Successful storage clears the draft even if the metadata check fails, keeps the configured connection, and shows recoverable feedback. Retry uses the stored credential without re-entering it. Checks send no source or inference request; public or unsupported metadata endpoints explicitly cannot verify a key.
+- Shared tooltips replace native `title` hints through the Base UI composition API. Shared Providers owns the tooltip provider; disabled controls retain their hint through a neutral focusable wrapper. Toasts render above modal overlays. Authored `space-y-1` layouts use column flex with `gap-1`.
+- Workspace controls scroll within a constrained width so filenames keep space on narrow screens. Completed files have a header checkmark, an outlined/tinted sidebar row, and a highlighted workspace header/border using the owner's existing semantic primary color. The `d` shortcut toggles existing durable completion and ignores text editing, overlays, modifiers, IME input, and held-key repetition.
+- Settings entries with children expand/collapse through one full-row trigger; leaf entries navigate directly. Search reveals nested matches, and local configuration remains inside the same breadcrumb dialog so automatic feedback is visible. Provider descriptions and metadata errors no longer suggest entering a model ID.
+
 A website and installable CLI for developers who want to understand AI-generated code through an enjoyable, guided review.
 Source: `scope.md > Who It's For` and `scope.md > The Unique Kernel`.
+
+## Provider inputs and history follow-up — October 9, 2026
+
+This owner-authorized follow-up supersedes the model-selection interface described below. Model choice belongs to a future review flow.
+
+- Use the shared PasswordInput for both inline and local-provider API keys. Reveal/hide controls do not trigger autosave; leaving the inline key form or pressing Enter saves securely.
+- Remove model entry, selection, and discovery controls from provider settings. Preserve existing stored model values for compatibility; new connections save an empty model. Connection tests remain metadata-only and send no repository source.
+- Use TanStack Query for saved-review fetching with the existing Pacer debounce. Keep query configuration in the feature hook, cancel superseded requests, refetch after mutations and reopening, and support offline access to the local server.
+- Extract the new-review popover with its validation and form state into its own workspace component. Keep repository refresh and workspace actions in the toolbar.
+
+## Local workspace and settings refinement — October 9, 2026
+
+This later owner instruction supersedes the earlier provider-form and toolbar design while preserving the historical requirements below. Local review still uses no cloud authentication or hosted storage.
+
+- Keep one center file header. Put review history, new review, repository refresh, navigation, completion, search, and settings in its icon-button row. Repository/branch selection and frozen-snapshot details belong in the new-review popover; use styled shadcn Select controls.
+- Saved reviews use a Command dialog. Search review names in repository-scoped SQLite with a 250 ms TanStack React Pacer debounce and cancel superseded requests. Each result retains snapshot/progress details, inline rename, icon actions, and explicit deletion confirmation.
+- Settings use one searchable dialog with side navigation, ordered Appearance, Editor, then Providers. Reusable section definitions and a screen stack support nested configuration with breadcrumbs inside the same dialog. Remove the separate provider screen and sidebar appearance menu.
+- Remote providers require only inline API-key entry, saved on blur or Enter with safe retry feedback. Local providers open their endpoint/context/key/optional-model form inside settings. No connection-name input; existing stored names remain compatible. Model selection is optional and may happen later. The provider list and OS credential-store policy stay unchanged.
+- Enter submits notes/comments; Shift+Enter adds a newline. IME composition remains intact, and failed saves retain the draft.
+- Retain Node's built-in SQLite driver for this pass: the stable Drizzle 0.45.x used in this repository lacks its official node-sqlite driver, currently documented for the v1 release candidate. Avoid a prerelease ORM or another native database dependency in the clean-install CLI.
+
+## Browser inspection, local history, and provider settings — October 9, 2026
+
+The owner explicitly authorized these three features. This revision supersedes the October 8 deferrals of browser selection, durable local reviews, and provider configuration. Earlier sections remain historical context. The hosted dashboard and account authentication remain separate; local review is account-free.
+
+- Select uncommitted changes, local HEAD or another single commit, an ancestor-to-descendant endpoint range, or a branch compared to HEAD or an optional base entirely in the browser. Git reads stay restricted to the repository opened by the CLI. Never fetch, pull, check out, or mutate Git.
+- Share the existing bounded Git collector between CLI and browser. Each inspection saves an immutable snapshot with a UUID and content hash. Show the repository, branch, and when its present state differs from the snapshot. Small selections remain inspectable.
+- Save review snapshots, notes with original file/line/code references, selected file, and completion progress in per-user local SQLite. History is separated by canonical repository root. Reopen, rename, and explicitly delete saved reviews with associated data. Refresh, process restart, and normal shutdown preserve reviews; session transport files remain disposable.
+- Provider connections support only OpenRouter, ChatGPT using the OpenAI API, Google, Anthropic, Grok, llama.cpp, LM Studio, Ollama, Vercel AI Gateway, Mistral, Deepseek, and OpenCode Zen. Support names, editable endpoints where applicable, model IDs, optional context windows for local servers, keys when required, and a default connection. Show endpoint locality based on the URL rather than provider branding.
+- SQLite stores only nonsecret provider configuration. API keys live exclusively in macOS Keychain, Windows Credential Manager, or Linux Secret Service through a credential-store abstraction. Failure never falls back to a plaintext file. Browser responses contain configured state only, and keys are never returned after submission.
+- User-triggered connection tests and model discovery may call only the chosen endpoint with no repository source. Use documented model-list APIs, timeouts, bounded responses, no credential-bearing URL parameters, and no redirects. Unsupported discovery allows manual model entry and does not claim verified credentials.
+- ProviderIcon uses the installed @lobehub/icons registry, supports registry names and each available variant's typed props, and handles unavailable variants explicitly. Settings follow the owner's supplied Zed references and the existing theme.
+- This pass adds configuration only. AI generation, grouping, findings, execution, hosted inference, subscriptions, and billing remain deferred. No local review or credential data goes to hosted Postgres or Senslop cloud services.
 
 ## Architecture revision — October 8, 2026
 

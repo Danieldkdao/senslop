@@ -40,3 +40,63 @@ Architectural recommendation: managed review should be an explicit opt-in mode w
 ## Suggested provider-independent contract
 
 Keep capture, source storage, and Git reconstruction local. Normalize provider output into groups, evidence references, findings, review status, model provenance, and analyzed revision identifiers. Offer local-only review records first, with optional metadata sync and clear treatment of free-text notes. Support local user-owned CLI, direct BYOK, and managed ZDR review through separate adapters. True offline inference is another adapter and requires a locally hosted model, rather than a Claude or ChatGPT subscription.
+
+## October 9 implementation research
+
+The October 9 authorization in the PRD/spec supersedes the earlier exploratory boundary for browser inspection, durable local reviews, and provider settings. Source execution, AI generation, hosted inference, and subscription adapters remain deferred.
+
+Installed versions checked: Node.js 24.14.0, Next.js 16.3.8, React 19.2.8, Turborepo 2.11.7, React Hook Form 7.89.0, Zod 4.6.5, `@napi-rs/keyring` 2.1.0, and `@lobehub/icons` 5.23.0. Read Next's bundled route-handler, standalone output, and external-package guides; Turbo's bundled README and task-running guide; and installed icon declarations. These take precedence over assumptions from older versions.
+
+- [Node SQLite](https://nodejs.org/docs/latest-v24.x/api/sqlite.html): built-in `DatabaseSync` provides local SQLite without a separately compiled database dependency. SQLite remains experimental in Node 24. Transactions, versioned initialization, private directories, and secure deletion handle durable local review records.
+- [Keyring native abstraction](https://github.com/Brooooooklyn/keyring-node): native platform credentials, asynchronous entries, prebuilt optional binaries, and explicit persistent Linux Secret Service selection. No fallback to memory or plaintext is accepted. Runtime verification discovered that asynchronous secrets are returned as byte arrays; normalize before UTF-8 decoding.
+- [Next standalone output](https://nextjs.org/docs/app/api-reference/config/next-config-js/output), [external packages](https://nextjs.org/docs/app/api-reference/config/next-config-js/serverExternalPackages): native keyring remains external. Next 16.3 creates hashed aliases under `.next/node_modules`; packaging must preserve those aliases, flatten npm-incompatible symlinks, and remove disposable route caches before copying a clean bundle.
+- [Git revisions](https://git-scm.com/docs/gitrevisions), [Git log](https://git-scm.com/docs/git-log), [Git diff](https://git-scm.com/docs/git-diff): selectors use local references and log data. Existing exclusion, ancestor validation, and capture limits are shared with the terminal collector. No fetch or checkout is required.
+- [React Hook Form](https://react-hook-form.com/docs/useform), [useWatch](https://react-hook-form.com/docs/usewatch): validated application forms and watched conditional fields with accessible errors. Server responses preserve drafts when persistence fails.
+- [LobeHub skills documentation](https://icons.lobehub.com/skills.md), [icon repository](https://github.com/lobehub/lobe-icons): registry exports differ in supported variants. `ProviderIcon` derives props from each component rather than assuming Color/Combine/Text/Avatar exist for every icon. The installed registry has no dedicated llama.cpp icon, so that provider uses Meta's icon. Callers can select every exported icon by its registry name, supported variant, and component props.
+
+Provider metadata endpoints were checked against their official documentation:
+
+- [OpenAI models](https://platform.openai.com/docs/api-reference/models/list): bearer-authenticated `/v1/models`; label explains the ChatGPT/OpenAI API-key distinction.
+- [OpenRouter models](https://openrouter.ai/docs/api/api-reference/models/get-models), [key information](https://openrouter.ai/docs/api/api-reference/api-keys/get-current-key): public model catalog, authenticated `/key` for explicit connection tests.
+- [Google models](https://ai.google.dev/api/models): `/v1beta/models` and `x-goog-api-key`, avoiding keys in URLs.
+- [Anthropic models](https://docs.anthropic.com/en/api/models-list): `/v1/models`, `x-api-key`, and required API-version header.
+- [xAI models](https://docs.x.ai/developers/rest-api-reference/inference/models): compatible model metadata with bearer authorization.
+- [llama.cpp server](https://github.com/ggml-org/llama.cpp/tree/master/tools/server): compatible `/v1/models`; optional key and saved context-window settings.
+- [LM Studio compatible API](https://lmstudio.ai/docs/developer/openai-compat/models): `/v1/models`, localhost preset, optional authentication.
+- [Ollama model list](https://docs.ollama.com/api/tags): native `/api/tags`; optional key for configured servers and context-window settings.
+- [Vercel model catalog](https://vercel.com/docs/ai-gateway/models-and-providers): compatible `/v1/models`; a public catalog response alone does not prove key validity.
+- [Mistral models](https://docs.mistral.ai/api/endpoint/models): authenticated compatible model list.
+- [DeepSeek models](https://api-docs.deepseek.com/api/list-models/): authenticated `/models` metadata.
+- [OpenCode Zen](https://opencode.ai/docs/zen/): named API-key connections using Zen model IDs and base URL; catalog reachability is distinguished from credential verification, with manual IDs when unsupported.
+
+Implementation inference: metadata-only probes satisfy connection discovery without transmitting source or performing generation. Redirects are refused so credentials cannot silently follow another endpoint; failures never echo provider response bodies or credentials. Remote compatible endpoints require HTTPS. Tests exercise native and compatible metadata formats, rejection, unavailability, bounded responses, and public-catalog limitations.
+
+## Workspace refinement research — October 9, 2026
+
+- Rechecked installed Next.js 16.3.8 route handlers and Turborepo 2.11.7 running-tasks guidance before implementation. Reused installed generated Base UI Select, Popover, Command, and Dialog primitives; no generated UI changes in this pass.
+- [shadcn Base UI Select](https://ui.shadcn.com/docs/components/base/select), [Command](https://ui.shadcn.com/docs/components/base/command), and [Popover](https://ui.shadcn.com/docs/components/base/popover): controlled selection uses Base UI value callbacks and render composition. Command uses `shouldFilter={false}` for database search results.
+- [TanStack React Pacer debounce](https://tanstack.com/pacer/latest/docs/framework/react/examples/useDebouncer) and installed 0.24.1 `useDebouncedValue` declaration/source: the hook returns a value/debouncer tuple. Delay queries by 250 ms; abort superseded fetches and ignore stale responses.
+- [Drizzle SQLite documentation](https://orm.drizzle.team/docs/sqlite/get-started-sqlite): the official `node:sqlite` integration currently installs `drizzle-orm@rc`. Registry stable is 0.45.4; hosted database package uses 0.45.3. Retain the dependency-free Node 24 driver under the owner's optional-ORM allowance. Existing transactional schema version upgrades and repository isolation remain intact.
+- [React Hook Form handleSubmit](https://react-hook-form.com/docs/useform/handlesubmit) and [register](https://react-hook-form.com/docs/useform/register): preserve RHF validation for inline key saves and keyboard note submission. Blank key fields keep saved credentials; failures retain transient drafts.
+
+## Provider inputs and query refactor research — October 9, 2026
+
+- Read installed Next.js 16.3.8 `client-side-data-fetching/tanstack-query.md` and `use-client.md`, plus Turborepo 2.11.7 task guidance. The local layout provides an isolated, stable QueryClient; hosted providers remain unchanged.
+- Installed TanStack Query 5.104.1 and checked its source/types against [useQuery](https://tanstack.com/query/latest/docs/framework/react/reference/functions/useQuery), [query cancellation](https://github.com/TanStack/query/blob/main/docs/framework/react/guides/query-cancellation.md), and [SSR isolation](https://tanstack.com/query/latest/docs/framework/react/guides/ssr). Consume the fetch AbortSignal, disable automatic retries, invalidate after mutations, and use `networkMode: "always"` for loopback access without internet connectivity. History metadata uses transient memory only.
+- Reused the existing shared PasswordInput and the hosted authentication form's controlled [React Hook Form](https://github.com/react-hook-form/documentation/blob/master/src/content/docs/useform/register.mdx) composition. Keep reveal/hide focus inside the inline form so it does not prematurely save a draft. Do not add password-strength checking to API keys.
+- Model-selection UI is removed under the latest owner instruction; persisted configuration remains backward compatible. Connection probes keep their existing metadata-only protocol.
+
+## Automatic connection feedback and shared UI — October 9, 2026
+
+Read the installed Next.js 16.3.8 `use-client` guide and Turbo 2.11.7 docs README/running-tasks before this pass. Verified the installed Base UI 1.8.0 TooltipTrigger types/source and ToastViewport behavior against current official documentation (the live site now documents 1.9.0).
+
+- [Base UI composition](https://base-ui.com/react/handbook/composition) documents merged handlers/refs through `render`; the wrapper composes one DOM element rather than nesting buttons, and callers must forward DOM props/refs. [Tooltip guidelines](https://base-ui.com/react/components/tooltip) require accessible trigger names and treat tooltips as supplementary visual hints. Tested native/shared buttons, refs, form submission, Enter/Space, links, disabled controls, and dialog triggers/focus restoration.
+- [Toast](https://base-ui.com/react/components/toast) uses a portaled viewport. The installed shared viewport and dialog overlays both had `z-50`; raising the viewport to `z-[100]` puts the entire toast stack above overlays. The child toast's own stacking value alone cannot escape the viewport's stacking context. Verified notification presence, modal accessibility, dismissal, and focus restoration behavior.
+- [Collapsible](https://base-ui.com/react/components/collapsible) provides trigger expanded state, keyboard behavior, and panel visibility. Existing generated shadcn Base UI primitives cover this need without another dependency.
+- Existing metadata-only probe behavior stays shared. [Vercel REST model listing](https://vercel.com/docs/ai-gateway/openai-compat/rest-api) and [OpenCode model catalog](https://docs.opencode.ai/docs/zen/) describe metadata access; a publicly reachable catalog cannot establish key validity. Automatic checks preserve that caveat rather than invoking paid generation. All probe secrets stay in server-side headers read from the OS store, and no repository content is sent.
+
+## Persistent feedback and live editor preview — October 9, 2026
+
+Checked installed React 19.2.8, Next.js 16.3.8, and `@pierre/diffs` 1.5.2 before implementation. Read Next's bundled use-client/lazy-loading guides and Pierre's installed README, React renderer, and option declarations. The current [Pierre site](https://diffs.com/) identifies 1.5.2; its [plain-text documentation](https://diffs.com/llms-full.txt) covers stable file references, MultiFileDiff, themeType, diffStyle, indicators, inline styles, backgrounds, wrapping, and line numbers. MultiFileDiff delegates to the same FileDiff renderer as the workspace. Share visual options and theme styles; omit review/comment actions from the settings sample.
+
+[React's state identity guide](https://react.dev/learn/preserving-and-resetting-state) explains that changing a key destroys a component's local state. Two failing parent-level regressions confirmed that first-save changes the provider form key from provider name to saved UUID, clearing its connection result. A temporary stable-key probe made both tests pass. Retain only nonsecret feedback in the existing parent by saved connection ID, while preserving ID-keyed forms to avoid stale values after deletion or recreation. The feedback has no dismissal timer and is replaced by the next connection check.
