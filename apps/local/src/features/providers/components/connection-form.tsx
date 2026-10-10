@@ -173,8 +173,9 @@ export const ConnectionForm = ({
             </p>
           )}
           <p className="text-muted-foreground">
-            Stored for future reviews. Leave blank to use the model or server
-            default.
+            {provider === "ollama"
+              ? "Sent as the server context size for generation. Leave blank to use its default."
+              : "Limits input sent by this app; it does not resize the model loaded by your server. Leave blank to use its default."}
           </p>
         </div>
       )}

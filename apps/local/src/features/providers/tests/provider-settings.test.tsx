@@ -6,6 +6,18 @@ import { ProviderSettings } from "../components/provider-settings";
 import { ConnectionForm } from "../components/connection-form";
 import type { PublicConnectionSchema } from "@senslop/contracts";
 
+const modelState = vi.hoisted(() => ({
+  entries: [] as unknown[],
+  refresh: vi.fn(),
+  retry: vi.fn(),
+}));
+vi.mock("../hooks/use-provider-models", () => ({
+  useProviderModels: () => ({
+    entries: modelState.entries,
+    refresh: modelState.refresh,
+  }),
+}));
+
 vi.mock("../../../components/provider-icon", () => ({
   ProviderIcon: () => <span />,
 }));
@@ -15,8 +27,47 @@ vi.mock("@/components/ui/toast", () => ({
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  modelState.entries = [];
+  vi.clearAllMocks();
 });
 const empty = { connections: [], defaultId: null, cleanupPending: false };
+
+test("model discovery details and retry appear on the matching settings connection", async () => {
+  const connection = {
+    id: "00000000-0000-4000-8000-000000000003",
+    provider: "ollama",
+    name: "Ollama",
+    baseURL: "http://localhost:11434",
+    model: "",
+    contextWindow: null,
+    configured: false,
+    credentialError: null,
+  };
+  modelState.entries = [
+    {
+      connection,
+      catalog: undefined,
+      pending: false,
+      error: new Error(
+        "Provider returned invalid or oversized model metadata.",
+      ),
+      refetch: modelState.retry,
+    },
+  ];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => Response.json({ ...empty, connections: [connection] })),
+  );
+  const user = userEvent.setup();
+  render(<ProviderSettings onConfigure={vi.fn()} />);
+  expect(
+    await screen.findByText(
+      "Provider returned invalid or oversized model metadata.",
+    ),
+  ).toBeTruthy();
+  await user.click(screen.getByRole("button", { name: "Retry Ollama models" }));
+  expect(modelState.retry).toHaveBeenCalledOnce();
+});
 
 test("a newly saved local connection exposes key removal and retains its saved state", async () => {
   const connection: PublicConnectionSchema = {

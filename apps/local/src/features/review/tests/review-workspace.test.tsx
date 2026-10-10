@@ -18,6 +18,10 @@ const scrollIntoViewDescriptor = Object.getOwnPropertyDescriptor(
   "scrollIntoView",
 );
 
+vi.mock("../../providers/hooks/use-provider-models", () => ({
+  useProviderModels: () => ({ entries: [], refresh: vi.fn() }),
+}));
+
 const state = vi.hoisted(() => ({
   mobile: false,
   preview: null as LivePreview | null,

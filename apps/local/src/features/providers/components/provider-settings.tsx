@@ -15,6 +15,8 @@ import { ProviderKeyForm } from "./provider-key-form";
 import { TooltipWrapper } from "@/components/ui/tooltip-wrapper";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/toast";
+import { useProviderModels } from "../hooks/use-provider-models";
+import { ProviderModelStatus } from "./provider-model-status";
 
 type ProviderSettingsProps = {
   search?: string;
@@ -33,6 +35,7 @@ export const ProviderSettings = ({
   search = "",
   onConfigure,
 }: ProviderSettingsProps) => {
+  const { entries, refresh } = useProviderModels();
   const [state, setState] = useState<ProviderSettingsState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -51,7 +54,8 @@ export const ProviderSettings = ({
     }
     setState(data);
     setError(null);
-  }, []);
+    await refresh();
+  }, [refresh]);
   useEffect(() => {
     let active = true;
     void readProviderSettings().then((data) => {
@@ -83,9 +87,8 @@ export const ProviderSettings = ({
   return (
     <div className="space-y-8 text-base">
       <p className="text-muted-foreground">
-        Choose models later. API keys are saved in your OS credential store;
-        configuration stays on this computer. These settings configure future
-        reviews.
+        Choose models in the AI test page. API keys are saved in your OS
+        credential store; configuration stays on this computer.
       </p>
       {!state && !error && <p role="status">Loading local connections…</p>}
       {error && (
@@ -140,13 +143,119 @@ export const ProviderSettings = ({
               {options.map((connection) => (
                 <div key={connection?.id ?? provider} className="space-y-3">
                   <div className="grid gap-4 md:grid-cols-2 items-start">
-                    <div className="flex flex-col gap-1">
-                      <p className="font-medium">
-                        {info.keyRequired ? "API key" : "Configure provider"}
-                      </p>
-                      <p className="text-muted-foreground">
-                        {info.description}
-                      </p>
+                    <div className="flex flex-col gap-2">
+                      <div className="flex flex-col gap-1">
+                        <p className="font-medium">
+                          {info.keyRequired ? "API key" : "Configure provider"}
+                        </p>
+                        <p className="text-muted-foreground">
+                          {info.description}
+                        </p>
+                      </div>
+                      {connection && (
+                        <>
+                          {!info.keyRequired && (
+                            <p className="text-muted-foreground break-all">
+                              {connection.baseURL}
+                              <br />
+                              {formatEndpointLocation(connection.baseURL)}
+                            </p>
+                          )}
+                          {connection.credentialError && (
+                            <p role="alert" className="text-destructive">
+                              {connection.credentialError}
+                            </p>
+                          )}
+                          {entries
+                            .filter(
+                              (entry) => entry.connection.id === connection.id,
+                            )
+                            .map((entry) => (
+                              <ProviderModelStatus
+                                key={connection.id}
+                                entry={entry}
+                              />
+                            ))}
+                          <div className="flex items-center gap-1">
+                            <TooltipWrapper content="Default review connection">
+                              <Button
+                                variant={
+                                  state.defaultId === connection.id
+                                    ? "secondary"
+                                    : "ghost"
+                                }
+                                size="icon"
+                                aria-label={`${state.defaultId === connection.id ? "Clear default" : "Use by default"} ${info.label}`}
+                                aria-pressed={state.defaultId === connection.id}
+                                disabled={busy}
+                                onClick={() =>
+                                  void act({
+                                    action: "default",
+                                    id:
+                                      state.defaultId === connection.id
+                                        ? null
+                                        : connection.id,
+                                  })
+                                }
+                              >
+                                <Star aria-hidden="true" />
+                              </Button>
+                            </TooltipWrapper>
+
+                            <TooltipWrapper content="Delete connection">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                aria-label={`Delete ${info.label} connection`}
+                                disabled={busy}
+                                onClick={() => setDeleting(connection.id)}
+                              >
+                                <Trash2 aria-hidden="true" />
+                              </Button>
+                            </TooltipWrapper>
+                            {state.defaultId === connection.id && (
+                              <span className="flex gap-2 items-center text-primary">
+                                <Check aria-hidden="true" className="size-4" />
+                                Default review connection
+                              </span>
+                            )}
+                          </div>
+                          {deleting === connection.id && (
+                            <div role="alert" className="space-y-2">
+                              <p>
+                                Delete this connection and its saved API key?
+                              </p>
+                              <Button
+                                variant="destructive"
+                                disabled={busy}
+                                onClick={async () => {
+                                  if (
+                                    await act({
+                                      action: "delete",
+                                      id: connection.id,
+                                    })
+                                  ) {
+                                    setDeleting(null);
+                                    setFeedbackByConnection((current) => {
+                                      const remaining = { ...current };
+                                      delete remaining[connection.id];
+                                      return remaining;
+                                    });
+                                  }
+                                }}
+                              >
+                                Confirm deletion
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                onClick={() => setDeleting(null)}
+                              >
+                                Cancel
+                              </Button>
+                            </div>
+                          )}
+                        </>
+                      )}
                     </div>
                     {info.keyRequired ? (
                       <ProviderKeyForm
@@ -179,98 +288,6 @@ export const ProviderSettings = ({
                       </Button>
                     )}
                   </div>
-                  {connection && (
-                    <>
-                      {!info.keyRequired && (
-                        <p className="text-muted-foreground break-all">
-                          {connection.baseURL}
-                          <br />
-                          {formatEndpointLocation(connection.baseURL)}
-                        </p>
-                      )}
-                      {connection.credentialError && (
-                        <p role="alert" className="text-destructive">
-                          {connection.credentialError}
-                        </p>
-                      )}
-                      <div className="flex items-center gap-1">
-                        <TooltipWrapper content="Default review connection">
-                          <Button
-                            variant={
-                              state.defaultId === connection.id
-                                ? "secondary"
-                                : "ghost"
-                            }
-                            size="icon"
-                            aria-label={`${state.defaultId === connection.id ? "Clear default" : "Use by default"} ${info.label}`}
-                            aria-pressed={state.defaultId === connection.id}
-                            disabled={busy}
-                            onClick={() =>
-                              void act({
-                                action: "default",
-                                id:
-                                  state.defaultId === connection.id
-                                    ? null
-                                    : connection.id,
-                              })
-                            }
-                          >
-                            <Star aria-hidden="true" />
-                          </Button>
-                        </TooltipWrapper>
-
-                        <TooltipWrapper content="Delete connection">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            aria-label={`Delete ${info.label} connection`}
-                            disabled={busy}
-                            onClick={() => setDeleting(connection.id)}
-                          >
-                            <Trash2 aria-hidden="true" />
-                          </Button>
-                        </TooltipWrapper>
-                        {state.defaultId === connection.id && (
-                          <span className="flex gap-2 items-center text-primary">
-                            <Check aria-hidden="true" className="size-4" />
-                            Default review connection
-                          </span>
-                        )}
-                      </div>
-                      {deleting === connection.id && (
-                        <div role="alert" className="space-y-2">
-                          <p>Delete this connection and its saved API key?</p>
-                          <Button
-                            variant="destructive"
-                            disabled={busy}
-                            onClick={async () => {
-                              if (
-                                await act({
-                                  action: "delete",
-                                  id: connection.id,
-                                })
-                              ) {
-                                setDeleting(null);
-                                setFeedbackByConnection((current) => {
-                                  const remaining = { ...current };
-                                  delete remaining[connection.id];
-                                  return remaining;
-                                });
-                              }
-                            }}
-                          >
-                            Confirm deletion
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            onClick={() => setDeleting(null)}
-                          >
-                            Cancel
-                          </Button>
-                        </div>
-                      )}
-                    </>
-                  )}
                 </div>
               ))}
             </section>
