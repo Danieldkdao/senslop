@@ -54,5 +54,12 @@ export const previewUploadSchema = z.object({
 });
 export type PreviewUploadSchema = z.infer<typeof previewUploadSchema>;
 
-export const localPreviewSchema = previewUploadSchema.extend({ id: z.uuid() });
+export const localPreviewSchema = previewUploadSchema.extend({
+  id: z.uuid(),
+  repositoryFingerprint: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/)
+    .nullable()
+    .optional(),
+});
 export type LocalPreviewSchema = z.infer<typeof localPreviewSchema>;
