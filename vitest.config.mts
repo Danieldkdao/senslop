@@ -95,6 +95,9 @@ export default defineConfig({
   oxc: { jsx: { runtime: "automatic" } },
   test: {
     environment: "node",
+    server: {
+      deps: { inline: ["@lobehub/icons", "@lobehub/ui", "@emoji-mart/data"] },
+    },
     include: [
       "apps/**/tests/**/*.test.ts",
       "apps/**/tests/**/*.test.tsx",
