@@ -22,18 +22,29 @@ import type {
 } from "../types";
 
 type SettingsDialogProps = {
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  initialSection?: string;
+  hideTrigger?: boolean;
   children: (
     navigation: SettingsNavigation,
     search: string,
   ) => SettingsSection[];
 };
 
-export const SettingsDialog = ({ children }: SettingsDialogProps) => {
+export const SettingsDialog = ({
+  children,
+  open: controlledOpen,
+  onOpenChange,
+  initialSection,
+  hideTrigger = false,
+}: SettingsDialogProps) => {
   const id = useId();
   const contentRef = useRef<HTMLDivElement>(null);
   const [search, setSearch] = useState("");
   const [screens, setScreens] = useState<SettingsScreen[]>([]);
-  const [open, setOpen] = useState(false);
+  const [internalOpen, setOpen] = useState(false);
+  const open = controlledOpen ?? internalOpen;
   const navigation: SettingsNavigation = {
     navigate: (screen) => setScreens((current) => [...current, screen]),
     back: () => setScreens((current) => current.slice(0, -1)),
@@ -59,6 +70,22 @@ export const SettingsDialog = ({ children }: SettingsDialogProps) => {
     });
   };
   useEffect(() => {
+    if (!open || !initialSection) return;
+    const frame = requestAnimationFrame(() => {
+      const target = document.getElementById(`${id}-${initialSection}`);
+      const content = contentRef.current;
+      if (target && content)
+        content.scrollTo({
+          top:
+            content.scrollTop +
+            target.getBoundingClientRect().top -
+            content.getBoundingClientRect().top -
+            24,
+        });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [open, initialSection, id]);
+  useEffect(() => {
     if (current)
       document
         .getElementById(`${id}-screen-title`)
@@ -68,20 +95,25 @@ export const SettingsDialog = ({ children }: SettingsDialogProps) => {
     <Dialog
       open={open}
       onOpenChange={(value) => {
-        setOpen(value);
+        if (controlledOpen === undefined) setOpen(value);
+        onOpenChange?.(value);
         if (!value) {
           setScreens([]);
           setSearch("");
         }
       }}
     >
-      <TooltipWrapper content="Settings">
-        <DialogTrigger
-          render={<Button variant="ghost" size="icon" aria-label="Settings" />}
-        >
-          <Settings aria-hidden="true" className="size-5" />
-        </DialogTrigger>
-      </TooltipWrapper>
+      {!hideTrigger && (
+        <TooltipWrapper content="Settings">
+          <DialogTrigger
+            render={
+              <Button variant="ghost" size="icon" aria-label="Settings" />
+            }
+          >
+            <Settings aria-hidden="true" className="size-5" />
+          </DialogTrigger>
+        </TooltipWrapper>
+      )}
       <DialogContent className="h-[85dvh] max-h-[55rem] w-[calc(100vw-2rem)] sm:max-w-5xl p-0 gap-0 overflow-hidden text-base">
         <DialogHeader className="sr-only">
           <DialogTitle>Settings</DialogTitle>

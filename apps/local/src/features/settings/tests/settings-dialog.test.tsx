@@ -16,6 +16,9 @@ import type { MultiFileDiffProps } from "@pierre/diffs/react";
 import type { ProviderId, PublicConnectionSchema } from "@senslop/contracts";
 
 const preview = vi.hoisted(() => ({ render: vi.fn(), theme: "dark" }));
+vi.mock("../../providers/hooks/use-provider-models", () => ({
+  useProviderModels: () => ({ entries: [], refresh: vi.fn() }),
+}));
 vi.mock("next-themes", () => ({
   useTheme: () => ({
     theme: preview.theme,

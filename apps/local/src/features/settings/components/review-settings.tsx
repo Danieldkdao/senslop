@@ -14,10 +14,7 @@ import { formatTheme } from "@/lib/formatters";
 import type { Theme } from "@/lib/types";
 import type { DiffSettingsState, DiffView } from "../../review/types";
 import { DiffSettings } from "../../review/components/diff-settings";
-import { ProviderSettings } from "../../providers/components/provider-settings";
-import { ConnectionForm } from "../../providers/components/connection-form";
-import { formatProvider } from "../../providers/lib/formatters";
-import { providerIds } from "@senslop/contracts";
+import { getProviderSettingsSection } from "./provider-settings-dialog";
 import { SettingsDialog } from "./settings-dialog";
 import type { SettingsSection } from "../types";
 import { EditorDiffPreview } from "./editor-diff-preview";
@@ -114,44 +111,7 @@ export const ReviewSettings = ({
               </>
             ),
           },
-          {
-            id: "providers",
-            label: "Providers",
-            links: providerIds
-              .filter(
-                (provider) =>
-                  !query ||
-                  `providers api key model endpoint ${formatProvider(provider).label}`
-                    .toLowerCase()
-                    .includes(query),
-              )
-              .map((provider) => ({
-                id: `settings-provider-${provider}`,
-                label: formatProvider(provider).label,
-              })),
-            keywords: `providers api key model endpoint ${providerIds.map((provider) => formatProvider(provider).label).join(" ")}`,
-            content: (
-              <ProviderSettings
-                search={query}
-                onConfigure={(provider, connection, reload, feedback) =>
-                  navigation.navigate({
-                    id: connection?.id ?? provider,
-                    label: formatProvider(provider).label,
-                    content: (
-                      <ConnectionForm
-                        provider={provider}
-                        connection={connection}
-                        {...feedback}
-                        onSaved={async () => {
-                          await reload();
-                        }}
-                      />
-                    ),
-                  })
-                }
-              />
-            ),
-          },
+          getProviderSettingsSection(navigation, query),
         ];
         return sections.map((section) => ({
           ...section,
