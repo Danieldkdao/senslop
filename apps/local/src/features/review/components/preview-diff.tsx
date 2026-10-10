@@ -17,14 +17,15 @@ import type {
 } from "../types";
 import { formatFileStatus, formatReviewLine } from "../lib/formatters";
 import { parsePreviewFile } from "../lib/parse-preview-file";
+import { getDiffOptions } from "../lib/diff-options";
 
 type PreviewDiffProps = {
   file: PreviewFileSchema;
   view: DiffView;
   settings: DiffSettingsState;
   notes: ReviewNote[];
-  onAddComment: (body: string, line: ReviewLine) => void;
-  onDeleteNote: (id: string) => void;
+  onAddComment: (body: string, line: ReviewLine) => void | Promise<void>;
+  onDeleteNote: (id: string) => void | Promise<void>;
 };
 
 type CommentTarget = Pick<ReviewLine, "side" | "lineNumber">;
@@ -94,18 +95,7 @@ export const PreviewDiff = ({
     : null;
   const options = useMemo<FileDiffOptions<ReviewAnnotation, undefined>>(
     () => ({
-      // Pierre supplies syntax token colors; change markers use Senslop's semantic colors.
-      theme: { dark: "pierre-dark", light: "pierre-light" },
-      themeType: resolvedTheme === "dark" ? "dark" : "light",
-      diffStyle: view,
-      disableFileHeader: true,
-      hunkSeparators: "line-info",
-      expansionLineCount: 20,
-      diffIndicators: settings.indicators,
-      lineDiffType: settings.inlineChanges,
-      disableBackground: !settings.backgrounds,
-      overflow: settings.wrapping ? "wrap" : "scroll",
-      disableLineNumbers: !settings.lineNumbers,
+      ...getDiffOptions(settings, view, resolvedTheme),
       // Pierre's native utility tracks gutter width and line height, including hidden numbers.
       enableGutterUtility:
         commentTarget === null &&
@@ -148,8 +138,8 @@ export const PreviewDiff = ({
         <InlineComment
           key={`${commentTarget.side}:${commentTarget.lineNumber}`}
           onCancel={() => setCommentTarget(null)}
-          onSubmit={(body) => {
-            onAddComment(body, {
+          onSubmit={async (body) => {
+            await onAddComment(body, {
               ...commentTarget,
               code: lines[commentTarget.side][commentTarget.lineNumber - 1]!,
             });
@@ -169,8 +159,10 @@ export const PreviewDiff = ({
           variant="destructive"
           size="icon"
           aria-label="Delete comment"
-          onClick={() => onDeleteNote(note.id)}
-          className="hidden group-hover:flex absolute top-4 right-4 z-10"
+          onClick={() =>
+            void Promise.resolve(onDeleteNote(note.id)).catch(() => {})
+          }
+          className="absolute top-4 right-4 z-10 opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
         >
           <Trash2 aria-hidden="true" className="size-4" />
         </Button>
@@ -181,7 +173,7 @@ export const PreviewDiff = ({
     return (
       <div>
         <p className="border-b bg-muted px-5 py-3 text-muted-foreground">
-          {formatFileStatus(file.status)} · file contents are unchanged.
+          {formatFileStatus(file.status)}, file contents are unchanged.
         </p>
         <File<ReviewAnnotation>
           file={{ name: file.path, contents: file.after ?? "" }}
