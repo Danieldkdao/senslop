@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useRef, type BaseSyntheticEvent } from "react";
+import { useId, useRef, useState, type BaseSyntheticEvent } from "react";
 import { Controller, useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
@@ -13,6 +13,7 @@ import { ProviderIcon } from "../../../components/provider-icon";
 import { formatEndpointLocation, formatProvider } from "../lib/formatters";
 import { providerRequest } from "../lib/requests";
 import { useConnectionCheck } from "../hooks/use-connection-check";
+import type { ConnectionFeedback } from "../types";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -23,17 +24,25 @@ type ConnectionFormProps = {
   provider: ProviderId;
   connection?: PublicConnectionSchema;
   onSaved: () => Promise<void>;
+  initialFeedback?: ConnectionFeedback | null;
+  onFeedback?: (id: string, feedback: ConnectionFeedback | null) => void;
 };
 
 export const ConnectionForm = ({
   provider,
-  connection,
+  connection: initialConnection,
   onSaved,
+  initialFeedback,
+  onFeedback,
 }: ConnectionFormProps) => {
   const id = useId();
   const info = formatProvider(provider);
   const pending = useRef(false);
-  const { feedback, checking, checkConnection } = useConnectionCheck();
+  const [connection, setConnection] = useState(initialConnection);
+  const { feedback, checking, checkConnection } = useConnectionCheck({
+    initialFeedback,
+    onFeedback,
+  });
   const {
     register,
     getValues,
@@ -74,6 +83,8 @@ export const ConnectionForm = ({
           connection: values,
         });
         setValue("id", saved.connection.id);
+        setConnection(saved.connection);
+        setValue("removeKey", false);
         resetField("apiKey", { defaultValue: "" });
         if (saved.warning) toast.error(saved.warning);
         else toast.success("Connection saved locally.");
@@ -237,6 +248,19 @@ export const ConnectionForm = ({
         >
           {feedback.message}
         </p>
+      )}
+      {feedback?.failed && (
+        <Button
+          type="button"
+          variant="outline"
+          disabled={isSubmitting || checking}
+          onClick={() => {
+            const connectionId = getValues("id");
+            if (connectionId) void checkConnection(connectionId);
+          }}
+        >
+          Retry connection check
+        </Button>
       )}
       {errors.root && (
         <p role="alert" className="text-destructive">

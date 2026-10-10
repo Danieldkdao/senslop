@@ -30,17 +30,18 @@ export const GET = async (request: Request) => {
   try {
     const workspace = getWorkspace();
     const root = await workspace.root();
-    const repository = new URL(request.url).searchParams.has("history")
+    const params = new URL(request.url).searchParams;
+    const historyRequested = params.has("history");
+    const repository = historyRequested
       ? null
       : await workspace.repository().catch(() => null);
     return Response.json(
       {
         repository,
         root,
-        history: workspace.store.listReviews(
-          root,
-          new URL(request.url).searchParams.get("search") ?? "",
-        ),
+        history: historyRequested
+          ? workspace.store.listReviews(root, params.get("search") ?? "")
+          : [],
       },
       { headers: { "Cache-Control": "no-store" } },
     );

@@ -133,7 +133,7 @@ export const ReviewSettings = ({
             content: (
               <ProviderSettings
                 search={query}
-                onConfigure={(provider, connection, reload) =>
+                onConfigure={(provider, connection, reload, feedback) =>
                   navigation.navigate({
                     id: connection?.id ?? provider,
                     label: formatProvider(provider).label,
@@ -141,6 +141,7 @@ export const ReviewSettings = ({
                       <ConnectionForm
                         provider={provider}
                         connection={connection}
+                        {...feedback}
                         onSaved={async () => {
                           await reload();
                         }}

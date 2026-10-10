@@ -100,7 +100,7 @@ const revision = async (cwd: string, input: string) => {
     ])
   ).trim();
 };
-const secretReason = (path: string): string | null => {
+export const secretReason = (path: string): string | null => {
   const name = path.split("/").at(-1)!;
   if (
     (/^\.env(?:\.|$)/i.test(name) &&

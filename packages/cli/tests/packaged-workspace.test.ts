@@ -486,7 +486,9 @@ packageTest(
     await separateEnded;
     children.delete(separate.child);
     const history = await (
-      await fetch(`${restartOrigin}/api/workspace`, { headers: restartHeaders })
+      await fetch(`${restartOrigin}/api/workspace?history=1`, {
+        headers: restartHeaders,
+      })
     ).json();
     for (const review of history.history) {
       const deleted = await fetch(`${restartOrigin}/api/workspace`, {

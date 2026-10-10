@@ -33,6 +33,7 @@ export const providerConfigSchema = z.object({
     .url()
     .max(2048)
     .refine((value) => {
+      if (!URL.canParse(value)) return false;
       const url = new URL(value);
       return (
         !url.username &&

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { readFile, stat, unlink } from "node:fs/promises";
+import { readFile, rename, stat, unlink } from "node:fs/promises";
 import {
   MAX_SNAPSHOT_BYTES,
   PROTOCOL_VERSION,
@@ -64,12 +64,23 @@ export class LocalWorkspace {
     this.handoff = this.handoff
       .catch(() => {})
       .then(async () => {
+        const claimedPath = `${this.options.snapshotPath}.${randomUUID()}`;
         try {
-          const info = await stat(this.options.snapshotPath);
+          // Claim this handoff before the CLI can publish another at the shared path.
+          await rename(this.options.snapshotPath, claimedPath);
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+          throw error;
+        }
+        try {
+          // CLI handoffs are temporary runtime data, not assets for the server bundle.
+          const info = await stat(/* turbopackIgnore: true */ claimedPath);
           if (info.size > MAX_SNAPSHOT_BYTES)
             throw new Error("Inspection exceeds the 20 MiB snapshot limit.");
           const preview = localPreviewSchema.parse(
-            JSON.parse(await readFile(this.options.snapshotPath, "utf8")),
+            JSON.parse(
+              await readFile(/* turbopackIgnore: true */ claimedPath, "utf8"),
+            ),
           );
           // Only the CLI writes this private handoff; browser requests cannot choose a path or root.
           const repository = await this.repository().catch(() => null);
@@ -78,9 +89,8 @@ export class LocalWorkspace {
             preview,
             preview.repositoryFingerprint ?? repository?.fingerprint ?? null,
           );
-          await unlink(this.options.snapshotPath);
-        } catch (error) {
-          if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+        } finally {
+          await unlink(claimedPath);
         }
       });
     await this.handoff;

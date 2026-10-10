@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import {
   mkdir,
   mkdtemp,
@@ -20,6 +20,63 @@ afterEach(async () => {
       .map((path) => rm(path, { recursive: true, force: true })),
   );
 });
+
+test("a delayed handoff cannot delete the next terminal snapshot", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "senslop-handoff-race-"));
+  directories.push(directory);
+  const repository = await realpath(directory);
+  const git = (...args: string[]) =>
+    execFileSync("git", args, { cwd: repository });
+  git("init");
+  git("config", "user.name", "Test");
+  git("config", "user.email", "test@example.com");
+  await writeFile(join(repository, "file.ts"), "one\n");
+  git("add", ".");
+  git("commit", "-m", "first");
+  const options = {
+    repository,
+    databasePath: join(directory, "data/reviews.sqlite"),
+    snapshotPath: join(directory, "handoff.json"),
+  };
+  const workspace = new LocalWorkspace(options);
+  try {
+    const saved = await workspace.inspect({ kind: "commit", commit: "HEAD" });
+    const first = {
+      ...saved,
+      id: crypto.randomUUID(),
+      repositoryFingerprint: null,
+    };
+    const second = { ...saved, id: crypto.randomUUID() };
+    let enter!: () => void;
+    const entered = new Promise<void>((resolve) => {
+      enter = resolve;
+    });
+    let resume!: (
+      value: Awaited<ReturnType<typeof workspace.repository>>,
+    ) => void;
+    const resumed = new Promise<
+      Awaited<ReturnType<typeof workspace.repository>>
+    >((resolve) => {
+      resume = resolve;
+    });
+    const repositoryState = await workspace.repository();
+    vi.spyOn(workspace, "repository").mockImplementationOnce(() => {
+      enter();
+      return resumed;
+    });
+    await writeFile(options.snapshotPath, JSON.stringify(first));
+    const current = workspace.current();
+    await entered;
+    await writeFile(options.snapshotPath, JSON.stringify(second));
+    resume(repositoryState);
+    expect((await current)?.id).toBe(first.id);
+    expect((await workspace.current())?.id).toBe(second.id);
+    await expect(readFile(options.snapshotPath)).rejects.toThrow();
+  } finally {
+    workspace.close();
+  }
+});
+
 test("browser inspection is repository-bound, restarts restore reviews, and terminal handoffs are disposable", async () => {
   const directory = await mkdtemp(join(tmpdir(), "senslop-workspace-history-"));
   directories.push(directory);

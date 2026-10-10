@@ -9,7 +9,7 @@ import {
 } from "@senslop/contracts";
 import { ProviderIcon } from "../../../components/provider-icon";
 import { formatEndpointLocation, formatProvider } from "../lib/formatters";
-import { providerRequest } from "../lib/requests";
+import { providerRequest, readProviderSettings } from "../lib/requests";
 import type { ConnectionFeedback, ProviderSettingsState } from "../types";
 import { ProviderKeyForm } from "./provider-key-form";
 import { TooltipWrapper } from "@/components/ui/tooltip-wrapper";
@@ -22,6 +22,10 @@ type ProviderSettingsProps = {
     provider: ProviderId,
     connection: PublicConnectionSchema | undefined,
     onSaved: () => Promise<void>,
+    feedback: {
+      initialFeedback: ConnectionFeedback | null;
+      onFeedback: (id: string, feedback: ConnectionFeedback | null) => void;
+    },
   ) => void;
 };
 
@@ -40,18 +44,21 @@ export const ProviderSettings = ({
   const rememberFeedback = (id: string, feedback: ConnectionFeedback | null) =>
     setFeedbackByConnection((current) => ({ ...current, [id]: feedback }));
   const load = useCallback(async () => {
-    setState(await providerRequest<ProviderSettingsState>());
+    const data = await readProviderSettings();
+    if (!data) {
+      setError("Local provider settings are unavailable. Retry.");
+      return;
+    }
+    setState(data);
     setError(null);
   }, []);
   useEffect(() => {
     let active = true;
-    void providerRequest<ProviderSettingsState>()
-      .then((data) => {
-        if (active) setState(data);
-      })
-      .catch((error: Error) => {
-        if (active) setError(error.message);
-      });
+    void readProviderSettings().then((data) => {
+      if (!active) return;
+      if (data) setState(data);
+      else setError("Local provider settings are unavailable. Retry.");
+    });
     return () => {
       active = false;
     };
@@ -158,7 +165,14 @@ export const ProviderSettings = ({
                         variant="outline"
                         className="justify-self-end text-base"
                         aria-label={`Configure ${info.label}`}
-                        onClick={() => onConfigure(provider, connection, load)}
+                        onClick={() =>
+                          onConfigure(provider, connection, load, {
+                            initialFeedback: connection
+                              ? (feedbackByConnection[connection.id] ?? null)
+                              : null,
+                            onFeedback: rememberFeedback,
+                          })
+                        }
                       >
                         Configure
                         <ChevronRight aria-hidden="true" />

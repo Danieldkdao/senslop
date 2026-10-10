@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import { mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,6 +8,11 @@ import {
   inspectRepository,
   readRepository,
 } from "../repository";
+
+vi.mock("../snapshot", async (importOriginal) => {
+  const original = await importOriginal<typeof import("../snapshot")>();
+  return { ...original, collectSnapshot: vi.fn(original.collectSnapshot) };
+});
 
 const directories: string[] = [];
 afterEach(async () => {
@@ -74,4 +79,21 @@ test("freshness detects same-status content edits and excludes secret contents",
   await writeFile(join(cwd, "file.ts"), "four\n");
   expect((await readRepository(cwd)).fingerprint).not.toBe(first.fingerprint);
   expect(JSON.stringify(first)).not.toContain("SECRET=");
+});
+
+test("repository refresh checks freshness without collecting contents or patches", async () => {
+  const { cwd, git } = await fixture();
+  await writeFile(join(cwd, "file.ts"), "third\n");
+  vi.mocked(collectSnapshot).mockClear();
+  const first = await readRepository(cwd);
+  expect(first.fingerprint).toMatch(/^[a-f0-9]{64}$/);
+  expect((await readRepository(cwd)).fingerprint).toBe(first.fingerprint);
+  await writeFile(join(cwd, "file.ts"), "forth\n");
+  expect((await readRepository(cwd)).fingerprint).not.toBe(first.fingerprint);
+  await git.add("file.ts");
+  const staged = await readRepository(cwd);
+  await writeFile(join(cwd, "file.ts"), "fifth\n");
+  await git.add("file.ts");
+  expect((await readRepository(cwd)).fingerprint).not.toBe(staged.fingerprint);
+  expect(collectSnapshot).not.toHaveBeenCalled();
 });

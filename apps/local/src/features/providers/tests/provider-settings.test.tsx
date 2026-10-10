@@ -18,6 +18,74 @@ afterEach(() => {
 });
 const empty = { connections: [], defaultId: null, cleanupPending: false };
 
+test("a newly saved local connection exposes key removal and retains its saved state", async () => {
+  const connection: PublicConnectionSchema = {
+    id: "00000000-0000-4000-8000-000000000004",
+    provider: "ollama",
+    name: "Ollama",
+    baseURL: "http://localhost:11434",
+    model: "",
+    contextWindow: null,
+    configured: true,
+    credentialError: null,
+  };
+  const calls: { action: string; connection?: { removeKey?: boolean } }[] = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (_url, options?: RequestInit) => {
+      const body = JSON.parse(String(options?.body));
+      calls.push(body);
+      return {
+        ok: true,
+        json: async () =>
+          body.action === "save"
+            ? {
+                connection: {
+                  ...connection,
+                  configured: !body.connection.removeKey,
+                },
+                warning: null,
+              }
+            : { supported: true, models: [], message: "Metadata received." },
+      };
+    }),
+  );
+  const user = userEvent.setup();
+  render(<ConnectionForm provider="ollama" onSaved={vi.fn()} />);
+  await user.type(screen.getByLabelText("API key"), "optional-key");
+  await user.keyboard("{Enter}");
+  await user.click(await screen.findByLabelText("Remove saved API key"));
+  const endpoint = screen.getByLabelText("API base URL");
+  await user.clear(endpoint);
+  await user.type(endpoint, "http://localhost:11435");
+  await user.click(screen.getByRole("button", { name: "Save connection" }));
+  await waitFor(() => expect(calls).toHaveLength(4));
+  expect(calls[2]).toMatchObject({
+    action: "save",
+    connection: {
+      id: connection.id,
+      apiKey: "",
+      removeKey: true,
+      baseURL: "http://localhost:11435",
+    },
+  });
+  expect(screen.queryByLabelText("Remove saved API key")).toBeNull();
+});
+
+test("failed provider reads show a retry action instead of staying in loading", async () => {
+  vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("Offline")));
+  const user = userEvent.setup();
+  render(<ProviderSettings onConfigure={vi.fn()} />);
+  const retry = await screen.findByRole("button", { name: "Retry settings" });
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue({ ok: true, json: async () => empty }),
+  );
+  await user.click(retry);
+  await screen.findByRole("heading", { name: "Ollama" });
+  expect(screen.queryByRole("alert")).toBeNull();
+});
+
 test.each(["Enter", "blur"])(
   "failed check remains visible after the saved connection reloads on %s",
   async (trigger) => {
@@ -146,6 +214,10 @@ test("exactly twelve providers, remote keys save on Enter without a name or mode
     "ollama",
     undefined,
     expect.any(Function),
+    expect.objectContaining({
+      initialFeedback: null,
+      onFeedback: expect.any(Function),
+    }),
   );
   expect(screen.queryByRole("dialog")).toBeNull();
 });

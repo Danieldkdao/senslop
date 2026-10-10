@@ -13,6 +13,7 @@ import { ReviewSettings } from "../components/review-settings";
 import { defaultDiffSettings } from "../../review/constants";
 import { parseDiffFromFile } from "@pierre/diffs";
 import type { MultiFileDiffProps } from "@pierre/diffs/react";
+import type { ProviderId, PublicConnectionSchema } from "@senslop/contracts";
 
 const preview = vi.hoisted(() => ({ render: vi.fn(), theme: "dark" }));
 vi.mock("next-themes", () => ({
@@ -40,6 +41,102 @@ afterEach(() => {
   preview.render.mockClear();
   preview.theme = "dark";
 });
+
+test.each([
+  ["ollama", "Ollama", "http://localhost:11434"],
+  ["lm-studio", "LM Studio", "http://localhost:1234/v1"],
+  ["llama-cpp", "llama.cpp", "http://localhost:8080/v1"],
+] as const)(
+  "%s check feedback survives navigation and retries only the saved connection",
+  async (provider, label, baseURL) => {
+    const connection: PublicConnectionSchema = {
+      id: "00000000-0000-4000-8000-000000000005",
+      provider: provider as ProviderId,
+      name: label,
+      baseURL,
+      model: "",
+      contextWindow: null,
+      configured: false,
+      credentialError: null,
+    };
+    let saved = false;
+    let valid = false;
+    const calls: object[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url, options?: RequestInit) => {
+        if (!options?.body)
+          return {
+            ok: true,
+            json: async () => ({
+              connections: saved ? [connection] : [],
+              defaultId: null,
+              cleanupPending: false,
+            }),
+          };
+        const body = JSON.parse(String(options.body));
+        calls.push(body);
+        if (body.action === "save") {
+          saved = true;
+          return {
+            ok: true,
+            json: async () => ({ connection, warning: null }),
+          };
+        }
+        return {
+          ok: valid,
+          json: async () =>
+            valid
+              ? { supported: true, models: [], message: "Metadata received." }
+              : { message: "Server unavailable." },
+        };
+      }),
+    );
+    const user = userEvent.setup();
+    render(
+      <ReviewSettings
+        settings={defaultDiffSettings}
+        onChange={vi.fn()}
+        view="split"
+        onViewChange={vi.fn()}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: "Settings" }));
+    await user.click(
+      await screen.findByRole("button", { name: `Configure ${label}` }),
+    );
+    await user.click(screen.getByRole("button", { name: "Save connection" }));
+    expect((await screen.findByRole("alert")).textContent).toContain(
+      "Server unavailable.",
+    );
+    await user.click(screen.getByRole("button", { name: "Back to settings" }));
+    await user.click(
+      await screen.findByRole("button", { name: `Configure ${label}` }),
+    );
+    expect(screen.getByRole("alert").textContent).toContain(
+      "Server unavailable.",
+    );
+    valid = true;
+    await user.click(
+      screen.getByRole("button", { name: "Retry connection check" }),
+    );
+    await waitFor(() =>
+      expect(screen.getByRole("status").textContent).toContain(
+        "Metadata received.",
+      ),
+    );
+    expect(calls).toHaveLength(3);
+    expect(calls[2]).toEqual({ action: "test", id: connection.id });
+    expect(screen.queryByRole("alert")).toBeNull();
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await user.click(screen.getByRole("button", { name: "Settings" }));
+    await user.click(
+      await screen.findByRole("button", { name: `Configure ${label}` }),
+    );
+    expect(screen.queryByText(/Metadata received/)).toBeNull();
+  },
+);
 
 test("editor preview follows every diff control with representative code and no review actions", async () => {
   vi.stubGlobal(
