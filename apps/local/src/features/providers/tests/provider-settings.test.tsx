@@ -237,7 +237,7 @@ test("blur saves once, failed secure storage retains draft, and saved keys are n
   vi.stubGlobal("fetch", fetcher);
   const user = userEvent.setup();
   render(<ProviderSettings onConfigure={vi.fn()} />);
-  const input = await screen.findByLabelText("ChatGPT API key");
+  const input = await screen.findByLabelText("OpenAI API key");
   await user.type(input, "new-test-key");
   await user.tab();
   await user.tab();
