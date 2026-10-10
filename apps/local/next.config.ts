@@ -6,6 +6,7 @@ const nextConfig: NextConfig = {
   images: { unoptimized: true },
   outputFileTracingRoot: fileURLToPath(new URL("../../", import.meta.url)),
   reactCompiler: true,
+  serverExternalPackages: ["@napi-rs/keyring"],
   logging: {
     // Keep snapshot polling and session capabilities out of the interactive terminal logs.
     incomingRequests: {
