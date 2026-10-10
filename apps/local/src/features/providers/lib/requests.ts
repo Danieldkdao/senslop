@@ -8,16 +8,20 @@ export const providerSettingsSchema = z.object({
 });
 export type ProviderSettingsSchema = z.infer<typeof providerSettingsSchema>;
 
-export const readProviderSettings =
-  async (): Promise<ProviderSettingsSchema | null> => {
-    try {
-      const response = await fetch("/api/providers", { cache: "no-store" });
-      if (!response.ok) return null;
-      return providerSettingsSchema.parse(await response.json());
-    } catch {
-      return null;
-    }
-  };
+export const readProviderSettings = async (
+  signal?: AbortSignal,
+): Promise<ProviderSettingsSchema | null> => {
+  try {
+    const response = await fetch("/api/providers", {
+      cache: "no-store",
+      signal,
+    });
+    if (!response.ok) return null;
+    return providerSettingsSchema.parse(await response.json());
+  } catch {
+    return null;
+  }
+};
 
 export const providerRequest = async <T>(body: object): Promise<T> => {
   const response = await fetch("/api/providers", {
