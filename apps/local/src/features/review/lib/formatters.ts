@@ -1,5 +1,11 @@
+import type { JobSchema } from "../../agents/schemas";
 import type { PreviewSourceKind } from "@senslop/contracts";
-import type { DiffSettingsState, LivePreview, ReviewLine } from "../types";
+import type {
+  DiffSettingsState,
+  LivePreview,
+  ReviewLine,
+  ReviewOperation,
+} from "../types";
 import type { ReviewLineSide } from "../schemas";
 
 export const formatPreviewSource = (kind: PreviewSourceKind) => {
@@ -87,7 +93,36 @@ export const formatReviewLineSide = (side: ReviewLineSide) => {
 };
 
 export const formatReviewLine = (line: ReviewLine) =>
-  `${formatReviewLineSide(line.side)} line ${line.lineNumber}`;
+  line.endLineNumber && line.endLineNumber !== line.lineNumber
+    ? `${formatReviewLineSide(line.side)} Lines ${line.lineNumber}-${line.endLineNumber}`
+    : `${formatReviewLineSide(line.side)} line ${line.lineNumber}`;
 
 export const formatFileReviewLabel = (path: string, completed: boolean) =>
   completed ? `${path}: Completed` : path;
+
+export const formatAnalysisNotification = (job: JobSchema) => {
+  const label = job.kind === "grouping" ? "Grouping" : "Review analysis";
+  switch (job.status) {
+    case "completed":
+      return job.kind === "grouping"
+        ? "Grouping finished. Your changes are ready to explore."
+        : "Review analysis finished.";
+    case "failed":
+      return `${label} failed: ${job.error ?? "Retry when ready."}`;
+    case "queued":
+    case "running":
+    case "canceled":
+      return null;
+  }
+};
+
+export const formatReviewOperation = (mode: ReviewOperation["mode"]) => {
+  switch (mode) {
+    case "keep":
+      return "Review updated with the latest changes.";
+    case "new":
+      return "Re-sync finished. Your new changes are ready to explore.";
+    case "inspect":
+      return "Your changes are ready to explore.";
+  }
+};

@@ -15,6 +15,12 @@ export type LivePreview = Partial<SavedReviewSchema> & {
   status: "receiving" | "ready" | "failed";
   error: string | null;
 };
+export type ReviewOperation = {
+  snapshotId: string;
+  hash: string;
+  mode: "inspect" | "new" | "keep";
+};
+
 export type DiffView = "split" | "unified";
 
 export type DiffSettingsState = {
@@ -28,6 +34,7 @@ export type DiffSettingsState = {
 export type ReviewLine = {
   side: ReviewLineSide;
   lineNumber: number;
+  endLineNumber?: number;
   code: string;
 };
 

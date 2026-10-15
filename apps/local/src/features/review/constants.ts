@@ -1,5 +1,10 @@
 import type { DiffSettingsState } from "./types";
 
+export const diffThemes = {
+  dark: "pierre-dark",
+  light: "pierre-light",
+} as const;
+
 export const diffIndicators = ["bars", "classic", "none"] as const;
 export const inlineChangeStyles = [
   "word-alt",
