@@ -15,6 +15,13 @@ import { parseDiffFromFile } from "@pierre/diffs";
 import type { MultiFileDiffProps } from "@pierre/diffs/react";
 import type { ProviderId, PublicConnectionSchema } from "@senslop/contracts";
 
+vi.mock("../hooks/use-review-preferences", () => ({
+  useReviewPreferences: () => ({
+    preferences: { data: { autoAdvance: false } },
+    saving: false,
+    save: vi.fn(),
+  }),
+}));
 vi.mock("../../agents/hooks/use-ai-settings", async () => {
   const { defaultAiSettings } = await import("../../agents/constants");
   return {
@@ -286,7 +293,12 @@ test("one settings dialog orders appearance/editor/AI, search navigates nested l
   const headings = screen
     .getAllByRole("heading", { level: 2 })
     .map((heading) => heading.textContent);
-  expect(headings.slice(1)).toEqual(["Appearance", "Editor", "AI"]);
+  expect(headings.slice(1)).toEqual([
+    "Appearance",
+    "Review Preferences",
+    "Editor",
+    "AI",
+  ]);
   const sidebar = within(
     screen.getByRole("navigation", { name: "Settings sections" }),
   );
