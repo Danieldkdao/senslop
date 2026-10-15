@@ -12,6 +12,8 @@ import {
   CommandList,
   CommandItem,
 } from "@/components/ui/command";
+import { useConfirm } from "@/hooks/use-confirm";
+import { LoadingSwap } from "@/components/ui/loading-swap";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { SavedReviewSummary } from "../types";
@@ -43,7 +45,10 @@ const ReviewHistoryItem = ({
   const id = useId();
   const summary = formatReviewSummary(review);
   const [editing, setEditing] = useState(false);
-  const [deleting, setDeleting] = useState(false);
+  const { confirm, ConfirmationDialog } = useConfirm(
+    "Delete this review?",
+    "This permanently removes the snapshot, all its notes, and review progress. Your repository files are unchanged.",
+  );
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
   const {
@@ -63,133 +68,122 @@ const ReviewHistoryItem = ({
     return saved;
   };
   return (
-    <CommandItem
-      value={review.id}
-      disabled={busy}
-      className="items-start p-3 text-base [&>svg:last-child]:hidden bg-transparent! data-[selected=true]:bg-muted!"
-      onSelect={() => {
-        if (!editing && !deleting)
-          void act({ action: "open", id: review.id }).then((saved) => {
-            if (saved) onOpen();
-          });
-      }}
-    >
-      <div className="min-w-0 flex-1 space-y-2">
-        {editing ? (
-          <form
-            noValidate
-            onClick={(event) => event.stopPropagation()}
-            onKeyDown={(event) => event.stopPropagation()}
-            className="flex gap-2"
-            onSubmit={handleSubmit(async ({ title }) => {
-              if (
-                await act({
-                  action: "change",
-                  id: review.id,
-                  change: { action: "rename", title },
-                })
-              )
-                setEditing(false);
-            })}
-          >
-            <label className="sr-only" htmlFor={id}>
-              Review name
-            </label>
-            <Input
-              id={id}
-              autoFocus
-              {...register("title")}
-              className="text-base min-w-0"
-              aria-invalid={!!errors.title}
-            />
-            <Button
-              type="submit"
-              size="icon"
-              aria-label="Save review name"
-              disabled={busy}
-            >
-              <Check aria-hidden="true" />
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              aria-label="Cancel rename"
-              onClick={() => setEditing(false)}
-            >
-              <X aria-hidden="true" />
-            </Button>
-            {errors.title && <p role="alert">{errors.title.message}</p>}
-          </form>
-        ) : (
-          <p className="font-medium wrap-break-word">{review.title}</p>
-        )}
-        <p className="flex flex-wrap items-center gap-1 text-muted-foreground">
-          <span>{summary.date}</span>
-          <Dot aria-hidden="true" className="size-4 shrink-0" />
-          <span>{summary.files}</span>
-          <Dot aria-hidden="true" className="size-4 shrink-0" />
-          <span>{summary.notes}</span>
-          <Dot aria-hidden="true" className="size-4 shrink-0" />
-          <span>{summary.completed}</span>
-        </p>
-        <p className="text-muted-foreground font-mono">
-          {formatSnapshot(review.hash)}
-        </p>
-        {deleting && (
-          <div
-            role="alert"
-            onClick={(event) => event.stopPropagation()}
-            onKeyDown={(event) => event.stopPropagation()}
-            className="space-y-2"
-          >
-            <p>
-              Delete this snapshot, all notes, and its review progress
-              permanently?
-            </p>
-            <Button
-              variant="destructive"
-              disabled={busy}
-              onClick={() => void act({ action: "delete", id: review.id })}
-            >
-              Confirm deletion
-            </Button>
-            <Button variant="ghost" onClick={() => setDeleting(false)}>
-              Cancel
-            </Button>
-          </div>
-        )}
-        {failed && (
-          <p role="alert" className="text-destructive">
-            Local operation failed. Retry; your saved data is retained.
-          </p>
-        )}
-      </div>
-      <div
-        className="flex shrink-0 gap-1"
-        onClick={(event) => event.stopPropagation()}
-        onKeyDown={(event) => event.stopPropagation()}
+    <>
+      {ConfirmationDialog}
+      <CommandItem
+        value={review.id}
+        disabled={busy}
+        className="items-start p-3 text-base [&>svg:last-child]:hidden bg-transparent! data-[selected=true]:bg-muted!"
+        onSelect={() => {
+          if (!editing)
+            void act({ action: "open", id: review.id }).then((saved) => {
+              if (saved) onOpen();
+            });
+        }}
       >
-        <Button
-          variant="ghost"
-          size="icon"
-          aria-label={`Rename ${review.title}`}
-          disabled={busy}
-          onClick={() => setEditing(true)}
+        <div className="min-w-0 flex-1 flex flex-col gap-2">
+          {editing ? (
+            <form
+              noValidate
+              onClick={(event) => event.stopPropagation()}
+              onKeyDown={(event) => event.stopPropagation()}
+              className="flex gap-2"
+              onSubmit={handleSubmit(async ({ title }) => {
+                if (
+                  await act({
+                    action: "change",
+                    id: review.id,
+                    change: { action: "rename", title },
+                  })
+                )
+                  setEditing(false);
+              })}
+            >
+              <label className="sr-only" htmlFor={id}>
+                Review name
+              </label>
+              <Input
+                id={id}
+                autoFocus
+                {...register("title")}
+                className="text-base min-w-0"
+                aria-invalid={!!errors.title}
+              />
+              <Button
+                type="submit"
+                size="icon"
+                aria-label="Save review name"
+                disabled={busy}
+              >
+                <LoadingSwap isLoading={busy}>
+                  <Check aria-hidden="true" />
+                </LoadingSwap>
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                aria-label="Cancel rename"
+                onClick={() => setEditing(false)}
+              >
+                <X aria-hidden="true" />
+              </Button>
+              {errors.title && <p role="alert">{errors.title.message}</p>}
+            </form>
+          ) : (
+            <p className="font-medium wrap-break-word">{review.title}</p>
+          )}
+          <p className="flex flex-wrap items-center gap-1 text-muted-foreground">
+            <span>{summary.round}</span>
+            <Dot aria-hidden="true" className="size-4 shrink-0" />
+            <span>{summary.date}</span>
+            <Dot aria-hidden="true" className="size-4 shrink-0" />
+            <span>{summary.files}</span>
+            <Dot aria-hidden="true" className="size-4 shrink-0" />
+            <span>{summary.notes}</span>
+            <Dot aria-hidden="true" className="size-4 shrink-0" />
+            <span>{summary.completed}</span>
+          </p>
+          <p className="text-muted-foreground font-mono">
+            {formatSnapshot(review.hash)}
+          </p>
+          {failed && (
+            <p role="alert" className="text-destructive">
+              Local operation failed. Retry; your saved data is retained.
+            </p>
+          )}
+        </div>
+        <div
+          className="flex shrink-0 gap-1"
+          onClick={(event) => event.stopPropagation()}
+          onKeyDown={(event) => event.stopPropagation()}
         >
-          <Pencil aria-hidden="true" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          aria-label={`Delete ${review.title}`}
-          disabled={busy}
-          onClick={() => setDeleting(true)}
-        >
-          <Trash2 aria-hidden="true" />
-        </Button>
-      </div>
-    </CommandItem>
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label={`Rename ${review.title}`}
+            disabled={busy}
+            onClick={() => setEditing(true)}
+          >
+            <Pencil aria-hidden="true" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label={`Delete ${review.title}`}
+            disabled={busy}
+            onClick={() =>
+              void (async () => {
+                if (await confirm())
+                  await act({ action: "delete", id: review.id });
+              })()
+            }
+          >
+            <Trash2 aria-hidden="true" />
+          </Button>
+        </div>
+      </CommandItem>
+    </>
   );
 };
 
