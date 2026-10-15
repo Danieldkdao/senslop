@@ -13,6 +13,7 @@ import { providerRequest, readProviderSettings } from "../lib/requests";
 import type { ConnectionFeedback, ProviderSettingsState } from "../types";
 import { ProviderKeyForm } from "./provider-key-form";
 import { TooltipWrapper } from "@/components/ui/tooltip-wrapper";
+import { useConfirm } from "@/hooks/use-confirm";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/toast";
 import { useProviderModels } from "../hooks/use-provider-models";
@@ -39,7 +40,10 @@ export const ProviderSettings = ({
   const [state, setState] = useState<ProviderSettingsState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [deleting, setDeleting] = useState<string | null>(null);
+  const { confirm, ConfirmationDialog } = useConfirm(
+    "Delete this connection?",
+    "This removes the provider connection and its saved API key from this computer.",
+  );
   // A new saved ID remounts its form; keep check results across that refresh.
   const [feedbackByConnection, setFeedbackByConnection] = useState<
     Record<string, ConnectionFeedback | null>
@@ -85,10 +89,12 @@ export const ProviderSettings = ({
     }
   };
   return (
-    <div className="space-y-8 text-base">
+    <div className="flex flex-col gap-8 text-base">
+      {ConfirmationDialog}
       <p className="text-muted-foreground">
-        Choose models in the AI test page. API keys are saved in your OS
-        credential store; configuration stays on this computer.
+        Choose task models in AI settings and chat models in the agent panel.
+        API keys are saved in your OS credential store; configuration stays on
+        this computer.
       </p>
       {!state && !error && <p role="status">Loading local connections…</p>}
       {error && (
@@ -133,7 +139,7 @@ export const ProviderSettings = ({
                   .includes(search)
               }
               id={`settings-provider-${provider}`}
-              className="space-y-4 border-b pb-6"
+              className="flex flex-col gap-4 border-b pb-6"
               aria-label={`${info.label} connections`}
             >
               <h3 className="flex items-center gap-3 text-base font-medium text-muted-foreground">
@@ -141,7 +147,10 @@ export const ProviderSettings = ({
                 {info.label}
               </h3>
               {options.map((connection) => (
-                <div key={connection?.id ?? provider} className="space-y-3">
+                <div
+                  key={connection?.id ?? provider}
+                  className="flex flex-col gap-3"
+                >
                   <div className="grid gap-4 md:grid-cols-2 items-start">
                     <div className="flex flex-col gap-2">
                       <div className="flex flex-col gap-1">
@@ -208,7 +217,20 @@ export const ProviderSettings = ({
                                 size="icon"
                                 aria-label={`Delete ${info.label} connection`}
                                 disabled={busy}
-                                onClick={() => setDeleting(connection.id)}
+                                onClick={async () => {
+                                  if (!(await confirm())) return;
+                                  if (
+                                    await act({
+                                      action: "delete",
+                                      id: connection.id,
+                                    })
+                                  )
+                                    setFeedbackByConnection((current) => {
+                                      const remaining = { ...current };
+                                      delete remaining[connection.id];
+                                      return remaining;
+                                    });
+                                }}
                               >
                                 <Trash2 aria-hidden="true" />
                               </Button>
@@ -220,40 +242,6 @@ export const ProviderSettings = ({
                               </span>
                             )}
                           </div>
-                          {deleting === connection.id && (
-                            <div role="alert" className="space-y-2">
-                              <p>
-                                Delete this connection and its saved API key?
-                              </p>
-                              <Button
-                                variant="destructive"
-                                disabled={busy}
-                                onClick={async () => {
-                                  if (
-                                    await act({
-                                      action: "delete",
-                                      id: connection.id,
-                                    })
-                                  ) {
-                                    setDeleting(null);
-                                    setFeedbackByConnection((current) => {
-                                      const remaining = { ...current };
-                                      delete remaining[connection.id];
-                                      return remaining;
-                                    });
-                                  }
-                                }}
-                              >
-                                Confirm deletion
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                onClick={() => setDeleting(null)}
-                              >
-                                Cancel
-                              </Button>
-                            </div>
-                          )}
                         </>
                       )}
                     </div>

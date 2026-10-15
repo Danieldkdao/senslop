@@ -463,3 +463,50 @@ test("local key blur checks the newly saved endpoint, preserves the configuratio
   expect(saved).toHaveBeenCalledOnce();
   expect(screen.getByLabelText("API base URL")).toBeTruthy();
 });
+
+test("connection deletion asks in a dialog and cancel retains the saved connection", async () => {
+  const connection: PublicConnectionSchema = {
+    id: "00000000-0000-4000-8000-000000000004",
+    provider: "ollama",
+    name: "Ollama",
+    baseURL: "http://localhost:11434",
+    model: "",
+    contextWindow: null,
+    configured: false,
+    credentialError: null,
+  };
+  let deleted = false;
+  const calls: object[] = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (_url, options?: RequestInit) => {
+      if (options?.body) {
+        const body = JSON.parse(String(options.body));
+        calls.push(body);
+        deleted = true;
+        return Response.json(null);
+      }
+      return Response.json({
+        ...empty,
+        connections: deleted ? [] : [connection],
+      });
+    }),
+  );
+  render(<ProviderSettings onConfigure={vi.fn()} />);
+  const user = userEvent.setup();
+  await user.click(
+    await screen.findByRole("button", { name: "Delete Ollama connection" }),
+  );
+  expect(
+    await screen.findByRole("dialog", { name: "Delete this connection?" }),
+  ).toBeTruthy();
+  await user.click(screen.getByRole("button", { name: "Cancel" }));
+  expect(calls).toEqual([]);
+  await user.click(
+    screen.getByRole("button", { name: "Delete Ollama connection" }),
+  );
+  await user.click(screen.getByRole("button", { name: "Confirm" }));
+  await waitFor(() =>
+    expect(calls).toEqual([{ action: "delete", id: connection.id }]),
+  );
+});
