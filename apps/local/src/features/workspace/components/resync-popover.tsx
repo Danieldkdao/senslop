@@ -63,6 +63,7 @@ export const ResyncPopover = ({
         }
       >
         <PopoverTrigger
+          disabled={disabled}
           render={
             <Button
               variant="ghost"
@@ -117,9 +118,9 @@ export const ResyncPopover = ({
             )}
           />
           <p className="text-muted-foreground">
-            Earlier rounds and their notes stay in history. Changed files are
-            reviewed again; unchanged files keep their summaries in the current
-            round.
+            Keeping current changes updates this review and preserves its notes,
+            chats, and AI review history. Showing only newer edits starts a
+            separate review.
           </p>
           {settings.data?.groupingMode === "ask" && (
             <label
@@ -144,6 +145,11 @@ export const ResyncPopover = ({
           {!configured && (
             <p className="text-muted-foreground">
               Grouping is unavailable until a grouping model is configured.
+            </p>
+          )}
+          {unavailableReason && (
+            <p role="status" className="text-muted-foreground">
+              {unavailableReason}
             </p>
           )}
           {error && (

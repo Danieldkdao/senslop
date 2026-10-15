@@ -14,13 +14,15 @@ import {
   savedReviewSchema,
   type ReviewChangeSchema,
 } from "@senslop/contracts";
-import type { LivePreview } from "../types";
+import type { LivePreview, ReviewOperation } from "../types";
 import { toast } from "@/components/ui/toast";
 
 class LocalPreviewRequestError extends Error {}
 
 type PreviewContext = {
   preview: LivePreview | null;
+  reviewOperation: ReviewOperation | null;
+  trackReviewOperation: (operation: ReviewOperation | null) => void;
   error: string | null;
   refresh: () => Promise<void>;
   discardReview: () => Promise<void>;
@@ -33,6 +35,8 @@ export const LivePreviewProvider = ({ children }: { children: ReactNode }) => {
     preview: LivePreview | null;
     error: string | null;
   }>({ preview: null, error: null });
+  const [reviewOperation, trackReviewOperation] =
+    useState<ReviewOperation | null>(null);
   const etag = useRef<string | null>(null);
   const epoch = useRef(0);
   const stateRef = useRef(state);
@@ -142,7 +146,10 @@ export const LivePreviewProvider = ({ children }: { children: ReactNode }) => {
     const id = stateRef.current.preview?.id;
     if (!id) return;
     await requestReview({ action: "delete", id });
-    if (stateRef.current.preview?.id === id) apply(null);
+    if (stateRef.current.preview?.id === id) {
+      trackReviewOperation(null);
+      apply(null);
+    }
     await refresh();
   }, [apply, requestReview, refresh]);
   useEffect(() => {
@@ -174,7 +181,14 @@ export const LivePreviewProvider = ({ children }: { children: ReactNode }) => {
   }, [poll]);
   return (
     <LivePreviewContext
-      value={{ ...state, refresh, changeReview, discardReview }}
+      value={{
+        ...state,
+        reviewOperation,
+        trackReviewOperation,
+        refresh,
+        changeReview,
+        discardReview,
+      }}
     >
       {children}
     </LivePreviewContext>
