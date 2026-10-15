@@ -1,7 +1,9 @@
 import { expect, test, vi } from "vitest";
-import { generateText } from "ai";
+import { generateText, APICallError, Output } from "ai";
+import { z } from "zod";
 import type { ProviderConfigSchema } from "@senslop/contracts";
 import { resolveLanguageModel } from "../provider-runtime";
+import { formatAiError } from "../errors";
 
 vi.mock("server-only", () => ({}));
 
@@ -22,6 +24,81 @@ test("required credentials fail before creating a model or making requests", () 
     resolveLanguageModel(connection("chatgpt"), null, "test-model", fetcher),
   ).toThrow("API key");
   expect(fetcher).not.toHaveBeenCalled();
+});
+
+test.each(["lm-studio", "llama-cpp"] as const)(
+  "%s sends structured schemas to its compatible server",
+  async (provider) => {
+    let body: Record<string, unknown> | undefined;
+    const fetcher: typeof fetch = async (_url, init) => {
+      body = JSON.parse(String(init?.body));
+      return Response.json({
+        choices: [
+          {
+            index: 0,
+            message: { role: "assistant", content: '{"answer":"valid"}' },
+            finish_reason: "stop",
+          },
+        ],
+        usage: { prompt_tokens: 10, completion_tokens: 10, total_tokens: 20 },
+      });
+    };
+    const result = await generateText({
+      ...resolveLanguageModel(connection(provider), null, "fixture", fetcher),
+      prompt: "Respond",
+      output: Output.object({ schema: z.object({ answer: z.string() }) }),
+    });
+    expect(result.output).toEqual({ answer: "valid" });
+    expect(body?.response_format).toMatchObject({
+      type: "json_schema",
+      json_schema: { schema: { properties: { answer: { type: "string" } } } },
+    });
+  },
+);
+
+test("model calls using the same provider credentials share a request limit", async () => {
+  const releases: (() => void)[] = [];
+  let active = 0;
+  let peak = 0;
+  const fetcher: typeof fetch = async () => {
+    active++;
+    peak = Math.max(peak, active);
+    await new Promise<void>((resolve) => releases.push(resolve));
+    active--;
+    return Response.json({
+      id: "fixture",
+      object: "chat.completion",
+      created: 1,
+      model: "fixture",
+      choices: [
+        {
+          index: 0,
+          message: { role: "assistant", content: "ok" },
+          finish_reason: "stop",
+        },
+      ],
+      usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+    });
+  };
+  const runs = Array.from({ length: 3 }, (_, id) =>
+    generateText({
+      ...resolveLanguageModel(
+        connection("lm-studio"),
+        "shared-limiter-fixture",
+        `model-${id}`,
+        fetcher,
+      ),
+      prompt: "hello",
+      maxRetries: 0,
+    }),
+  );
+  await vi.waitFor(() => expect(releases).toHaveLength(2));
+  expect(peak).toBe(2);
+  releases.shift()!();
+  await vi.waitFor(() => expect(releases).toHaveLength(2));
+  for (const release of releases) release();
+  await Promise.all(runs);
+  expect(peak).toBe(2);
 });
 
 test.each([
@@ -153,4 +230,288 @@ test("OpenCode refuses unknown protocols rather than guessing", () => {
   expect(() =>
     resolveLanguageModel(connection("opencode"), "test-key", "unknown-model"),
   ).toThrow("protocol");
+});
+
+test("OpenRouter HTTP 200 envelopes carrying upstream 502 are retried as provider failures", async () => {
+  const fetcher = vi.fn<typeof fetch>(async (): Promise<Response> =>
+    fetcher.mock.calls.length === 1
+      ? Response.json({
+          error: {
+            code: 502,
+            message: "Upstream error from Nvidia: Internal server error",
+            metadata: { error_type: "provider_unavailable" },
+          },
+        })
+      : Response.json({
+          choices: [
+            {
+              index: 0,
+              message: { role: "assistant", content: "Recovered" },
+              finish_reason: "stop",
+            },
+          ],
+          usage: { prompt_tokens: 10, completion_tokens: 1, total_tokens: 11 },
+        }),
+  );
+  const resolved = resolveLanguageModel(
+    connection("openrouter"),
+    "fixture-key",
+    "nvidia/nemotron-3-ultra-550b-a55b:free",
+    fetcher,
+  );
+  await expect(
+    generateText({
+      ...resolved,
+      prompt: "Fixture",
+      maxOutputTokens: 16000,
+      providerOptions: { openrouter: { reasoning: { max_tokens: 2048 } } },
+      maxRetries: 1,
+    }),
+  ).resolves.toMatchObject({ text: "Recovered" });
+  expect(fetcher).toHaveBeenCalledTimes(2);
+});
+
+test.each([400, 401, 502])(
+  "OpenRouter reports the real %i error code without exposing request content",
+  async (code) => {
+    const log = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const fetcher = vi.fn<typeof fetch>(async () =>
+      Response.json(
+        {
+          error: {
+            code,
+            message: "TEST_PRIVATE_PROVIDER_OUTPUT",
+            metadata: { error_type: "provider_unavailable" },
+          },
+        },
+        {
+          headers: {
+            "set-cookie": "TEST_PRIVATE_COOKIE",
+            "x-generation-id": "fixture-generation",
+            "retry-after": "1",
+          },
+        },
+      ),
+    );
+    const resolved = resolveLanguageModel(
+      connection("openrouter"),
+      "TEST_PRIVATE_KEY",
+      "nvidia/nemotron-3-ultra-550b-a55b:free",
+      fetcher,
+    );
+    const error = await generateText({
+      ...resolved,
+      prompt: "TEST_PRIVATE_SOURCE",
+      maxRetries: 0,
+    }).catch((error) => error);
+    expect(APICallError.isInstance(error)).toBe(true);
+    expect(error.statusCode).toBe(code);
+    expect(error.isRetryable).toBe(code === 502);
+    expect(error.requestBodyValues).toBeUndefined();
+    expect(error.responseBody).toBeUndefined();
+    expect(error.responseHeaders).toEqual({
+      "x-generation-id": "fixture-generation",
+      "retry-after": "1",
+    });
+    expect(error.cause).toBeUndefined();
+    expect(JSON.stringify(log.mock.calls)).not.toMatch(/TEST_PRIVATE/);
+    expect(log).toHaveBeenCalledWith(
+      "[senslop:ai-provider]",
+      expect.objectContaining({
+        statusCode: code,
+        transportStatus: 200,
+        retryable: code === 502,
+      }),
+    );
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  },
+);
+
+test("persistent upstream failures stop after the retry budget and keep the availability message", async () => {
+  const fetcher = vi.fn<typeof fetch>(async () =>
+    Response.json({
+      error: { code: 502, message: "TEST_PRIVATE_PROVIDER_OUTPUT" },
+    }),
+  );
+  const resolved = resolveLanguageModel(
+    connection("openrouter"),
+    "TEST_PRIVATE_KEY",
+    "nemotron",
+    fetcher,
+  );
+  const error = await generateText({
+    ...resolved,
+    prompt: "TEST_PRIVATE_SOURCE",
+    maxRetries: 1,
+  }).catch((error) => error);
+  expect(fetcher).toHaveBeenCalledTimes(2);
+  expect(formatAiError(error)).toContain("temporarily unavailable");
+  expect(JSON.stringify(error)).not.toMatch(/TEST_PRIVATE/);
+});
+
+test("an aborted request does not send a retry to the provider", async () => {
+  const abort = new AbortController();
+  const fetcher = vi.fn<typeof fetch>(async () => {
+    abort.abort();
+    return Response.json({ error: { code: 502, message: "Unavailable" } });
+  });
+  const resolved = resolveLanguageModel(
+    connection("openrouter"),
+    "fixture-key",
+    "nemotron",
+    fetcher,
+  );
+  await expect(
+    generateText({
+      ...resolved,
+      prompt: "Fixture",
+      maxRetries: 2,
+      abortSignal: abort.signal,
+    }),
+  ).rejects.toThrow();
+  expect(fetcher).toHaveBeenCalledTimes(1);
+});
+
+test("Google models and credentials at the same endpoint share the 250,000 input TPM budget", async () => {
+  vi.useFakeTimers();
+  try {
+    const fetcher = vi.fn<typeof fetch>(async () =>
+      Response.json({
+        candidates: [
+          {
+            content: { role: "model", parts: [{ text: "Done" }] },
+            finishReason: "STOP",
+          },
+        ],
+        usageMetadata: {
+          promptTokenCount: 125000,
+          candidatesTokenCount: 1,
+          totalTokenCount: 125001,
+        },
+      }),
+    );
+    const googleConnection = connection(
+      "google",
+      "https://shared-project.test/v1beta",
+    );
+    const first = resolveLanguageModel(
+      googleConnection,
+      "first-fixture-key",
+      "gemini-first",
+      fetcher,
+    );
+    const second = resolveLanguageModel(
+      googleConnection,
+      "second-fixture-key",
+      "gemini-second",
+      fetcher,
+    );
+    expect(first.requestLimiter).toBe(second.requestLimiter);
+    const requests = [first, second].map((resolved) =>
+      generateText({
+        model: resolved.model,
+        prompt: "x".repeat(125000),
+        maxRetries: 0,
+      }),
+    );
+    await vi.advanceTimersByTimeAsync(1);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(59998);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    await Promise.all(requests);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("Gemini receives a compilable output schema while SDK array bounds remain enforced", async () => {
+  let captured: Record<string, unknown> | undefined;
+  const fetcher: typeof fetch = async (_url, init) => {
+    captured = JSON.parse(String(init?.body));
+    const schema = (
+      captured!.generationConfig as { responseJsonSchema: unknown }
+    ).responseJsonSchema;
+    if (JSON.stringify(schema).includes('"maxItems"'))
+      return Response.json(
+        {
+          error: {
+            code: 400,
+            message: "Request contains an invalid argument.",
+            status: "INVALID_ARGUMENT",
+          },
+        },
+        { status: 400 },
+      );
+    return Response.json({
+      candidates: [
+        {
+          content: {
+            role: "model",
+            parts: [{ text: '{"files":["a","b","c"]}' }],
+          },
+          finishReason: "STOP",
+        },
+      ],
+      usageMetadata: {
+        promptTokenCount: 10,
+        candidatesTokenCount: 10,
+        totalTokenCount: 20,
+      },
+    });
+  };
+  const resolved = resolveLanguageModel(
+    connection("google", "https://schema-fixture.test/v1beta"),
+    "fixture-key",
+    "gemini-3.5-flash-lite",
+    fetcher,
+  );
+  await expect(
+    generateText({
+      model: resolved.model,
+      prompt: "Synthetic",
+      output: Output.object({
+        schema: z.object({ files: z.array(z.string()).max(2) }),
+      }),
+      maxRetries: 0,
+    }),
+  ).rejects.toThrow(/schema/);
+  expect(JSON.stringify(captured!.generationConfig as object)).not.toContain(
+    '"maxItems"',
+  );
+});
+
+test("MiMo uses JSON mode through Gateway while SDK still validates the requested object", async () => {
+  let captured:
+    { responseFormat?: { type: string; schema?: unknown } } | undefined;
+  const fetcher: typeof fetch = async (_url, init) => {
+    captured = JSON.parse(String(init?.body));
+    return Response.json({
+      content: [{ type: "text", text: '{"answer":"valid"}' }],
+      finishReason: { unified: "stop", raw: "stop" },
+      usage: {
+        inputTokens: { total: 10, noCache: 10 },
+        outputTokens: { total: 10, text: 10, reasoning: 0 },
+      },
+      warnings: captured?.responseFormat?.schema
+        ? [{ type: "unsupported", feature: "responseFormat" }]
+        : [],
+    });
+  };
+  const resolved = resolveLanguageModel(
+    connection("vercel"),
+    "fixture-key",
+    "xiaomi/mimo-v2.6-flash",
+    fetcher,
+  );
+  const result = await generateText({
+    model: resolved.model,
+    prompt: "Synthetic",
+    output: Output.object({ schema: z.object({ answer: z.string() }) }),
+    maxRetries: 0,
+  });
+  expect(result.output).toEqual({ answer: "valid" });
+  expect(captured?.responseFormat).toEqual({ type: "json" });
+  expect(result.warnings).toEqual([]);
 });
