@@ -17,7 +17,8 @@
       "@/components/file-icon": ["./packages/ui/src/components/file-icon.tsx"],
       "@/features/review/*": ["./apps/local/src/features/review/*"],
       "@/features/workspace/*": ["./apps/local/src/features/workspace/*"],
-      "@/*": ["./apps/web/src/*"]
+      "@/*": ["./apps/web/src/*"],
+      "@/hooks/use-confirm": ["./packages/ui/src/hooks/use-confirm.tsx"]
     },
     "jsx": "react-jsx",
     "lib": ["ES2022", "DOM", "DOM.Iterable"]
