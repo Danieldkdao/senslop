@@ -13,18 +13,6 @@ export const getProviderSettingsSection = (
 ): SettingsSection => ({
   id: "providers",
   label: "Providers",
-  links: providerIds
-    .filter(
-      (provider) =>
-        !query ||
-        `providers api key model endpoint ${formatProvider(provider).label}`
-          .toLowerCase()
-          .includes(query),
-    )
-    .map((provider) => ({
-      id: `settings-provider-${provider}`,
-      label: formatProvider(provider).label,
-    })),
   keywords: `providers api key model endpoint ${providerIds.map((provider) => formatProvider(provider).label).join(" ")}`,
   content: (
     <ProviderSettings
