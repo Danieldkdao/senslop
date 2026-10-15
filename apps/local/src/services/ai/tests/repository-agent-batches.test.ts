@@ -255,6 +255,268 @@ const batch = (options: LanguageModelV4CallOptions) => {
     previousSummaries?: { path: string; summary: string }[];
   };
 };
+
+test("grouping constrains each request to its batch and orders with compact file references", async () => {
+  const selected = Array.from({ length: 12 }, (_, index) => ({
+    ...files[0]!,
+    path: `${index}.ts`,
+    diff: "small patch",
+  }));
+  state.model = new MockLanguageModelV4({
+    doGenerate: async (options) => {
+      requests.push(options);
+      if (text(options).includes("Order these prepared files")) {
+        expect(
+          (options.tools ?? [])
+            .filter((tool) => tool.type === "function")
+            .map((tool) => tool.name),
+        ).toEqual([]);
+        return response({
+          groups: [
+            {
+              title: "Flow",
+              rationale: "Definitions first",
+              files: selected.map((_, index) => index),
+            },
+          ],
+        });
+      }
+      const input = batch(options);
+      expect(input.changes.length).toBeLessThanOrEqual(8);
+      const schema = options.responseFormat as unknown as {
+        schema: {
+          properties: {
+            groups: {
+              items: {
+                properties: {
+                  files: {
+                    items: { properties: { path: { enum: string[] } } };
+                  };
+                };
+              };
+            };
+          };
+        };
+      };
+      expect(
+        schema.schema.properties.groups.items.properties.files.items.properties
+          .path.enum,
+      ).toEqual(input.changes.map((file) => file.path));
+      const prompt = options.prompt
+        .flatMap((message) => (message.role === "user" ? message.content : []))
+        .filter((part) => part.type === "text")
+        .map((part) => part.text)
+        .join("\n");
+      const context = JSON.parse(
+        prompt.match(/Snapshot context:\n([^\n]+)/)![1]!,
+      ) as { changes: { path: string }[] };
+      expect(context.changes.map((file) => file.path)).toEqual(
+        input.changes.map((file) => file.path),
+      );
+      return response({
+        groups: [
+          {
+            title: "Flow",
+            rationale: "Change",
+            files: input.changes.map((file) => ({
+              path: file.path,
+              summary: "Changes value",
+              related: [],
+            })),
+          },
+        ],
+      });
+    },
+  });
+  const grouped = await (await agent(selected)).grouping();
+  expect(
+    grouped.groups.flatMap((group) => group.files.map((file) => file.path)),
+  ).toEqual(selected.map((file) => file.path));
+});
+
+test("grouping repairs only duplicated membership in a structured result", async () => {
+  const selected = files
+    .slice(0, 2)
+    .map((file) => ({ ...file, diff: "small patch" }));
+  state.model = new MockLanguageModelV4({
+    doGenerate: async (options) => {
+      requests.push(options);
+      if (text(options).includes("Repair input:")) {
+        expect(batch(options).changes.map((file) => file.path)).toEqual([
+          "0.ts",
+        ]);
+        return response({
+          groups: [],
+          files: [
+            {
+              path: "0.ts",
+              summary: "Corrected",
+              related: [],
+              groupIndex: 0,
+              beforePath: "1.ts",
+            },
+          ],
+        });
+      }
+      const members = batch(options).changes.map((file) => ({
+        path: file.path,
+        summary: "KEEP",
+        related: [],
+      }));
+      return response({
+        groups: [
+          {
+            title: "Definitions",
+            rationale: "Change",
+            files: [...members, members[0]],
+          },
+        ],
+      });
+    },
+  });
+  const grouped = await (await agent(selected)).grouping();
+  expect(grouped.groups[0]!.files.map((file) => file.path)).toEqual([
+    "0.ts",
+    "1.ts",
+  ]);
+  expect(grouped.groups[0]!.files[1]!.summary).toBe("KEEP");
+  expect(requests).toHaveLength(2);
+});
+
+test("persistent duplicate grouping stops after two targeted repairs and logs no source", async () => {
+  const log = vi.spyOn(console, "warn").mockImplementation(() => {});
+  state.model = new MockLanguageModelV4({
+    doGenerate: async (options) => {
+      requests.push(options);
+      return response({
+        groups: [
+          {
+            title: "Private source",
+            rationale: "Private rationale",
+            files: [0, 0].map(() => ({
+              path: "0.ts",
+              summary: "Private summary",
+              related: [],
+            })),
+          },
+        ],
+      });
+    },
+  });
+  await expect(
+    (
+      await agent(
+        files.slice(0, 2).map((file) => ({ ...file, diff: "small patch" })),
+      )
+    ).grouping(),
+  ).rejects.toThrow("unresolved defects");
+  expect(requests).toHaveLength(6);
+  expect(log.mock.calls.length).toBeGreaterThanOrEqual(2);
+  expect(JSON.stringify(log.mock.calls)).not.toContain("Private");
+});
+
+test.each(["duplicate", "missing", "unknown"])(
+  "final ordering repairs %s file IDs without reanalyzing successful batches",
+  async (failure) => {
+    const selected = Array.from({ length: 9 }, (_, index) => ({
+      ...files[0]!,
+      path: `${index}.ts`,
+      diff: "small patch",
+    }));
+    let ordering = 0;
+    state.model = new MockLanguageModelV4({
+      doGenerate: async (options) => {
+        requests.push(options);
+        if (text(options).includes("Repair input:")) {
+          ordering++;
+          return response({
+            groups: [],
+            files: [{ path: "0.ts", groupIndex: 0, beforePath: "1.ts" }],
+          });
+        }
+        if (text(options).includes("Order these prepared files")) {
+          ordering++;
+          const ids = selected.map((_, index) => index);
+          if (ordering === 1) {
+            switch (failure) {
+              case "duplicate":
+                ids.unshift(0);
+                break;
+              case "missing":
+                ids.shift();
+                break;
+              case "unknown":
+                ids[0] = 1999;
+                break;
+            }
+          }
+          return response({
+            groups: [
+              {
+                title: "Flow",
+                rationale: "Change",
+                files: ids,
+              },
+            ],
+          });
+        }
+        return response({
+          groups: [
+            {
+              title: "Flow",
+              rationale: "Change",
+              files: batch(options).changes.map((file) => ({
+                path: file.path,
+                summary: "Changes value",
+                related: [],
+              })),
+            },
+          ],
+        });
+      },
+    });
+    const grouped = await (await agent(selected)).grouping();
+    expect(
+      grouped.groups.flatMap((group) => group.files.map((file) => file.path)),
+    ).toEqual(selected.map((file) => file.path));
+    expect(requests).toHaveLength(4);
+    expect(ordering).toBe(2);
+  },
+);
+
+test("cancellation during grouping correction prevents another provider request", async () => {
+  const abort = new AbortController();
+  state.model = new MockLanguageModelV4({
+    doGenerate: async (options) => {
+      requests.push(options);
+      abort.abort();
+      return response({
+        groups: [
+          {
+            title: "Flow",
+            rationale: "Change",
+            files: [0, 0].map(() => ({
+              path: "0.ts",
+              summary: "Changes value",
+              related: [],
+            })),
+          },
+        ],
+      });
+    },
+  });
+  await expect(
+    (
+      await agent(
+        files.slice(0, 2).map((file) => ({ ...file, diff: "small patch" })),
+        undefined,
+        undefined,
+        abort.signal,
+      )
+    ).grouping(),
+  ).rejects.toThrow();
+  expect(requests).toHaveLength(1);
+});
 beforeEach(() => {
   requests.splice(0);
   state.contextWindow = 64000;
