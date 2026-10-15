@@ -1268,6 +1268,222 @@ test("reviews also narrow truncated batches and merge only validated complete re
   expect(requests).toHaveLength(3);
 });
 
+test("malformed final ordering groups trigger placement-only repair and retain every prepared summary", async () => {
+  state.model = new MockLanguageModelV4({
+    doGenerate: async (options) => {
+      if (text(options).includes("Order these prepared files"))
+        return response({ groups: [null] });
+      if (text(options).includes("Repair input:"))
+        return response({
+          groups: [{ index: 0, title: "Flow", rationale: "Change" }],
+          files: files.map((file) => ({
+            path: file.path,
+            groupIndex: 0,
+            beforePath: null,
+          })),
+        });
+      return response({
+        groups: [
+          {
+            title: "Flow",
+            rationale: "Change",
+            files: batch(options).changes.map((file) => ({
+              path: file.path,
+              summary: `PREPARED ${file.path}`,
+              related: [],
+            })),
+          },
+        ],
+      });
+    },
+  });
+  const result = await (await agent()).grouping();
+  expect(
+    result.groups.flatMap((group) => group.files).map((file) => file.summary),
+  ).toEqual(files.map((file) => `PREPARED ${file.path}`));
+});
+
+test("reasoning exhaustion during final ordering preserves prepared batches and recovers ordering only", async () => {
+  let orderingCalls = 0;
+  let sourceCalls = 0;
+  state.model = new MockLanguageModelV4({
+    doGenerate: async (options) => {
+      if (text(options).includes("Order these prepared files")) {
+        if (++orderingCalls === 1)
+          return {
+            ...response({}),
+            content: [],
+            finishReason: { unified: "length", raw: "length" },
+            usage: {
+              ...usage,
+              outputTokens: {
+                total: options.maxOutputTokens,
+                text: 0,
+                reasoning: options.maxOutputTokens,
+              },
+            },
+          };
+        return response({
+          groups: [
+            {
+              title: "Flow",
+              rationale: "Change",
+              files: files.map((_, id) => id),
+            },
+          ],
+        });
+      }
+      sourceCalls++;
+      return response({
+        groups: [
+          {
+            title: "Flow",
+            rationale: "Change",
+            files: batch(options).changes.map((file) => ({
+              path: file.path,
+              summary: `PREPARED ${file.path}`,
+              related: [],
+            })),
+          },
+        ],
+      });
+    },
+  });
+  const result = await (await agent()).grouping();
+  expect(
+    result.groups.flatMap((group) => group.files).map((file) => file.summary),
+  ).toEqual(files.map((file) => `PREPARED ${file.path}`));
+  expect(orderingCalls).toBe(2);
+  expect(sourceCalls).toBe(12);
+});
+
+test("persistent final ordering exhaustion still publishes the validated batch groups", async () => {
+  let orderingCalls = 0;
+  state.model = new MockLanguageModelV4({
+    doGenerate: async (options) => {
+      if (text(options).includes("Order these prepared files")) {
+        orderingCalls++;
+        return {
+          ...response({}),
+          content: [],
+          finishReason: { unified: "length", raw: "length" },
+        };
+      }
+      return response({
+        groups: [
+          {
+            title: "Flow",
+            rationale: "Change",
+            files: batch(options).changes.map((file) => ({
+              path: file.path,
+              summary: `PREPARED ${file.path}`,
+              related: [],
+            })),
+          },
+        ],
+      });
+    },
+  });
+  const result = await (await agent()).grouping();
+  expect(
+    result.groups.flatMap((group) => group.files).map((file) => file.path),
+  ).toEqual(files.map((file) => file.path));
+  expect(
+    result.groups.flatMap((group) => group.files).map((file) => file.summary),
+  ).toEqual(files.map((file) => `PREPARED ${file.path}`));
+  expect(
+    result.groups.every((group) => group.rationale.includes("Global ordering")),
+  ).toBe(true);
+  expect(orderingCalls).toBe(2);
+});
+
+test("canceling final ordering prevents the fallback from publishing prepared groups", async () => {
+  const abort = new AbortController();
+  state.model = new MockLanguageModelV4({
+    doGenerate: async (options) => {
+      if (text(options).includes("Order these prepared files")) {
+        abort.abort(new Error("Canceled during ordering"));
+        return {
+          ...response({}),
+          content: [],
+          finishReason: { unified: "length", raw: "length" },
+        };
+      }
+      return response({
+        groups: [
+          {
+            title: "Flow",
+            rationale: "Change",
+            files: batch(options).changes.map((file) => ({
+              path: file.path,
+              summary: "PREPARED",
+              related: [],
+            })),
+          },
+        ],
+      });
+    },
+  });
+  await expect(
+    (await agent(files, undefined, undefined, abort.signal)).grouping(),
+  ).rejects.toThrow(/Canceled/);
+});
+
+test("group ordering cannot discard already validated summaries when both placement repairs omit files", async () => {
+  const selected = files
+    .slice(0, 3)
+    .map((file) => ({ ...file, diff: "small patch" }));
+  state.model = new MockLanguageModelV4({
+    doGenerate: async (options) => {
+      requests.push(options);
+      const properties =
+        options.responseFormat?.type === "json"
+          ? (options.responseFormat.schema?.properties as Record<
+              string,
+              unknown
+            >)
+          : undefined;
+      if (properties?.files) return response({ groups: [], files: [] });
+      if (text(options).includes("Order these prepared files"))
+        return response({
+          groups: [
+            { title: "Partial ordering", rationale: "First", files: [0] },
+          ],
+        });
+      const input = batch(options);
+      return response({
+        groups: [
+          {
+            title: "Flow",
+            rationale: "Review",
+            files: input.changes.map((file) => ({
+              path: file.path,
+              summary: "Verified summary",
+              related: [],
+            })),
+          },
+        ],
+      });
+    },
+  });
+  const result = await (
+    await agent(selected, undefined, undefined, undefined, undefined, {
+      groupingMaxFiles: 1,
+      batchConcurrency: 1,
+    })
+  ).grouping();
+  expect(
+    result.groups
+      .flatMap((group) => group.files.map((file) => file.path))
+      .sort(),
+  ).toEqual(["0.ts", "1.ts", "2.ts"]);
+  expect(
+    result.groups.some((group) =>
+      /ordering could not complete/.test(group.rationale),
+    ),
+  ).toBe(true);
+});
+
 test("incomplete multi-file grouping narrows the failed batch instead of losing the entire review", async () => {
   const selected = files
     .slice(0, 3)
@@ -1312,4 +1528,43 @@ test("incomplete multi-file grouping narrows the failed batch instead of losing 
       .sort(),
   ).toEqual(["0.ts", "1.ts", "2.ts"]);
   expect(smallCalls).toBeGreaterThan(0);
+});
+
+test("malformed final ordering JSON retains validated groups after bounded format correction", async () => {
+  const selected = files
+    .slice(0, 3)
+    .map((file) => ({ ...file, diff: "small patch" }));
+  state.model = new MockLanguageModelV4({
+    doGenerate: async (options) => {
+      requests.push(options);
+      if (text(options).includes("Order these prepared files"))
+        return {
+          ...response({}),
+          content: [{ type: "text" as const, text: "{" }],
+        };
+      return response({
+        groups: [
+          {
+            title: "Flow",
+            rationale: "Review",
+            files: batch(options).changes.map((file) => ({
+              path: file.path,
+              summary: "Verified summary",
+              related: [],
+            })),
+          },
+        ],
+      });
+    },
+  });
+  const result = await (
+    await agent(selected, undefined, undefined, undefined, undefined, {
+      groupingMaxFiles: 1,
+      batchConcurrency: 1,
+    })
+  ).grouping();
+  expect(
+    result.groups.flatMap((group) => group.files.map((file) => file.path)),
+  ).toEqual(["0.ts", "1.ts", "2.ts"]);
+  expect(requests).toHaveLength(5);
 });
