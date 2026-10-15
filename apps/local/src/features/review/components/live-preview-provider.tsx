@@ -23,6 +23,7 @@ type PreviewContext = {
   preview: LivePreview | null;
   error: string | null;
   refresh: () => Promise<void>;
+  discardReview: () => Promise<void>;
   changeReview: (change: ReviewChangeSchema) => Promise<void>;
 };
 const LivePreviewContext = createContext<PreviewContext | null>(null);
@@ -87,11 +88,7 @@ export const LivePreviewProvider = ({ children }: { children: ReactNode }) => {
       if (response.status !== 304) {
         const data: unknown = await response.json();
         if (signal?.aborted || started !== epoch.current) return;
-        const newId =
-          data && typeof data === "object" && "id" in data ? data.id : null;
         apply(data);
-        if (newId && newId !== stateRef.current.preview?.id)
-          toast.success("Your changes are ready to explore.");
         etag.current = response.headers?.get("etag") ?? null;
       }
       setState((current) =>
@@ -105,33 +102,49 @@ export const LivePreviewProvider = ({ children }: { children: ReactNode }) => {
     etag.current = null;
     await poll(undefined, true);
   }, [poll]);
+  const requestReview = useCallback(async (body: object) => {
+    epoch.current++;
+    try {
+      const response = await fetch("/api/workspace", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data: unknown = await response.json();
+      if (!response.ok)
+        throw new Error(
+          (data as { message?: string })?.message ??
+            "Local save failed. Retry.",
+        );
+      etag.current = null;
+      return data;
+    } catch (error) {
+      toast.error((error as Error).message);
+      throw error;
+    }
+  }, []);
   const changeReview = useCallback(
     async (change: ReviewChangeSchema) => {
       const id = stateRef.current.preview?.id;
       if (!id) throw new Error("Select a saved review first.");
-      epoch.current++;
-      try {
-        const response = await fetch("/api/workspace", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "change", id, change }),
-        });
-        const data: unknown = await response.json();
-        if (!response.ok)
-          throw new Error(
-            (data as { message?: string }).message ??
-              "Local save failed. Retry.",
-          );
-        const saved = savedReviewSchema.parse(data);
-        if (stateRef.current.preview?.id === id) apply(saved);
-        etag.current = null;
-      } catch (error) {
-        toast.error((error as Error).message);
-        throw error;
+      const saved = savedReviewSchema.safeParse(
+        await requestReview({ action: "change", id, change }),
+      );
+      if (!saved.success) {
+        toast.error("The saved review response could not be read. Retry.");
+        throw saved.error;
       }
+      if (stateRef.current.preview?.id === id) apply(saved.data);
     },
-    [apply],
+    [apply, requestReview],
   );
+  const discardReview = useCallback(async () => {
+    const id = stateRef.current.preview?.id;
+    if (!id) return;
+    await requestReview({ action: "delete", id });
+    if (stateRef.current.preview?.id === id) apply(null);
+    await refresh();
+  }, [apply, requestReview, refresh]);
   useEffect(() => {
     const abort = new AbortController();
     let timer: ReturnType<typeof setTimeout>;
@@ -160,7 +173,9 @@ export const LivePreviewProvider = ({ children }: { children: ReactNode }) => {
     };
   }, [poll]);
   return (
-    <LivePreviewContext value={{ ...state, refresh, changeReview }}>
+    <LivePreviewContext
+      value={{ ...state, refresh, changeReview, discardReview }}
+    >
       {children}
     </LivePreviewContext>
   );
