@@ -13,7 +13,11 @@ import { EditorDiffPreview } from "../../settings/components/editor-diff-preview
 import { PreviewDiff } from "../components/preview-diff";
 import { defaultDiffSettings } from "../constants";
 import type { PreviewFileSchema } from "@senslop/contracts";
-import { disposeHighlighter, preloadHighlighter } from "@pierre/diffs";
+import {
+  FileDiff as PierreFileDiff,
+  disposeHighlighter,
+  preloadHighlighter,
+} from "@pierre/diffs";
 
 const state = vi.hoisted(() => ({
   anchors: [] as {
@@ -380,4 +384,32 @@ test("selection explanation resolves a connected selected-code anchor on its fir
     line.replaceWith(replacement);
   }
   expect(anchor.getBoundingClientRect()).toBe(moved);
+});
+
+test("repeated navigation releases each real Pierre diff instance", async () => {
+  const cleaned = vi.spyOn(PierreFileDiff.prototype, "cleanUp");
+  const props = {
+    file,
+    view: "split" as const,
+    settings: defaultDiffSettings,
+    notes: [],
+    onAddComment: vi.fn(),
+    onDeleteNote: vi.fn(),
+  };
+  const view = render(<PreviewDiff key="first" {...props} />);
+  await waitFor(() => expect(codeText(view.container)).toContain("value"));
+  for (let index = 0; index < 30; index++) {
+    view.rerender(
+      <PreviewDiff
+        key={index}
+        {...props}
+        file={{ ...file, path: `file-${index}.ts` }}
+      />,
+    );
+    await waitFor(() => expect(codeText(view.container)).toContain("value"));
+    expect(view.container.querySelectorAll("diffs-container")).toHaveLength(1);
+  }
+  view.unmount();
+  expect(cleaned).toHaveBeenCalledTimes(31);
+  cleaned.mockRestore();
 });
