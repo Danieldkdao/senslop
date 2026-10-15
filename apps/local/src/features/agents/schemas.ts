@@ -388,3 +388,242 @@ export const jobSchema = z.object({
     ),
 });
 export type JobSchema = z.infer<typeof jobSchema>;
+export const messageStatuses = [
+  "complete",
+  "streaming",
+  "interrupted",
+] as const;
+export type MessageStatus = (typeof messageStatuses)[number];
+export const conversationSchema = z.object({
+  id: z
+    .uuid()
+    .describe("Application-assigned identifier of the saved conversation."),
+  snapshotId: z
+    .uuid()
+    .describe("Immutable review snapshot discussed in this conversation."),
+  title: z
+    .string()
+    .min(1)
+    .max(200)
+    .describe("User-facing conversation name shown in history."),
+  updatedAt: z.iso
+    .datetime()
+    .describe("ISO timestamp of the most recent conversation update."),
+  model: modelSelectionSchema
+    .nullable()
+    .describe("Most recently selected chat model, or null before selection."),
+  messages: z
+    .array(
+      z.object({
+        id: z
+          .string()
+          .min(1)
+          .max(200)
+          .optional()
+          .describe(
+            "Stable SDK message identifier used for retries and stale-response protection; absent in legacy messages.",
+          ),
+        parts: z
+          .array(
+            z
+              .unknown()
+              .describe(
+                "An SDK UI message part, such as text, a step boundary, or a tool call/result.",
+              ),
+          )
+          .max(1000)
+          .optional()
+          .describe(
+            "Structured SDK message content preserved for rendering and future model turns; absent in legacy messages.",
+          ),
+        role: z
+          .enum(messageRoles)
+          .describe(
+            "Message author: user for a submitted question, assistant for a generated answer.",
+          ),
+        content: z
+          .string()
+          .max(100000)
+          .describe(
+            "Plain text message content, including partial output for interrupted answers.",
+          ),
+        status: z
+          .enum(messageStatuses)
+          .describe(
+            "Whether the message is complete, currently streaming, or interrupted.",
+          ),
+        model: modelSelectionSchema
+          .nullable()
+          .describe(
+            "Model selected for this turn, or null when unavailable in saved history.",
+          ),
+        updatedAt: z.iso
+          .datetime()
+          .describe("ISO timestamp of the most recent message update."),
+        createdAt: z.iso
+          .datetime()
+          .optional()
+          .describe("Original message send time; absent in legacy history."),
+        thinkingDurationMs: z
+          .number()
+          .finite()
+          .nonnegative()
+          .optional()
+          .describe(
+            "Elapsed thinking and tool time before the final answer, in milliseconds.",
+          ),
+        toolTrace: z
+          .array(
+            z
+              .unknown()
+              .describe("A legacy record of a repository tool call or result."),
+          )
+          .max(50)
+          .default([])
+          .describe(
+            "Legacy tool records retained for backward compatibility; current responses use structured parts.",
+          ),
+      }),
+    )
+    .max(100)
+    .describe(
+      "Chronological user and assistant messages belonging to this snapshot conversation.",
+    ),
+});
+export type ConversationSchema = z.infer<typeof conversationSchema>;
+export const agentStateSchema = z.object({
+  jobs: z
+    .array(jobSchema)
+    .describe("Saved grouping and review jobs for the selected snapshot."),
+  conversations: z
+    .array(conversationSchema.omit({ messages: true }))
+    .describe("Saved conversation summaries without message bodies."),
+});
+export type AgentStateSchema = z.infer<typeof agentStateSchema>;
+export const agentActionSchema = z.discriminatedUnion("action", [
+  z.object({
+    action: z.literal("rename-review"),
+    id: z.uuid(),
+    title: z.string().trim().min(1).max(200),
+  }),
+  z.object({ action: z.literal("delete-review"), id: z.uuid() }),
+  z.object({
+    action: z.literal("job").describe("Start or reuse an active local AI job."),
+    snapshotId: z
+      .uuid()
+      .describe("Identifier of the immutable snapshot to analyze."),
+    kind: z
+      .enum(jobKinds)
+      .describe("Whether to group changed files or run a correctness review."),
+  }),
+  z.object({
+    action: z.literal("cancel").describe("Cancel an active local AI job."),
+    id: z.uuid().describe("Identifier of the job to cancel."),
+  }),
+  z.object({
+    action: z.literal("create").describe("Create a saved conversation."),
+    snapshotId: z
+      .uuid()
+      .describe("Identifier of the snapshot this conversation will discuss."),
+  }),
+  z.object({
+    action: z.literal("rename").describe("Rename a saved conversation."),
+    id: z.uuid().describe("Identifier of the conversation to rename."),
+    title: z
+      .string()
+      .trim()
+      .min(1)
+      .max(200)
+      .describe("New user-facing conversation title."),
+  }),
+  z.object({
+    action: z
+      .literal("delete")
+      .describe("Delete a saved conversation and its messages."),
+    id: z.uuid().describe("Identifier of the conversation to delete."),
+  }),
+]);
+export type AgentActionSchema = z.infer<typeof agentActionSchema>;
+export const chatTurnSchema = z.object({
+  conversationId: z
+    .uuid()
+    .describe(
+      "Identifier of the saved snapshot conversation receiving this turn.",
+    ),
+  messageId: z
+    .string()
+    .min(1)
+    .max(200)
+    .optional()
+    .describe(
+      "Stable user message ID; reuse it when retrying the same interrupted question.",
+    ),
+  model: modelSelectionSchema.describe(
+    "Configured provider connection and exact model chosen for this chat turn.",
+  ),
+  content: z
+    .string()
+    .trim()
+    .min(1, "Enter a message before sending.")
+    .max(10000, "Keep your message under 10,000 characters.")
+    .describe("The user's question or request about the selected changes."),
+});
+export type ChatTurnSchema = z.infer<typeof chatTurnSchema>;
+
+export const agentFormSchema = chatTurnSchema.pick({ content: true });
+export type AgentFormSchema = z.infer<typeof agentFormSchema>;
+export const explainRequestSchema = z.object({
+  snapshotId: z
+    .uuid()
+    .describe(
+      "Identifier of the immutable review snapshot containing the selected code.",
+    ),
+  path: z
+    .string()
+    .min(1)
+    .max(4096)
+    .describe(
+      "Exact repository-relative path of the selected changed text file.",
+    ),
+  side: z
+    .enum(evidenceSides)
+    .describe(
+      "Source to explain: before for original code, after for changed code.",
+    ),
+  start: z
+    .number()
+    .int()
+    .positive()
+    .optional()
+    .describe(
+      "Inclusive 1-based starting line; omit to start at the first line.",
+    ),
+  end: z
+    .number()
+    .int()
+    .positive()
+    .optional()
+    .describe(
+      "Inclusive 1-based ending line; omit to include the rest of the selected file side.",
+    ),
+});
+export type ExplainRequestSchema = z.infer<typeof explainRequestSchema>;
+
+export const historyKinds = ["reviews", "conversations"] as const;
+export type HistoryKind = (typeof historyKinds)[number];
+export const agentHistorySchema = z.object({
+  items: z
+    .array(z.union([jobSchema, conversationSchema.omit({ messages: true })]))
+    .describe(
+      "Saved review jobs or conversation summaries in the requested history page.",
+    ),
+  next: z
+    .number()
+    .int()
+    .nonnegative()
+    .nullable()
+    .describe(
+      "Offset for the next history page, or null when no more entries exist.",
+    ),
+});
+export type AgentHistorySchema = z.infer<typeof agentHistorySchema>;
