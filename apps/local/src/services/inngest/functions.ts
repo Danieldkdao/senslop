@@ -1,6 +1,7 @@
 import { inngest } from "./client";
 import { executeJob } from "./jobs";
 import { AgentStore } from "../../features/agents/lib/agent-store";
+import { matchesJobSnapshot } from "../../features/agents/lib/job-snapshots";
 import { getWorkspace } from "../../features/workspace/lib/server-workspace";
 import { formatAiError } from "../ai/errors";
 import { serverEnv } from "../../data/env/server";
@@ -98,10 +99,15 @@ export const resumeJobs = async () => {
 
 export const scheduleGrouping = async (snapshotId: string) => {
   const agents = await store();
+  const snapshot = agents.snapshot(snapshotId);
   if (
-    agents.snapshot(snapshotId).groupingEnabled !== false &&
-    agents.snapshot(snapshotId).files.length > 0 &&
-    !agents.jobs(snapshotId).some((job) => job.kind === "grouping") &&
+    snapshot.groupingEnabled !== false &&
+    snapshot.files.length > 0 &&
+    !agents
+      .jobs(snapshotId)
+      .some(
+        (job) => job.kind === "grouping" && matchesJobSnapshot(job, snapshot),
+      ) &&
     (await import("../ai/repository-agent")).assignedModel(
       agents.settings(),
       "grouping",

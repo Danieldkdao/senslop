@@ -7,6 +7,7 @@ import {
 } from "../ai/errors";
 import { NonRetriableError } from "inngest";
 import type { AgentStore } from "../../features/agents/lib/agent-store";
+import { matchesJobSnapshot } from "../../features/agents/lib/job-snapshots";
 import { assignedModel, createRepositoryAgent } from "../ai/repository-agent";
 import { loadContext } from "../analysis/frozen-context";
 import { getAiErrorDiagnostics } from "../ai/diagnostics";
@@ -31,7 +32,7 @@ export const executeJob = async (
   const job = store.job(id);
   if (!job || job.status === "canceled" || job.status === "completed") return;
   const snapshot = store.snapshot(job.snapshotId);
-  if (snapshot.hash !== job.hash)
+  if (!matchesJobSnapshot(job, snapshot))
     throw new NonRetriableError("Snapshot identity changed.");
   const selection = assignedModel(job.settings, job.kind);
   if (!selection)
@@ -106,22 +107,32 @@ export const executeJob = async (
         const previous =
           job.kind === "grouping" &&
           snapshot.resyncMode === "keep" &&
-          snapshot.previousReviewId &&
+          (context.previousReview || snapshot.previousReviewId) &&
           !store
             .jobs(snapshot.id)
             .some(
               (run) =>
                 run.id !== id &&
                 run.kind === "grouping" &&
+                matchesJobSnapshot(run, snapshot) &&
                 run.status === "completed",
             )
-            ? store.local.getReview(store.repository, snapshot.previousReviewId)
+            ? (context.previousReview ??
+              (snapshot.previousReviewId
+                ? store.local.getReview(
+                    store.repository,
+                    snapshot.previousReviewId,
+                  )
+                : null))
             : null;
         const previousGrouping = previous
           ? store
               .jobs(previous.id)
               .find(
-                (job) => job.kind === "grouping" && job.status === "completed",
+                (job) =>
+                  job.kind === "grouping" &&
+                  matchesJobSnapshot(job, previous) &&
+                  job.status === "completed",
               )?.result
           : null;
         const groupingSeed =
