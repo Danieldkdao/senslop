@@ -1,64 +1,36 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import { Dot, History, RefreshCw } from "lucide-react";
 import { TooltipWrapper } from "@/components/ui/tooltip-wrapper";
 import { Button } from "@/components/ui/button";
+import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 import { useLivePreview } from "../../review/components/live-preview-provider";
-import type { WorkspaceMetadata } from "../types";
+import { useWorkspaceMetadata } from "../hooks/use-workspace-metadata";
 import { formatFreshness } from "../lib/formatters";
 import { ReviewHistory } from "./review-history";
+import { ResyncPopover } from "./resync-popover";
 import { NewReviewPopover } from "./new-review-popover";
 
-export const WorkspaceToolbar = () => {
+export const WorkspaceToolbar = ({
+  preparing = false,
+}: {
+  preparing?: boolean;
+}) => {
   const { preview, refresh } = useLivePreview();
-  const [metadata, setMetadata] = useState<WorkspaceMetadata | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const repository = useWorkspaceMetadata();
+  const metadata = repository.data ?? null;
+  const [actionError, setError] = useState<string | null>(null);
+  const error = actionError ?? repository.error?.message ?? null;
+  const loading = repository.isPending;
   const [busy, setBusy] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
-  const load = useCallback(async (signal?: AbortSignal) => {
-    const response = await fetch("/api/workspace", {
-      cache: "no-store",
-      signal,
-    });
-    const data = (await response.json()) as WorkspaceMetadata & {
-      message?: string;
-    };
-    if (!response.ok)
-      throw new Error(data.message ?? "Repository unavailable. Retry.");
-    if (!signal?.aborted) {
-      setMetadata(data);
-      setLoading(false);
-    }
-  }, []);
-  useEffect(() => {
-    const abort = new AbortController();
-    let timer: ReturnType<typeof setTimeout>;
-    const tick = async () => {
-      try {
-        await load(abort.signal);
-      } catch (failure) {
-        if (!abort.signal.aborted) {
-          setError(
-            failure instanceof Error
-              ? failure.message
-              : "Repository or local history unavailable. Retry after checking Git and application-data permissions.",
-          );
-          setLoading(false);
-        }
-      } finally {
-        if (!abort.signal.aborted) timer = setTimeout(tick, 5000);
-      }
-    };
-    void tick();
-    return () => {
-      abort.abort();
-      clearTimeout(timer);
-    };
-  }, [load]);
-  const act = async (body: object) => {
+  const load = async () => {
+    const result = await repository.refetch();
+    if (result.error) throw result.error;
+  };
+  const act = async (body: object, notify?: "new" | "keep") => {
     setBusy(true);
     setError(null);
     try {
@@ -72,14 +44,27 @@ export const WorkspaceToolbar = () => {
         throw new Error(data?.message ?? "Local operation failed. Retry.");
       await refresh();
       await load();
+      if (notify)
+        toast.success(
+          notify === "keep"
+            ? "Review re-synced. Current changes and newer edits are kept together."
+            : "Review re-synced. Only new edits are shown; the previous round is saved in history.",
+        );
       return true;
     } catch (error) {
       setError((error as Error).message);
+      if (notify) toast.error((error as Error).message);
       return false;
     } finally {
       setBusy(false);
     }
   };
+  const canResync =
+    preview?.source.kind === "working-tree" &&
+    preview.repositoryState &&
+    metadata?.repository?.branch === preview.repositoryState.branch &&
+    metadata.repository.head === preview.repositoryState.head &&
+    metadata.repository.head === preview.source.base;
   return (
     <div
       className="flex shrink-0 items-center gap-1"
@@ -127,6 +112,19 @@ export const WorkspaceToolbar = () => {
           <RefreshCw aria-hidden="true" className="size-5" />
         </Button>
       </TooltipWrapper>
+      <ResyncPopover
+        disabled={preparing || busy || loading || !canResync}
+        unavailableReason={
+          preparing
+            ? "Wait for grouping to finish or stop it before re-syncing."
+            : "Re-sync needs an uncommitted-changes review on the captured branch and HEAD. Start a new review if either changed."
+        }
+        busy={busy}
+        error={error}
+        onResync={(mode, grouping) =>
+          act({ action: "resync", id: preview!.id, mode, grouping }, mode)
+        }
+      />
       <TooltipWrapper content="Saved reviews">
         <Button
           variant="ghost"
@@ -148,7 +146,9 @@ export const WorkspaceToolbar = () => {
         loading={loading}
         busy={busy}
         error={error}
-        onInspect={(source) => act({ action: "inspect", source })}
+        onInspect={(source, grouping) =>
+          act({ action: "inspect", source, grouping })
+        }
       />
     </div>
   );
