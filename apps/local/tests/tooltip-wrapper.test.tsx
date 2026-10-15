@@ -13,6 +13,7 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
+import { Popover, PopoverTrigger } from "@/components/ui/popover";
 import { Toaster, toast } from "@/components/ui/toast";
 
 afterEach(cleanup);
@@ -112,5 +113,108 @@ test("composed dialog triggers open once and return focus, with notifications ab
   );
   expect(document.activeElement).toBe(
     screen.getByRole("button", { name: "Settings" }),
+  );
+});
+
+test("header button tooltips appear on mouse hover for enabled and disabled actions", async () => {
+  const user = userEvent.setup();
+  render(
+    <TooltipProvider>
+      <header>
+        <TooltipWrapper content="Previous file">
+          <Button disabled aria-label="Previous file" size="icon">
+            ←
+          </Button>
+        </TooltipWrapper>
+        <TooltipWrapper content="Next file">
+          <Button aria-label="Next file" size="icon">
+            →
+          </Button>
+        </TooltipWrapper>
+        <TooltipWrapper content="Find a file">
+          <Button aria-label="Find a file" size="icon">
+            Search
+          </Button>
+        </TooltipWrapper>
+        <Popover>
+          <TooltipWrapper content="Add note">
+            <PopoverTrigger
+              render={<Button aria-label="Add note" size="icon" />}
+            >
+              Note
+            </PopoverTrigger>
+          </TooltipWrapper>
+        </Popover>
+      </header>
+    </TooltipProvider>,
+  );
+  for (const label of [
+    "Next file",
+    "Find a file",
+    "Previous file",
+    "Add note",
+  ]) {
+    const button = screen.getByRole("button", { name: label });
+    const trigger = button.hasAttribute("disabled")
+      ? button.parentElement!
+      : button;
+    await user.hover(trigger);
+    await waitFor(() =>
+      expect(
+        document.querySelector('[data-slot="tooltip-content"]')?.textContent,
+        label,
+      ).toBe(label),
+    );
+    await user.unhover(trigger);
+    await waitFor(() =>
+      expect(
+        document.querySelector('[data-slot="tooltip-content"]'),
+      ).toBeNull(),
+    );
+  }
+});
+
+test("hover hints survive a header button being replaced during a rerender", async () => {
+  const user = userEvent.setup();
+  const view = (key: string) => (
+    <TooltipProvider>
+      <TooltipWrapper content="Next file">
+        <Button key={key} aria-label="Next file" size="icon">
+          Next
+        </Button>
+      </TooltipWrapper>
+    </TooltipProvider>
+  );
+  const mounted = render(view("first"));
+  const original = screen.getByRole("button", { name: "Next file" });
+  mounted.rerender(view("replacement"));
+  const replacement = screen.getByRole("button", { name: "Next file" });
+  expect(replacement).not.toBe(original);
+  await user.hover(replacement);
+  await waitFor(() =>
+    expect(
+      document.querySelector('[data-slot="tooltip-content"]')?.textContent,
+    ).toBe("Next file"),
+  );
+});
+
+test("header hover hints work after preparation enables a previously disabled button", async () => {
+  const user = userEvent.setup();
+  const view = (disabled: boolean) => (
+    <TooltipProvider>
+      <TooltipWrapper content="Next file">
+        <Button disabled={disabled} aria-label="Next file" size="icon">
+          Next
+        </Button>
+      </TooltipWrapper>
+    </TooltipProvider>
+  );
+  const mounted = render(view(true));
+  mounted.rerender(view(false));
+  await user.hover(screen.getByRole("button", { name: "Next file" }));
+  await waitFor(() =>
+    expect(
+      document.querySelector('[data-slot="tooltip-content"]')?.textContent,
+    ).toBe("Next file"),
   );
 });
