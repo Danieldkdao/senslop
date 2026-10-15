@@ -160,7 +160,6 @@ packageTest(
         "install",
         "--prefix",
         installation,
-        "--ignore-scripts",
         "--no-audit",
         "--no-fund",
         "--omit=dev",
@@ -572,7 +571,7 @@ packageTest(
         join(installation, "node_modules/@senslop/cli/package.json"),
         "utf8",
       ),
-    ).toContain('"node": ">=24"');
+    ).toContain('"node": "24.x || >=26"');
   },
   180000,
 );
