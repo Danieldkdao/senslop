@@ -1,3 +1,4 @@
+import { carrySnapshotNotes } from "../features/history/note-anchors";
 import { DatabaseSync } from "node:sqlite";
 import { createHash } from "node:crypto";
 import { chmodSync, mkdirSync } from "node:fs";
@@ -26,7 +27,7 @@ export class LocalStore {
         const version = Number(
           this.database.prepare("PRAGMA user_version").get()?.user_version,
         );
-        if (version > 2)
+        if (version > 4)
           throw new Error(
             "Local data was created by a newer Senslop. Upgrade the CLI to open it.",
           );
@@ -44,6 +45,22 @@ export class LocalStore {
           this.database.exec(
             "CREATE TABLE credential_cleanup (id TEXT PRIMARY KEY) STRICT; PRAGMA user_version = 2;",
           );
+        }
+        if (version < 3) {
+          this.database.exec(`
+            CREATE TABLE ai_jobs (id TEXT PRIMARY KEY, snapshot_id TEXT NOT NULL REFERENCES reviews(id) ON DELETE CASCADE, body TEXT NOT NULL) STRICT;
+            CREATE INDEX ai_jobs_snapshot ON ai_jobs(snapshot_id);
+            CREATE TABLE ai_conversations (id TEXT PRIMARY KEY, snapshot_id TEXT NOT NULL REFERENCES reviews(id) ON DELETE CASCADE, body TEXT NOT NULL) STRICT;
+            CREATE INDEX ai_conversations_snapshot ON ai_conversations(snapshot_id);
+            CREATE TABLE ai_context (snapshot_id TEXT PRIMARY KEY REFERENCES reviews(id) ON DELETE CASCADE, body TEXT NOT NULL) STRICT;
+            PRAGMA user_version = 3;
+          `);
+        }
+        if (version < 4) {
+          this.database.exec(`
+            CREATE TABLE ai_batch_checkpoints (job_id TEXT NOT NULL REFERENCES ai_jobs(id) ON DELETE CASCADE, checkpoint_key TEXT NOT NULL, body TEXT NOT NULL, PRIMARY KEY (job_id, checkpoint_key)) STRICT;
+            PRAGMA user_version = 4;
+          `);
         }
       });
     } catch (error) {
@@ -83,6 +100,7 @@ export class LocalStore {
       const review = savedReviewSchema.parse(JSON.parse(String(row.body)));
       return {
         id: review.id,
+        round: review.round,
         title: review.title,
         createdAt: review.createdAt,
         updatedAt: review.updatedAt,
@@ -121,15 +139,50 @@ export class LocalStore {
     repository: string,
     input: LocalPreviewSchema,
     fingerprint: string | null,
+    groupingEnabled = false,
+    metadata: Partial<
+      Pick<
+        SavedReviewSchema,
+        "repositoryState" | "syncBaseline" | "previousReviewId" | "resyncMode"
+      >
+    > = {},
   ) =>
     this.transaction(() => {
       const preview = localPreviewSchema.parse(input);
       const existingReview = this.getReview(repository, preview.id);
       if (existingReview) return existingReview;
+      const previousReview = metadata.previousReviewId
+        ? this.currentReview(repository)
+        : null;
+      if (
+        metadata.previousReviewId &&
+        previousReview?.id !== metadata.previousReviewId
+      )
+        throw new Error(
+          "Re-sync requires the current active review. Reload and retry.",
+        );
       const now = new Date().toISOString();
+      const unchanged = new Set(
+        preview.files
+          .filter((file) =>
+            previousReview?.files.some(
+              (previous) =>
+                previous.path === file.path &&
+                previous.beforeHash === file.beforeHash &&
+                previous.afterHash === file.afterHash,
+            ),
+          )
+          .map((file) => file.path),
+      );
+      const keep = metadata.resyncMode === "keep";
       const saved = savedReviewSchema.parse({
         ...preview,
-        title: `Review: ${preview.source.head?.slice(0, 8) ?? "uncommitted changes"}`,
+        groupingEnabled,
+        ...metadata,
+        round: previousReview ? previousReview.round + 1 : 1,
+        title:
+          previousReview?.title ??
+          `Review: ${preview.source.head?.slice(0, 8) ?? "uncommitted changes"}`,
         hash: createHash("sha256")
           .update(
             JSON.stringify({
@@ -143,10 +196,38 @@ export class LocalStore {
         createdAt: now,
         updatedAt: now,
         revision: 0,
-        notes: [],
-        completedPaths: [],
-        selectedPath: preview.files[0]?.path ?? null,
+        notes: keep
+          ? carrySnapshotNotes(
+              previousReview?.notes ?? [],
+              preview.files,
+              preview.id,
+            )
+          : [],
+        completedPaths: keep
+          ? (previousReview?.completedPaths.filter((path) =>
+              unchanged.has(path),
+            ) ?? [])
+          : [],
+        selectedPath:
+          keep &&
+          preview.files.some(
+            (file) => file.path === previousReview?.selectedPath,
+          )
+            ? previousReview!.selectedPath
+            : (preview.files[0]?.path ?? null),
       });
+      if (previousReview && !keep) {
+        previousReview.completedPaths = previousReview.files.map(
+          (file) => file.path,
+        );
+        previousReview.updatedAt = now;
+        previousReview.revision++;
+        this.database
+          .prepare(
+            "UPDATE reviews SET body = ? WHERE repository = ? AND id = ?",
+          )
+          .run(JSON.stringify(previousReview), repository, previousReview.id);
+      }
       this.database
         .prepare("INSERT INTO reviews VALUES (?, ?, ?)")
         .run(saved.id, repository, JSON.stringify(saved));
@@ -193,9 +274,13 @@ export class LocalStore {
           if (change.note.line) {
             const content =
               change.note.line.side === "additions" ? file.after : file.before;
+            const start = change.note.line.lineNumber;
+            const end = change.note.line.endLineNumber ?? start;
+            const lines = content?.split("\n");
             if (
-              content?.split("\n")[change.note.line.lineNumber - 1] !==
-              change.note.line.code
+              !lines ||
+              end > lines.length ||
+              lines.slice(start - 1, end).join("\n") !== change.note.line.code
             )
               throw new Error("Note line does not match the frozen snapshot.");
           }
