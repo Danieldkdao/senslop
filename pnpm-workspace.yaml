@@ -5,5 +5,7 @@ allowBuilds:
   sharp: false
   unrs-resolver: false
   esbuild: true
+  inngest-cli: true
+  protobufjs: false
 minimumReleaseAgeExclude:
   - ai@7.0.137

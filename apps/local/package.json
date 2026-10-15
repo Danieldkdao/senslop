@@ -16,19 +16,25 @@
     "@ai-sdk/mistral": "4.0.62",
     "@ai-sdk/openai": "4.0.91",
     "@ai-sdk/openai-compatible": "3.0.67",
+    "@ai-sdk/react": "4.0.140",
     "@ai-sdk/xai": "5.0.20",
     "@hookform/resolvers": "^5.9.1",
     "@lobehub/icons": "5.23.0",
     "@napi-rs/keyring": "2.1.0",
     "@openrouter/ai-sdk-provider": "3.1.0",
     "@pierre/diffs": "1.5.2",
+    "@pierre/theme": "2.0.0",
     "@senslop/contracts": "workspace:*",
     "@senslop/review-core": "workspace:*",
     "@senslop/ui": "workspace:*",
+    "@streamdown/code": "2.0.0",
     "@t3-oss/env-core": "^0.13.11",
     "@tanstack/react-pacer": "0.24.1",
     "@tanstack/react-query": "^5.104.1",
     "ai": "7.0.137",
+    "date-fns": "^4.4.0",
+    "dependency-cruiser": "18.5.0",
+    "inngest": "4.23.0",
     "lucide-react": "^1.51.0",
     "material-icon-theme": "5.39.0",
     "next": "16.3.8",
@@ -38,6 +44,8 @@
     "react-dom": "19.2.8",
     "react-hook-form": "^7.89.0",
     "server-only": "0.0.1",
+    "streamdown": "2.7.0",
+    "typescript": "5.9.3",
     "zod": "4.6.5"
   },
   "devDependencies": {
@@ -53,7 +61,6 @@
     "jsdom": "^30.1.1",
     "tailwindcss": "^4",
     "tsx": "4.21.0",
-    "typescript": "^5",
     "ws": "8.22.0"
   }
 }
