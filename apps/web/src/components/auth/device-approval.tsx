@@ -98,7 +98,7 @@ export const DeviceApproval = () => {
               <form
                 noValidate
                 onSubmit={form.handleSubmit(verify)}
-                className="space-y-4"
+                className="flex flex-col gap-4"
               >
                 <Controller
                   name="code"
@@ -152,7 +152,7 @@ export const DeviceApproval = () => {
                 )}
               </form>
               {verifiedCode && (
-                <div className="mt-5 space-y-4">
+                <div className="mt-5 flex flex-col gap-4">
                   <p className="text-base">
                     This authorizes <strong>Senslop CLI</strong> to access your
                     account. Confirm the code above matches the one on a

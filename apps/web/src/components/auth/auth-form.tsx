@@ -120,7 +120,7 @@ export const AuthForm = ({ signup = false }: { signup?: boolean }) => {
               : "Your next aha moment is waiting."}
           </p>
         </div>
-        <div className="space-y-2">
+        <div className="flex flex-col gap-2">
           <Button
             type="button"
             variant="outline"
@@ -167,7 +167,7 @@ export const AuthForm = ({ signup = false }: { signup?: boolean }) => {
         <form
           noValidate
           onSubmit={form.handleSubmit(submit)}
-          className="space-y-5"
+          className="flex flex-col gap-5"
         >
           {signup && (
             <Controller

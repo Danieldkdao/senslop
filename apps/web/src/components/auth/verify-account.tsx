@@ -120,7 +120,7 @@ export const VerifyAccount = ({
         <form
           noValidate
           onSubmit={form.handleSubmit(handleVerification)}
-          className="w-full space-y-4"
+          className="w-full flex flex-col gap-4"
         >
           <Controller
             name="otp"
