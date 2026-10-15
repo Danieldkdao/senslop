@@ -249,7 +249,7 @@ test("multiline notes validate the entire frozen range and overlapping notes sur
   }
 });
 
-test("cumulative snapshots retain file notes and re-anchor exact unique line ranges while preserving history", async () => {
+test("cumulative snapshots retain file notes and re-anchor exact unique line ranges without duplicating the review", async () => {
   const store = new LocalStore(await fixture());
   try {
     const first = store.saveReview(
@@ -308,10 +308,9 @@ test("cumulative snapshots retain file notes and re-anchor exact unique line ran
         line: { ...lineNote.line, lineNumber: 2, endLineNumber: 3 },
       },
     ]);
-    expect(store.getReview("/repo", first.id)?.notes).toEqual([
-      fileNote,
-      lineNote,
-    ]);
+    expect(second.id).toBe(first.id);
+    expect(store.listReviews("/repo")).toHaveLength(1);
+    expect(store.getReview("/repo", first.id)?.notes).toEqual(second.notes);
     const third = store.saveReview(
       "/repo",
       {
@@ -329,7 +328,12 @@ test("cumulative snapshots retain file notes and re-anchor exact unique line ran
       false,
       { previousReviewId: second.id, resyncMode: "keep" },
     );
-    expect(third.notes).toEqual([{ ...fileNote, previewId: third.id }]);
+    expect(third.notes).toEqual([
+      { ...fileNote, previewId: third.id },
+      { ...lineNote, previewId: third.id, line: null },
+    ]);
+    expect(third.id).toBe(first.id);
+    expect(store.listReviews("/repo")).toHaveLength(1);
     expect(store.getReview("/repo", second.id)?.notes).toHaveLength(2);
   } finally {
     store.close();

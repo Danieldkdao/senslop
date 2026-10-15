@@ -145,22 +145,29 @@ export class LocalStore {
         SavedReviewSchema,
         "repositoryState" | "syncBaseline" | "previousReviewId" | "resyncMode"
       >
-    > = {},
+    > & { expectedHash?: string; expectedRound?: number } = {},
   ) =>
     this.transaction(() => {
       const preview = localPreviewSchema.parse(input);
       const existingReview = this.getReview(repository, preview.id);
-      if (existingReview) return existingReview;
+      const keep = metadata.resyncMode === "keep";
+      if (existingReview && !keep) return existingReview;
       const previousReview = metadata.previousReviewId
         ? this.currentReview(repository)
         : null;
       if (
-        metadata.previousReviewId &&
-        previousReview?.id !== metadata.previousReviewId
+        (keep && !previousReview) ||
+        (metadata.previousReviewId &&
+          (previousReview?.id !== metadata.previousReviewId ||
+            (metadata.expectedHash &&
+              previousReview.hash !== metadata.expectedHash) ||
+            (metadata.expectedRound &&
+              previousReview?.round !== metadata.expectedRound)))
       )
         throw new Error(
           "Re-sync requires the current active review. Reload and retry.",
         );
+      if (keep && previousReview) preview.id = previousReview.id;
       const now = new Date().toISOString();
       const unchanged = new Set(
         preview.files
@@ -174,11 +181,20 @@ export class LocalStore {
           )
           .map((file) => file.path),
       );
-      const keep = metadata.resyncMode === "keep";
+      const carriedNotes = new Map(
+        carrySnapshotNotes(
+          previousReview?.notes ?? [],
+          preview.files,
+          preview.id,
+        ).map((note) => [note.id, note]),
+      );
       const saved = savedReviewSchema.parse({
         ...preview,
         groupingEnabled,
         ...metadata,
+        previousReviewId: keep
+          ? previousReview?.previousReviewId
+          : metadata.previousReviewId,
         round: previousReview ? previousReview.round + 1 : 1,
         title:
           previousReview?.title ??
@@ -193,15 +209,18 @@ export class LocalStore {
           )
           .digest("hex"),
         fingerprint,
-        createdAt: now,
+        createdAt: keep ? (previousReview?.createdAt ?? now) : now,
         updatedAt: now,
-        revision: 0,
+        revision: keep ? (previousReview?.revision ?? 0) + 1 : 0,
         notes: keep
-          ? carrySnapshotNotes(
-              previousReview?.notes ?? [],
-              preview.files,
-              preview.id,
-            )
+          ? (previousReview?.notes.map(
+              (note) =>
+                carriedNotes.get(note.id) ?? {
+                  ...note,
+                  previewId: preview.id,
+                  line: null,
+                },
+            ) ?? [])
           : [],
         completedPaths: keep
           ? (previousReview?.completedPaths.filter((path) =>
@@ -228,9 +247,33 @@ export class LocalStore {
           )
           .run(JSON.stringify(previousReview), repository, previousReview.id);
       }
-      this.database
-        .prepare("INSERT INTO reviews VALUES (?, ?, ?)")
-        .run(saved.id, repository, JSON.stringify(saved));
+      if (keep && previousReview) {
+        this.database
+          .prepare(
+            "UPDATE ai_jobs SET body = json_set(body, '$.snapshotRound', ?) WHERE snapshot_id = ? AND json_type(body, '$.snapshotRound') IS NULL",
+          )
+          .run(previousReview.round, saved.id);
+        this.database
+          .prepare(
+            "UPDATE reviews SET body = ? WHERE repository = ? AND id = ?",
+          )
+          .run(JSON.stringify(saved), repository, saved.id);
+        // Retain the previous content for incremental grouping while rebuilding its source cache.
+        this.database
+          .prepare(
+            "INSERT INTO ai_context VALUES (?, ?) ON CONFLICT(snapshot_id) DO UPDATE SET body = excluded.body",
+          )
+          .run(saved.id, JSON.stringify({ previousReview }));
+        this.database
+          .prepare(
+            "UPDATE ai_jobs SET body = json_set(body, '$.status', 'canceled', '$.progress', 'Superseded by re-sync', '$.updatedAt', ?) WHERE snapshot_id = ? AND json_extract(body, '$.status') IN ('queued', 'running')",
+          )
+          .run(now, saved.id);
+      } else {
+        this.database
+          .prepare("INSERT INTO reviews VALUES (?, ?, ?)")
+          .run(saved.id, repository, JSON.stringify(saved));
+      }
       this.database
         .prepare(
           "INSERT INTO active_reviews VALUES (?, ?) ON CONFLICT(repository) DO UPDATE SET review_id = excluded.review_id",
