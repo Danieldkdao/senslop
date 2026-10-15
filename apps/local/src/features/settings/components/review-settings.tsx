@@ -15,11 +15,15 @@ import type { Theme } from "@/lib/types";
 import type { DiffSettingsState, DiffView } from "../../review/types";
 import { DiffSettings } from "../../review/components/diff-settings";
 import { getProviderSettingsSection } from "./provider-settings-dialog";
+import { AiSettings } from "../../agents/components/ai-settings";
 import { SettingsDialog } from "./settings-dialog";
 import type { SettingsSection } from "../types";
 import { EditorDiffPreview } from "./editor-diff-preview";
 
 type ReviewSettingsProps = {
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  initialSection?: string;
   settings: DiffSettingsState;
   onChange: (settings: DiffSettingsState) => void;
   view: DiffView;
@@ -27,6 +31,9 @@ type ReviewSettingsProps = {
 };
 
 export const ReviewSettings = ({
+  open,
+  onOpenChange,
+  initialSection,
   settings,
   onChange,
   view,
@@ -34,9 +41,14 @@ export const ReviewSettings = ({
 }: ReviewSettingsProps) => {
   const { theme, setTheme } = useTheme();
   return (
-    <SettingsDialog>
+    <SettingsDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      initialSection={initialSection}
+    >
       {(navigation, search) => {
         const query = search.toLowerCase().trim();
+        const providers = getProviderSettingsSection(navigation, "");
         const sections: SettingsSection[] = [
           {
             id: "appearance",
@@ -83,7 +95,7 @@ export const ReviewSettings = ({
               "editor review diff preview split unified indicators inline changes wrapping backgrounds line numbers",
             content: (
               <>
-                <div className="space-y-2">
+                <div className="flex flex-col gap-2">
                   <p>Diff view</p>
                   <div
                     role="group"
@@ -111,7 +123,19 @@ export const ReviewSettings = ({
               </>
             ),
           },
-          getProviderSettingsSection(navigation, query),
+          {
+            id: "ai",
+            label: "AI",
+            keywords: `ai models grouping context review explain ${providers.keywords}`,
+            content: <AiSettings navigation={navigation} />,
+            links: [
+              {
+                id: "providers",
+                label: "Providers",
+                onSelect: () => navigation.navigate(providers),
+              },
+            ],
+          },
         ];
         return sections.map((section) => ({
           ...section,
