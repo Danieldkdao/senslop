@@ -1,5 +1,6 @@
 "use client";
 
+import { savedReviewSchema } from "@senslop/contracts";
 import { useState } from "react";
 import { Dot, History, RefreshCw } from "lucide-react";
 import { TooltipWrapper } from "@/components/ui/tooltip-wrapper";
@@ -18,7 +19,7 @@ export const WorkspaceToolbar = ({
 }: {
   preparing?: boolean;
 }) => {
-  const { preview, refresh } = useLivePreview();
+  const { preview, refresh, trackReviewOperation } = useLivePreview();
   const repository = useWorkspaceMetadata();
   const metadata = repository.data ?? null;
   const [actionError, setError] = useState<string | null>(null);
@@ -30,9 +31,10 @@ export const WorkspaceToolbar = ({
     const result = await repository.refetch();
     if (result.error) throw result.error;
   };
-  const act = async (body: object, notify?: "new" | "keep") => {
+  const act = async (body: object, notify?: "inspect" | "new" | "keep") => {
     setBusy(true);
     setError(null);
+    if (!notify) trackReviewOperation(null);
     try {
       const response = await fetch("/api/workspace", {
         method: "POST",
@@ -42,16 +44,18 @@ export const WorkspaceToolbar = ({
       const data = (await response.json()) as { message?: string } | null;
       if (!response.ok)
         throw new Error(data?.message ?? "Local operation failed. Retry.");
+      const savedReview = savedReviewSchema.safeParse(data);
+      if (notify && savedReview.success)
+        trackReviewOperation({
+          snapshotId: savedReview.data.id,
+          hash: savedReview.data.hash,
+          mode: notify,
+        });
       await refresh();
       await load();
-      if (notify)
-        toast.success(
-          notify === "keep"
-            ? "Review re-synced. Current changes and newer edits are kept together."
-            : "Review re-synced. Only new edits are shown; the previous round is saved in history.",
-        );
       return true;
     } catch (error) {
+      trackReviewOperation(null);
       setError((error as Error).message);
       if (notify) toast.error((error as Error).message);
       return false;
@@ -147,7 +151,7 @@ export const WorkspaceToolbar = ({
         busy={busy}
         error={error}
         onInspect={(source, grouping) =>
-          act({ action: "inspect", source, grouping })
+          act({ action: "inspect", source, grouping }, "inspect")
         }
       />
     </div>
