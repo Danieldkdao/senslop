@@ -134,12 +134,18 @@ export class LocalWorkspace {
       );
     const savedReview = this.store.saveReview(
       root,
-      { ...snapshot, id: randomUUID(), protocolVersion: PROTOCOL_VERSION },
+      {
+        ...snapshot,
+        id: mode === "keep" ? id : randomUUID(),
+        protocolVersion: PROTOCOL_VERSION,
+      },
       after.fingerprint,
       snapshot.files.length > 0 && this.groupingEnabled(root, group),
       {
         repositoryState: after,
         previousReviewId: id,
+        expectedHash: previousReview.hash,
+        expectedRound: previousReview.round,
         resyncMode: mode,
         syncBaseline: current.files,
       },

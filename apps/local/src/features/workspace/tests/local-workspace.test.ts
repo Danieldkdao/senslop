@@ -12,6 +12,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
+import { loadContext } from "../../../services/analysis/frozen-context";
 import { AgentStore } from "../../agents/lib/agent-store";
 import { LocalWorkspace } from "../lib/local-workspace";
 
@@ -435,7 +436,39 @@ test("cumulative re-sync preserves the round baseline, notes, completion and fol
     });
     await writeFile(join(repository, "a.ts"), "export const a = 2;\n");
     const status = git("status", "--porcelain=v1");
+    const agents = new AgentStore(workspace.store, repository);
+    const conversation = agents.createConversation(first.id);
+    const review = agents.createJob(first.id, "review");
+    agents.publish(review.id, {
+      findings: [],
+      limitations: [],
+      fixAllPrompt: "No fixes needed.",
+    });
+    const pending = agents.createJob(first.id, "review");
     const second = await workspace.resync(first.id, "keep");
+    expect(second.id).toBe(first.id);
+    expect(second.createdAt).toBe(first.createdAt);
+    expect(second.revision).toBeGreaterThan(first.revision);
+    expect(workspace.store.listReviews(repository)).toHaveLength(1);
+    expect(() =>
+      workspace.store.saveReview(
+        repository,
+        second,
+        second.fingerprint,
+        false,
+        {
+          previousReviewId: first.id,
+          resyncMode: "keep",
+          expectedHash: first.hash,
+        },
+      ),
+    ).toThrow(/active review/);
+    expect(agents.conversation(conversation.id)?.snapshotId).toBe(first.id);
+    expect(agents.job(review.id)?.status).toBe("completed");
+    expect(agents.job(pending.id)?.status).toBe("canceled");
+    const context = await loadContext(workspace.store, repository, second);
+    expect(context.sources["a.ts"]).toBe("export const a = 2;\n");
+    expect(context.before["a.ts"]).toBe("export const a = 0;\n");
     expect(second.files.map((file) => file.path)).toEqual(["a.ts", "b.ts"]);
     expect(second.files[0]?.before).toBe("export const a = 0;\n");
     expect(second.completedPaths).toEqual(["b.ts"]);
@@ -462,10 +495,23 @@ test("cumulative re-sync drops reverted additions and removed files and can prod
     await writeFile(join(repository, "a.ts"), "export const a = 1;\n");
     await writeFile(join(repository, "new.ts"), "new\n");
     const first = await workspace.inspect({ kind: "working-tree" });
+    const note = {
+      id: crypto.randomUUID(),
+      previewId: first.id,
+      path: "new.ts",
+      body: "Keep this note",
+      line: null,
+    };
+    workspace.store.changeReview(repository, first.id, {
+      action: "add-note",
+      note,
+    });
     await writeFile(join(repository, "a.ts"), "export const a = 0;\n");
     await unlink(join(repository, "new.ts"));
     const second = await workspace.resync(first.id, "keep");
     expect(second.files).toEqual([]);
+    expect(second.notes).toEqual([note]);
+    expect(second.id).toBe(first.id);
     expect(second.groupingEnabled).toBe(false);
   } finally {
     workspace.close();
@@ -498,6 +544,75 @@ test("each re-sync applies the current always, never and ask grouping preference
       round = await workspace.resync(round.id, "keep", chosen);
       expect(round.groupingEnabled).toBe(expected);
     }
+  } finally {
+    workspace.close();
+  }
+});
+
+test("merged grouping reuses only the previous content and cannot reuse stale batch checkpoints", async () => {
+  const { workspace, repository } = await syncWorkspace();
+  try {
+    const agents = new AgentStore(workspace.store, repository);
+    agents.saveSettings({
+      ...agents.settings(),
+      groupingMode: "always",
+      shared: {
+        connectionId: crypto.randomUUID(),
+        modelId: "fixture",
+        name: "Fixture",
+      },
+    });
+    await writeFile(join(repository, "a.ts"), "export const a = 1;\n");
+    await writeFile(join(repository, "b.ts"), "export const b = 1;\n");
+    const first = await workspace.inspect({ kind: "working-tree" });
+    const grouping = agents.createJob(first.id, "grouping");
+    agents.writeCheckpoint(grouping.id, "batch", { stale: true });
+    agents.publish(grouping.id, {
+      groups: [
+        {
+          title: "Existing flow",
+          rationale: "Together",
+          files: first.files.map((file) => ({
+            path: file.path,
+            summary: "Original",
+            related: [],
+          })),
+        },
+      ],
+    });
+    await writeFile(join(repository, "a.ts"), "export const a = 2;\n");
+    const merged = await workspace.resync(first.id, "keep");
+    const context = await loadContext(workspace.store, repository, merged);
+    expect(context.previousReview?.hash).toBe(first.hash);
+    const next = agents.createJob(merged.id, "grouping");
+    expect(next.id).not.toBe(grouping.id);
+    expect(next.hash).toBe(merged.hash);
+    expect(next.snapshotRound).toBe(merged.round);
+    expect(agents.readCheckpoint(next.id, "batch")).toBeNull();
+    const retained = agents
+      .jobs(merged.id)
+      .find(
+        (job) =>
+          job.hash === context.previousReview?.hash &&
+          job.status === "completed",
+      );
+    expect(retained?.result).toMatchObject({
+      groups: [{ title: "Existing flow" }],
+    });
+    expect(workspace.store.listReviews(repository)).toHaveLength(1);
+    const serialized = workspace.store.database
+      .prepare("SELECT body FROM reviews WHERE id = ?")
+      .get(merged.id)?.body;
+    expect(JSON.parse(String(serialized)).notes).toEqual([]);
+    agents.updateJob(next.id, { status: "failed", error: "Retry" });
+    await writeFile(join(repository, "a.ts"), "export const a = 1;\n");
+    const restored = await workspace.resync(merged.id, "keep");
+    expect(restored.hash).toBe(first.hash);
+    expect(restored.round).toBe(3);
+    const latest = agents.createJob(restored.id, "grouping");
+    expect(latest.snapshotRound).toBe(3);
+    expect(agents.readCheckpoint(latest.id, "batch")).toBeNull();
+    expect(workspace.store.listReviews(repository)).toHaveLength(1);
   } finally {
     workspace.close();
   }
