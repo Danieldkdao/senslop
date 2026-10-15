@@ -124,7 +124,8 @@ export const SettingsDialog = ({
         <DialogHeader className="sr-only">
           <DialogTitle>Settings</DialogTitle>
           <DialogDescription>
-            Appearance, editor, and AI settings on this computer.
+            Appearance, review preferences, editor, and AI settings on this
+            computer.
           </DialogDescription>
         </DialogHeader>
         <div className="flex min-h-0 h-full flex-col sm:flex-row">

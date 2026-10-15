@@ -19,6 +19,7 @@ import { AiSettings } from "../../agents/components/ai-settings";
 import { SettingsDialog } from "./settings-dialog";
 import type { SettingsSection } from "../types";
 import { EditorDiffPreview } from "./editor-diff-preview";
+import { ReviewPreferences } from "./review-preferences";
 
 type ReviewSettingsProps = {
   open?: boolean;
@@ -87,6 +88,13 @@ export const ReviewSettings = ({
                 </Select>
               </div>
             ),
+          },
+          {
+            id: "review-preferences",
+            label: "Review Preferences",
+            keywords:
+              "review preferences automatic auto advance next file completion complete navigation",
+            content: <ReviewPreferences />,
           },
           {
             id: "editor",
