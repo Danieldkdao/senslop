@@ -128,7 +128,12 @@ test("pending sends disable model changes and duplicate submission", async () =>
     (screen.getByRole("button", { name: "Choose second" }) as HTMLButtonElement)
       .disabled,
   ).toBe(true);
-  expect(screen.getByRole("status").textContent).toContain("Waiting");
+  expect(screen.getByText("Waiting for the model…").getAttribute("role")).toBe(
+    "status",
+  );
+  expect(
+    screen.getByRole("button", { name: "Send" }).getAttribute("aria-busy"),
+  ).toBe("true");
   expect(fetcher).toHaveBeenCalledTimes(1);
   finish(Response.json({ text: "Done" }));
   expect(await screen.findByText("Done")).toBeTruthy();

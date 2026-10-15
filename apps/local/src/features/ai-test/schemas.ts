@@ -6,8 +6,18 @@ export type ChatMessageRole = (typeof chatMessageRoles)[number];
 
 export const chatMessageSchema = z
   .object({
-    role: z.enum(chatMessageRoles),
-    content: z.string().min(1).max(65536),
+    role: z
+      .enum(chatMessageRoles)
+      .describe(
+        "Author of this test-chat message: user question or assistant response; system messages are not accepted.",
+      ),
+    content: z
+      .string()
+      .min(1)
+      .max(65536)
+      .describe(
+        "Plain text message content; user questions are limited to 8,192 characters and saved assistant responses to 65,536.",
+      ),
   })
   .strict()
   .refine(
@@ -41,6 +51,9 @@ export const chatRequestSchema = manualModelSchema
               message.role === (index % 2 ? "assistant" : "user"),
           ),
         "Send alternating user and assistant messages, ending with a user message.",
+      )
+      .describe(
+        "Chronological test-chat history alternating user and assistant messages, ending with a user question; at most 49 messages and 32,768 total characters.",
       ),
   })
   .strict();
@@ -51,11 +64,20 @@ export const chatFormSchema = z.object({
     .string()
     .trim()
     .min(1, "Enter a message.")
-    .max(8192, "Keep messages under 8,192 characters."),
+    .max(8192, "Keep messages under 8,192 characters.")
+    .describe(
+      "The user's next plain text question for the selected model in the provider test chat.",
+    ),
 });
 export type ChatFormSchema = z.infer<typeof chatFormSchema>;
 
 export const chatResponseSchema = z.object({
-  text: z.string().min(1).max(65536),
+  text: z
+    .string()
+    .min(1)
+    .max(65536)
+    .describe(
+      "Nonempty assistant reply returned by the selected model for the test-chat request.",
+    ),
 });
 export type ChatResponseSchema = z.infer<typeof chatResponseSchema>;

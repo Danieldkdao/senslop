@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { LoadingSwap } from "@/components/ui/loading-swap";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "@/components/ui/toast";
@@ -54,7 +55,7 @@ export const AiTestChat = () => {
     [selection],
   );
   return (
-    <main className="mx-auto max-w-2xl p-6 text-base space-y-6">
+    <main className="mx-auto max-w-2xl p-6 text-base flex flex-col gap-6">
       <div className="flex items-center justify-between gap-4">
         <h1 className="text-2xl">AI test</h1>
         <Link href="/" className="underline">
@@ -74,7 +75,7 @@ export const AiTestChat = () => {
         role="log"
         aria-label="Conversation"
         aria-live="polite"
-        className="space-y-4"
+        className="flex flex-col gap-4"
       >
         {!messages.length && (
           <p className="text-muted-foreground">
@@ -82,7 +83,7 @@ export const AiTestChat = () => {
           </p>
         )}
         {messages.map((message, index) => (
-          <div key={index} className="space-y-1">
+          <div key={index} className="flex flex-col gap-1">
             <p className="font-medium">{formatMessageRole(message.role)}</p>
             <p className="whitespace-pre-wrap break-words">{message.content}</p>
           </div>
@@ -92,7 +93,7 @@ export const AiTestChat = () => {
       <form
         noValidate
         aria-busy={isSubmitting}
-        className="space-y-3"
+        className="flex flex-col gap-3"
         onSubmit={(event) =>
           void handleSubmit(async ({ message }) => {
             if (!selection || controller.current) return;
@@ -145,8 +146,13 @@ export const AiTestChat = () => {
                 event.preventDefault();
             }}
           />
-          <Button type="submit" disabled={!selection || isSubmitting}>
-            Send
+          <Button
+            type="submit"
+            aria-label="Send"
+            aria-busy={isSubmitting}
+            disabled={!selection || isSubmitting}
+          >
+            <LoadingSwap isLoading={isSubmitting}>Send</LoadingSwap>
           </Button>
         </div>
         {errors.message && (
