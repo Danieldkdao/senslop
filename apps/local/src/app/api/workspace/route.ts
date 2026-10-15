@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { reviewChangeSchema } from "@senslop/contracts";
+import { reviewChangeSchema, resyncModes } from "@senslop/contracts";
 import {
   getWorkspace,
   localWorkspaceError,
@@ -8,7 +8,21 @@ import {
 } from "@/features/workspace/lib/server-workspace";
 
 const workspaceActionSchema = z.discriminatedUnion("action", [
-  z.object({ action: z.literal("inspect"), source: z.unknown() }).strict(),
+  z
+    .object({
+      action: z.literal("inspect"),
+      source: z.unknown(),
+      grouping: z.boolean().optional(),
+    })
+    .strict(),
+  z
+    .object({
+      action: z.literal("resync"),
+      id: z.uuid(),
+      mode: z.enum(resyncModes).optional(),
+      grouping: z.boolean().optional(),
+    })
+    .strict(),
   z.object({ action: z.literal("open"), id: z.uuid() }).strict(),
   z.object({ action: z.literal("delete"), id: z.uuid() }).strict(),
   z
@@ -81,7 +95,13 @@ export const POST = async (request: Request) => {
     const root = await workspace.root();
     switch (action.action) {
       case "inspect":
-        return Response.json(await workspace.inspect(action.source));
+        return Response.json(
+          await workspace.inspect(action.source, action.grouping),
+        );
+      case "resync":
+        return Response.json(
+          await workspace.resync(action.id, action.mode, action.grouping),
+        );
       case "open":
         return Response.json(workspace.store.openReview(root, action.id));
       case "change":
@@ -98,7 +118,7 @@ export const POST = async (request: Request) => {
         ? "Check the Git selection and retry."
         : (error as Error).message;
     const safe =
-      /Git|snapshot|ancestor|selection|changed|revision|not found|does not belong|line does not match|repository root/.test(
+      /Diff generation|Git|snapshot|ancestor|selection|changed|changes|revision|not found|does not belong|line does not match|repository root|Re-sync/.test(
         message,
       );
     return Response.json(

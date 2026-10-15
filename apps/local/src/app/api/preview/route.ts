@@ -1,3 +1,4 @@
+import { scheduleGrouping } from "../../../services/inngest/functions";
 import {
   getWorkspace,
   localWorkspaceError,
@@ -12,6 +13,7 @@ export const GET = async (request: Request) => {
     );
   try {
     const preview = await getWorkspace().current();
+    if (preview) await scheduleGrouping(preview.id);
     const etag = `W/"${preview?.id ?? "empty"}-${preview?.revision ?? 0}"`;
     const headers = { "Cache-Control": "no-store", ETag: etag };
     if (request.headers.get("if-none-match") === etag)
@@ -37,7 +39,8 @@ export const POST = async (request: Request) => {
       { status: 403 },
     );
   try {
-    await getWorkspace().current();
+    const preview = await getWorkspace().current();
+    if (preview) await scheduleGrouping(preview.id);
     return Response.json({ saved: true });
   } catch (error) {
     return Response.json(
