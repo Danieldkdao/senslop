@@ -5,6 +5,8 @@ import { useTheme } from "next-themes";
 import { MultiFileDiff, type FileContents } from "@pierre/diffs/react";
 import { getDiffOptions } from "../../review/lib/diff-options";
 import type { DiffSettingsState, DiffView } from "../../review/types";
+import { useDiffHighlighter } from "../../review/hooks/use-diff-highlighter";
+import { DiffRenderState } from "../../review/components/diff-render-state";
 
 type EditorDiffPreviewProps = {
   settings: DiffSettingsState;
@@ -73,12 +75,16 @@ export const EditorDiffPreview = ({
 }: EditorDiffPreviewProps) => {
   const id = useId();
   const { resolvedTheme } = useTheme();
+  const highlighter = useDiffHighlighter(newFile.name, oldFile.name);
   const options = useMemo(
     () => getDiffOptions(settings, view, resolvedTheme),
     [settings, view, resolvedTheme],
   );
   return (
-    <section aria-labelledby={id} className="min-w-0 space-y-3 text-base">
+    <section
+      aria-labelledby={id}
+      className="min-w-0 flex flex-col gap-3 text-base"
+    >
       <div className="flex flex-col gap-1">
         <h3 id={id} className="font-medium">
           Diff preview
@@ -90,12 +96,19 @@ export const EditorDiffPreview = ({
       <div className="min-w-0 max-w-full overflow-hidden rounded-xl border">
         <p className="border-b bg-muted px-4 py-2 font-mono">welcome.ts</p>
         <div className="max-h-[28rem] overflow-auto">
-          <MultiFileDiff
-            oldFile={oldFile}
-            newFile={newFile}
-            options={options}
-            className="preview-diff"
-          />
+          {highlighter.ready ? (
+            <MultiFileDiff
+              oldFile={oldFile}
+              newFile={newFile}
+              options={options}
+              className="preview-diff"
+            />
+          ) : (
+            <DiffRenderState
+              error={highlighter.error}
+              onRetry={highlighter.retry}
+            />
+          )}
         </div>
       </div>
     </section>
