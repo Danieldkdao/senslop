@@ -15,9 +15,26 @@ import { parseDiffFromFile } from "@pierre/diffs";
 import type { MultiFileDiffProps } from "@pierre/diffs/react";
 import type { ProviderId, PublicConnectionSchema } from "@senslop/contracts";
 
+vi.mock("../../agents/hooks/use-ai-settings", async () => {
+  const { defaultAiSettings } = await import("../../agents/constants");
+  return {
+    useAiSettings: () => ({
+      settings: { data: defaultAiSettings },
+      save: vi.fn(async () => {}),
+    }),
+  };
+});
 const preview = vi.hoisted(() => ({ render: vi.fn(), theme: "dark" }));
+vi.mock("../../review/hooks/use-diff-highlighter", () => ({
+  useDiffHighlighter: () => ({ ready: true, error: false, retry: vi.fn() }),
+}));
+const originalScrollTo = HTMLElement.prototype.scrollTo;
 vi.mock("../../providers/hooks/use-provider-models", () => ({
-  useProviderModels: () => ({ entries: [], refresh: vi.fn() }),
+  useProviderModels: () => ({
+    settings: { data: { connections: [], defaultId: null } },
+    entries: [],
+    refresh: vi.fn(),
+  }),
 }));
 vi.mock("next-themes", () => ({
   useTheme: () => ({
@@ -40,6 +57,7 @@ vi.mock("@/components/ui/toast", () => ({
 }));
 afterEach(() => {
   cleanup();
+  HTMLElement.prototype.scrollTo = originalScrollTo;
   vi.unstubAllGlobals();
   preview.render.mockClear();
   preview.theme = "dark";
@@ -106,6 +124,9 @@ test.each([
     );
     await user.click(screen.getByRole("button", { name: "Settings" }));
     await user.click(
+      screen.getByRole("button", { name: "Configure Providers" }),
+    );
+    await user.click(
       await screen.findByRole("button", { name: `Configure ${label}` }),
     );
     await user.click(screen.getByRole("button", { name: "Save connection" }));
@@ -134,6 +155,9 @@ test.each([
     await user.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     await user.click(screen.getByRole("button", { name: "Settings" }));
+    await user.click(
+      screen.getByRole("button", { name: "Configure Providers" }),
+    );
     await user.click(
       await screen.findByRole("button", { name: `Configure ${label}` }),
     );
@@ -232,7 +256,7 @@ test("editor preview follows every diff control with representative code and no 
   expect(screen.queryByLabelText("Comment")).toBeNull();
   expect(screen.queryByRole("button", { name: "Mark reviewed" })).toBeNull();
 });
-test("one settings dialog orders appearance/editor/providers, search navigates nested local config and breadcrumbs return", async () => {
+test("one settings dialog orders appearance/editor/AI, search navigates nested local config and breadcrumbs return", async () => {
   vi.stubGlobal(
     "fetch",
     vi.fn().mockResolvedValue({
@@ -262,8 +286,32 @@ test("one settings dialog orders appearance/editor/providers, search navigates n
   const headings = screen
     .getAllByRole("heading", { level: 2 })
     .map((heading) => heading.textContent);
-  expect(headings.slice(1)).toEqual(["Appearance", "Editor", "Providers"]);
+  expect(headings.slice(1)).toEqual(["Appearance", "Editor", "AI"]);
+  const sidebar = within(
+    screen.getByRole("navigation", { name: "Settings sections" }),
+  );
+  await user.click(sidebar.getByRole("button", { name: "AI" }));
+  await user.click(sidebar.getByRole("button", { name: "Providers" }));
+  expect(screen.getByRole("heading", { name: "Providers" })).toBeTruthy();
+  expect(
+    await screen.findByRole("button", { name: "Configure Ollama" }),
+  ).toBeTruthy();
+  expect(
+    screen.getByRole("button", { name: "Configure LM Studio" }),
+  ).toBeTruthy();
+  expect(sidebar.queryByRole("button", { name: "Ollama" })).toBeNull();
+  await user.click(sidebar.getByRole("button", { name: "Providers" }));
+  expect(
+    within(
+      screen.getByRole("navigation", { name: "Settings breadcrumb" }),
+    ).getAllByRole("button", { name: "Providers" }),
+  ).toHaveLength(1);
+  await user.click(screen.getByRole("button", { name: "Back to settings" }));
   await user.type(screen.getByLabelText("Search settings"), "ollama");
+  expect(
+    sidebar.getAllByRole("button").map((button) => button.textContent),
+  ).toEqual(["AI", "Providers"]);
+  await user.click(sidebar.getByRole("button", { name: "Providers" }));
   await user.click(
     await screen.findByRole("button", { name: "Configure Ollama" }),
   );
@@ -274,6 +322,7 @@ test("one settings dialog orders appearance/editor/providers, search navigates n
   expect(
     await screen.findByRole("button", { name: "Configure Ollama" }),
   ).toBeTruthy();
+  await user.click(screen.getByRole("button", { name: "Back to settings" }));
   await user.clear(screen.getByLabelText("Search settings"));
   await user.click(screen.getByRole("button", { name: "Unified" }));
   expect(
@@ -283,6 +332,36 @@ test("one settings dialog orders appearance/editor/providers, search navigates n
   ).toBe("true");
   await user.keyboard("{Escape}");
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+});
+
+test("standalone provider settings has one sidebar entry and all providers in its content", async () => {
+  HTMLElement.prototype.scrollTo = vi.fn();
+  const { ProviderSettingsDialog } =
+    await import("../components/provider-settings-dialog");
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        connections: [],
+        defaultId: null,
+        cleanupPending: false,
+      }),
+    }),
+  );
+  render(<ProviderSettingsDialog open onOpenChange={vi.fn()} />);
+  const sidebar = within(
+    screen.getByRole("navigation", { name: "Settings sections" }),
+  );
+  const providers = sidebar.getByRole("button", { name: "Providers" });
+  expect(providers.hasAttribute("aria-expanded")).toBe(false);
+  expect(sidebar.getAllByRole("button")).toHaveLength(1);
+  expect(
+    await screen.findByRole("button", { name: "Configure Ollama" }),
+  ).toBeTruthy();
+  expect(
+    screen.getByRole("button", { name: "Configure LM Studio" }),
+  ).toBeTruthy();
 });
 
 test("only nested contents collapse; provider touch targets toggle without jumping and search reveals links", async () => {
