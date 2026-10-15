@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import {
   useQuery,
   useQueryClient,
@@ -17,6 +18,7 @@ import {
 
 export const useAgentState = (snapshotId?: string) => {
   const client = useQueryClient();
+  const [requestedJobs, setRequestedJobs] = useState<string[]>([]);
   const state = useQuery({
     queryKey: ["agents", snapshotId],
     enabled: !!snapshotId,
@@ -46,6 +48,8 @@ export const useAgentState = (snapshotId?: string) => {
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.message ?? "Action failed.");
+      if (action.action === "job" && typeof data.id === "string")
+        setRequestedJobs((current) => [...current.slice(-99), data.id]);
       await client.invalidateQueries({ queryKey: ["agents", snapshotId] });
       await client.invalidateQueries({ queryKey: ["conversation"] });
       await client.invalidateQueries({ queryKey: ["agent-history"] });
@@ -55,7 +59,7 @@ export const useAgentState = (snapshotId?: string) => {
       throw error;
     }
   };
-  return { state, act };
+  return { state, act, requestedJobs };
 };
 
 export const useConversation = (id: string | null) => {

@@ -12,6 +12,7 @@ import {
   type MessageStatus,
 } from "../schemas";
 import { defaultAiSettings } from "../constants";
+import { matchesJobSnapshot } from "./job-snapshots";
 
 export class AgentStore {
   constructor(
@@ -130,7 +131,9 @@ export class AgentStore {
         );
       const jobs = this.jobs(snapshotId).filter((job) => job.kind === kind);
       const active = jobs.find(
-        (job) => job.status === "queued" || job.status === "running",
+        (job) =>
+          matchesJobSnapshot(job, snapshot) &&
+          (job.status === "queued" || job.status === "running"),
       );
       if (active) return active;
       const now = new Date().toISOString();
@@ -138,6 +141,7 @@ export class AgentStore {
         id: randomUUID(),
         snapshotId,
         hash: snapshot.hash,
+        snapshotRound: snapshot.round,
         kind,
         generation: (jobs[0]?.generation ?? 0) + 1,
         settings: this.settings(),
@@ -191,9 +195,17 @@ export class AgentStore {
     if (!existingJob) return null;
     const existingCheckpoint = this.local.database
       .prepare(
-        "SELECT c.body FROM ai_batch_checkpoints c JOIN ai_jobs j ON j.id = c.job_id WHERE j.snapshot_id = ? AND json_extract(j.body, '$.kind') = ? AND c.checkpoint_key = ? ORDER BY (j.id = ?) DESC, j.rowid DESC LIMIT 1",
+        "SELECT c.body FROM ai_batch_checkpoints c JOIN ai_jobs j ON j.id = c.job_id WHERE j.snapshot_id = ? AND json_extract(j.body, '$.kind') = ? AND json_extract(j.body, '$.hash') = ? AND COALESCE(json_extract(j.body, '$.snapshotRound'), ?) = ? AND c.checkpoint_key = ? ORDER BY (j.id = ?) DESC, j.rowid DESC LIMIT 1",
       )
-      .get(existingJob.snapshotId, existingJob.kind, key, id);
+      .get(
+        existingJob.snapshotId,
+        existingJob.kind,
+        existingJob.hash,
+        existingJob.snapshotRound ?? 1,
+        existingJob.snapshotRound ?? 1,
+        key,
+        id,
+      );
     if (!existingCheckpoint) return null;
     try {
       return JSON.parse(String(existingCheckpoint.body));
@@ -270,7 +282,10 @@ export class AgentStore {
       const latest = this.jobs(job.snapshotId).find(
         (item) => item.kind === job.kind,
       );
-      if (latest?.id !== id || this.snapshot(job.snapshotId).hash !== job.hash)
+      if (
+        latest?.id !== id ||
+        !matchesJobSnapshot(job, this.snapshot(job.snapshotId))
+      )
         return false;
       this.writeJob(id, {
         status: "completed",
