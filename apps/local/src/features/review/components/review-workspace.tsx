@@ -16,6 +16,7 @@ import { useAgentState } from "../../agents/hooks/use-agent-state";
 import type { FindingSchema } from "../../agents/schemas";
 import { FileSearchDialog } from "./file-search-dialog";
 import { useReviewReadyToast } from "../hooks/use-review-ready-toast";
+import { matchesJobSnapshot } from "../../agents/lib/job-snapshots";
 import { useReviewNavigation } from "../hooks/use-review-navigation";
 import { defaultDiffSettings } from "../constants";
 import type { DiffView, ReviewLine } from "../types";
@@ -62,8 +63,15 @@ const PreviewDiff = dynamic(
 
 export const ReviewWorkspace = ({ children }: ReviewWorkspaceProps) => {
   const mobile = useIsMobile(1024);
-  const { preview, error, changeReview, refresh, discardReview } =
-    useLivePreview();
+  const {
+    preview,
+    error,
+    changeReview,
+    refresh,
+    discardReview,
+    reviewOperation,
+    trackReviewOperation,
+  } = useLivePreview();
   const [selection, setSelection] = useState<{
     id: string;
     path: string;
@@ -72,7 +80,12 @@ export const ReviewWorkspace = ({ children }: ReviewWorkspaceProps) => {
   const { settings: aiSettings } = useAiSettings();
   const groupingConfigured = !!assignedModel(aiSettings.data, "grouping");
   const groupingJobs =
-    agents.state.data?.jobs.filter((job) => job.kind === "grouping") ?? [];
+    agents.state.data?.jobs.filter(
+      (job) =>
+        job.kind === "grouping" &&
+        !!preview &&
+        matchesJobSnapshot(job, preview),
+    ) ?? [];
   const groupingRun =
     groupingJobs[0]?.status === "completed" ? groupingJobs[0] : null;
   const grouping =
@@ -111,23 +124,28 @@ export const ReviewWorkspace = ({ children }: ReviewWorkspaceProps) => {
     ) ??
     preview?.files.find((file) => file.path === preview.selectedPath) ??
     preview?.files[0];
-  useReviewReadyToast(
-    preview &&
-      selectedFile &&
+  useReviewReadyToast({
+    snapshotId: preview?.id,
+    hash: preview?.hash,
+    round: preview?.round,
+    jobs: agents.state.data?.jobs ?? [],
+    requestedJobs: agents.requestedJobs,
+    operation: reviewOperation,
+    onHandled: () => trackReviewOperation(null),
+    ready:
+      !!preview &&
       !error &&
       !preparing &&
       orderedFiles.length === preview.files.length &&
       new Set(orderedFiles.map((file) => file.path)).size ===
         preview.files.length &&
-      (preview.groupingEnabled === false || grouping)
-      ? `${preview.id}:${preview.groupingEnabled === false ? "ungrouped" : groupingRun!.id}`
-      : null,
-  );
+      (preview.groupingEnabled === false || !!grouping),
+  });
   const selectedIndex =
     orderedFiles.findIndex((file) => file.path === selectedFile?.path) ?? -1;
   const selectFile = useCallback(
     (path: string) => {
-      if (preview) {
+      if (preview?.files.some((file) => file.path === path)) {
         setSelection({ id: preview.id, path });
         setEvidence(null);
         void changeReview({ action: "select", path }).catch(() => {});

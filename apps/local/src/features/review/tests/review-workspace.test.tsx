@@ -10,6 +10,7 @@ import {
   within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { defaultAiSettings } from "../../agents/constants";
 import type { JobSchema } from "../../agents/schemas";
 import type { LivePreview, ReviewLine, ReviewNote } from "../types";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -62,10 +63,12 @@ const state = vi.hoisted(() => ({
   jobs: [] as JobSchema[],
   act: vi.fn(async () => ({})),
   discard: vi.fn(async () => {}),
+  change: vi.fn(),
   mobile: false,
   preview: null as LivePreview | null,
   toastError: vi.fn(),
   toastSuccess: vi.fn(),
+  trackReviewOperation: vi.fn(),
 }));
 vi.mock("../../workspace/components/workspace-toolbar", () => ({
   WorkspaceToolbar: () => null,
@@ -77,6 +80,8 @@ vi.mock("../components/live-preview-provider", async () => {
       const [, renderAgain] = React.useReducer((n: number) => n + 1, 0);
       return {
         preview: state.preview,
+        reviewOperation: null,
+        trackReviewOperation: state.trackReviewOperation,
         error: null,
         refresh: async () => {},
         discardReview: async () => {
@@ -91,6 +96,7 @@ vi.mock("../components/live-preview-provider", async () => {
           path?: string;
           complete?: boolean;
         }) => {
+          state.change(change);
           if (!state.preview) return;
           const notes = state.preview.notes ?? [];
           if (change.action === "add-note")
@@ -766,7 +772,7 @@ test("discarding a failed grouping review requires confirmation and returns to t
   expect(state.discard).toHaveBeenCalledOnce();
 });
 
-test("ready feedback waits for grouping, survives reload, and announces each regenerated run once", () => {
+test("ready feedback waits for observed grouping and does not replay on reload", () => {
   setNavigationPreview();
   state.preview!.groupingEnabled = true;
   const job = {
@@ -800,32 +806,32 @@ test("ready feedback waits for grouping, survives reload, and announces each reg
   };
   mounted.rerender(<ReviewWorkspace>Ready</ReviewWorkspace>);
   expect(screen.getByText("Diff for src/first.ts")).toBeTruthy();
-  expect(state.toastSuccess).toHaveBeenCalledTimes(1);
+  expect(state.toastSuccess).not.toHaveBeenCalled();
   cleanup();
   mounted = render(workspace);
-  expect(state.toastSuccess).toHaveBeenCalledTimes(1);
+  expect(state.toastSuccess).not.toHaveBeenCalled();
   state.jobs = [
     { ...job, id: "second-run", status: "running", result: null },
     job,
   ];
   mounted.rerender(<ReviewWorkspace>Regroup</ReviewWorkspace>);
-  expect(state.toastSuccess).toHaveBeenCalledTimes(1);
+  expect(state.toastSuccess).not.toHaveBeenCalled();
   state.jobs[0] = { ...job, id: "second-run" };
   mounted.rerender(workspace);
-  expect(state.toastSuccess).toHaveBeenCalledTimes(2);
+  expect(state.toastSuccess).toHaveBeenCalledTimes(1);
 });
 
-test("ungrouped reviews announce readiness only once per snapshot", () => {
+test("opening ungrouped reviews and refreshing stays quiet", () => {
   setNavigationPreview();
   const workspace = <ReviewWorkspace>Setup</ReviewWorkspace>;
   render(workspace);
-  expect(state.toastSuccess).toHaveBeenCalledTimes(1);
+  expect(state.toastSuccess).not.toHaveBeenCalled();
   cleanup();
   const mounted = render(workspace);
-  expect(state.toastSuccess).toHaveBeenCalledTimes(1);
+  expect(state.toastSuccess).not.toHaveBeenCalled();
   state.preview = { ...state.preview!, id: "new-review" };
   mounted.rerender(<ReviewWorkspace>New review</ReviewWorkspace>);
-  expect(state.toastSuccess).toHaveBeenCalledTimes(2);
+  expect(state.toastSuccess).not.toHaveBeenCalled();
 });
 
 test.each(["queued", "running"] as const)(
@@ -907,4 +913,73 @@ test("only header actions have tooltips and mobile drawers still open", async ()
   }
   await user.click(screen.getByRole("button", { name: "Open files" }));
   expect(await screen.findByRole("dialog")).toBeTruthy();
+});
+
+test.each([
+  { hash: "old-hash", snapshotRound: 2 },
+  { hash: "new-hash", snapshotRound: 1 },
+])(
+  "merge re-sync ignores grouping results for previous content or sync rounds: %j",
+  (identity) => {
+    setNavigationPreview();
+    state.preview = {
+      ...state.preview!,
+      groupingEnabled: true,
+      hash: "new-hash",
+      round: 2,
+    };
+    state.jobs = [
+      {
+        id: "old-grouping",
+        snapshotId: state.preview.id,
+        generation: 1,
+        settings: defaultAiSettings,
+        progress: "Complete",
+        error: null,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        runId: null,
+        dispatched: true,
+        ...identity,
+        kind: "grouping",
+        status: "completed",
+        result: {
+          groups: [
+            {
+              title: "Old flow",
+              rationale: "Earlier content",
+              files: state.preview.files.map((file) => ({
+                path: file.path,
+                summary: "Old summary",
+                related: [],
+              })),
+            },
+          ],
+        },
+      } as JobSchema,
+    ];
+    render(<ReviewWorkspace>Setup</ReviewWorkspace>);
+    expect(screen.getByText("Preparing your review")).toBeTruthy();
+    expect(screen.queryByText("Old summary")).toBeNull();
+    expect(state.toastSuccess).not.toHaveBeenCalled();
+  },
+);
+
+test("retained notes for removed files stay readable without trying to select a missing file", async () => {
+  setNavigationPreview();
+  state.preview!.notes = [
+    {
+      id: "retained",
+      previewId: state.preview!.id,
+      path: "removed.ts",
+      body: "Keep this context",
+      line: null,
+    },
+  ];
+  render(<ReviewWorkspace>Setup</ReviewWorkspace>);
+  await userEvent
+    .setup()
+    .click(screen.getByRole("button", { name: "removed.ts" }));
+  expect(screen.getByText("Keep this context")).toBeTruthy();
+  expect(state.change).not.toHaveBeenCalled();
 });
