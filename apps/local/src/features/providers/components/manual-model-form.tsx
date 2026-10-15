@@ -59,7 +59,7 @@ export const ManualModelForm = ({
         </DialogHeader>
         <form
           noValidate
-          className="space-y-4"
+          className="flex flex-col gap-4"
           onSubmit={handleSubmit((values) => {
             if (
               !connections.some(
@@ -75,7 +75,7 @@ export const ManualModelForm = ({
             onOpenChange(false);
           })}
         >
-          <div className="space-y-2">
+          <div className="flex flex-col gap-2">
             <label htmlFor="manual-connection">Connection</label>
             <Controller
               name="connectionId"
@@ -118,7 +118,7 @@ export const ManualModelForm = ({
               </p>
             )}
           </div>
-          <div className="space-y-2">
+          <div className="flex flex-col gap-2">
             <label htmlFor="manual-model">Model ID</label>
             <Input
               id="manual-model"

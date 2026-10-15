@@ -15,6 +15,7 @@ import { providerRequest } from "../lib/requests";
 import { useConnectionCheck } from "../hooks/use-connection-check";
 import type { ConnectionFeedback } from "../types";
 import { cn } from "@/lib/utils";
+import { LoadingSwap } from "@/components/ui/loading-swap";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PasswordInput } from "@/components/ui/password-input";
@@ -98,7 +99,7 @@ export const ConnectionForm = ({
       }
     })(event);
   const field = (name: "baseURL", label: string, type = "text") => (
-    <div className="space-y-2">
+    <div className="flex flex-col gap-2">
       <label htmlFor={`${id}-${name}`}>{label}</label>
       <Input
         id={`${id}-${name}`}
@@ -119,7 +120,7 @@ export const ConnectionForm = ({
     <form
       noValidate
       onSubmit={submit}
-      className="space-y-5 text-base"
+      className="flex flex-col gap-5 text-base"
       aria-busy={isSubmitting || checking}
     >
       <div className="flex items-center gap-3">
@@ -147,7 +148,7 @@ export const ConnectionForm = ({
         </Button>
       </div>
       {info.contextWindow && (
-        <div className="space-y-2">
+        <div className="flex flex-col gap-2">
           <label htmlFor={`${id}-context`}>Context window</label>
           <Input
             id={`${id}-context`}
@@ -180,7 +181,7 @@ export const ConnectionForm = ({
         </div>
       )}
       <div
-        className="space-y-2"
+        className="flex flex-col gap-2"
         onBlur={(event) => {
           if (
             !event.currentTarget.contains(event.relatedTarget) &&
@@ -268,8 +269,15 @@ export const ConnectionForm = ({
           {errors.root.message} Your input is retained; retry saving when ready.
         </p>
       )}
-      <Button type="submit" disabled={isSubmitting || checking}>
-        {isSubmitting ? "Saving securely…" : "Save connection"}
+      <Button
+        type="submit"
+        aria-label="Save connection"
+        aria-busy={isSubmitting || checking}
+        disabled={isSubmitting || checking}
+      >
+        <LoadingSwap isLoading={isSubmitting || checking}>
+          Save connection
+        </LoadingSwap>
       </Button>
     </form>
   );

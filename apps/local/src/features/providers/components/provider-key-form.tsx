@@ -92,7 +92,7 @@ export const ProviderKeyForm = ({
       onBlur={(event) => {
         if (!event.currentTarget.contains(event.relatedTarget)) void submit();
       }}
-      className="space-y-2"
+      className="flex flex-col gap-2"
       aria-busy={isSubmitting || checking}
     >
       <label className="sr-only" htmlFor={id}>
