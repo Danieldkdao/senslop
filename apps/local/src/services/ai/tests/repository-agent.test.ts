@@ -287,6 +287,144 @@ test("review explicitly assesses a file with no findings using structured output
   });
 });
 
+test.each(["mistral", "lm-studio", "google"] as const)(
+  "%s transports the grouping output schema without a submission function",
+  async (provider) => {
+    const { resolveLanguageModel } = await vi.importActual<
+      typeof import("../provider-runtime")
+    >("../provider-runtime");
+    let body: Record<string, unknown> | undefined;
+    const fetcher: typeof fetch = async (_url, init) => {
+      body = JSON.parse(String(init?.body));
+      expect(JSON.stringify(body)).not.toContain("submitResult");
+      if (provider === "google")
+        return Response.json({
+          candidates: [
+            {
+              content: {
+                role: "model",
+                parts: [{ text: JSON.stringify(resultGroups) }],
+              },
+              finishReason: "STOP",
+            },
+          ],
+          usageMetadata: {
+            promptTokenCount: 10,
+            candidatesTokenCount: 10,
+            totalTokenCount: 20,
+          },
+        });
+      return Response.json({
+        id: "fixture",
+        object: "chat.completion",
+        created: 1,
+        model: "fixture",
+        choices: [
+          {
+            index: 0,
+            message: {
+              role: "assistant",
+              content: JSON.stringify(resultGroups),
+            },
+            finish_reason: "stop",
+          },
+        ],
+        usage: { prompt_tokens: 10, completion_tokens: 10, total_tokens: 20 },
+      });
+    };
+    state.resolved = resolveLanguageModel(
+      {
+        provider,
+        name: "Fixture",
+        baseURL: `https://native-${provider}.test/v1`,
+        model: "",
+        contextWindow: null,
+      },
+      "fixture-key",
+      provider === "google" ? "gemini-3.5-flash-lite" : "fixture",
+      fetcher,
+    );
+    await expect((await resultAgent()).grouping()).resolves.toEqual(
+      resultGroups,
+    );
+    expect(JSON.stringify(body)).toContain("groups");
+    if (provider === "lm-studio")
+      expect(body?.response_format).toMatchObject({ type: "json_schema" });
+    if (provider === "google")
+      expect(body?.generationConfig).toMatchObject({
+        responseMimeType: "application/json",
+      });
+  },
+);
+
+test("OpenRouter retries only a failed structured-output step and preserves completed source tool work", async () => {
+  state.provider = "openrouter";
+  const { resolveLanguageModel } = await vi.importActual<
+    typeof import("../provider-runtime")
+  >("../provider-runtime");
+  const bodies: string[] = [];
+  const fetcher: typeof fetch = async (_url, init) => {
+    bodies.push(String(init?.body));
+    const body = JSON.parse(bodies.at(-1)!);
+    expect(body.max_tokens).toBe(16000);
+    expect(body.reasoning.max_tokens).toBeLessThanOrEqual(8000);
+    if (bodies.length === 2)
+      return Response.json({
+        error: {
+          code: 502,
+          message: "Transient upstream failure",
+          metadata: { error_type: "provider_unavailable" },
+        },
+      });
+    return Response.json({
+      choices: [
+        {
+          index: 0,
+          message:
+            bodies.length === 1
+              ? {
+                  role: "assistant",
+                  content: null,
+                  tool_calls: [
+                    {
+                      id: "read",
+                      type: "function",
+                      function: {
+                        name: "readSource",
+                        arguments: JSON.stringify({
+                          path: "a.ts",
+                          start: 1,
+                          end: 1,
+                          side: "after",
+                        }),
+                      },
+                    },
+                  ],
+                }
+              : { role: "assistant", content: JSON.stringify(resultGroups) },
+          finish_reason: bodies.length === 1 ? "tool_calls" : "stop",
+        },
+      ],
+      usage: { prompt_tokens: 10, completion_tokens: 10, total_tokens: 20 },
+    });
+  };
+  state.resolved = resolveLanguageModel(
+    {
+      provider: "openrouter",
+      name: "Fixture",
+      baseURL: "https://retry-structured.test/v1",
+      model: "",
+      contextWindow: null,
+    },
+    "fixture-key",
+    "author/model",
+    fetcher,
+  );
+  await expect((await resultAgent()).grouping()).resolves.toEqual(resultGroups);
+  expect(bodies).toHaveLength(3);
+  expect(bodies[1]).toBe(bodies[2]);
+});
+
 test("grouping consumes validated structured model output and rejects incomplete coverage", async () => {
   const groups = {
     groups: [
