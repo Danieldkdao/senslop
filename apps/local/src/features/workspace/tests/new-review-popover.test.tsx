@@ -5,7 +5,23 @@ import { afterEach, expect, test, vi } from "vitest";
 import { NewReviewPopover } from "../components/new-review-popover";
 import type { WorkspaceMetadata } from "../types";
 
-afterEach(cleanup);
+const ai = vi.hoisted(() => ({ mode: "always", configured: true }));
+vi.mock("../../agents/hooks/use-ai-settings", () => ({
+  useAiSettings: () => ({
+    settings: {
+      data: {
+        groupingMode: ai.mode,
+        separate: false,
+        shared: ai.configured ? { modelId: "test" } : null,
+      },
+    },
+  }),
+}));
+afterEach(() => {
+  cleanup();
+  ai.mode = "always";
+  ai.configured = true;
+});
 
 const metadata: WorkspaceMetadata = {
   root: "/opened/repo",
@@ -144,4 +160,75 @@ test("revision combobox searches commit subjects, selects IDs, and accepts custo
       commit: "HEAD~2",
     }),
   );
+});
+
+test("only decide-each-review shows a toggle and sends the choice with inspection", async () => {
+  ai.mode = "ask";
+  const inspect = vi.fn().mockResolvedValue(true);
+  const props = {
+    metadata,
+    preview: null,
+    loading: false,
+    busy: false,
+    error: null,
+    onInspect: inspect,
+  };
+  const { rerender } = render(<NewReviewPopover {...props} />);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "New review" }));
+  await user.click(
+    screen.getByRole("switch", { name: "Group and summarize this review" }),
+  );
+  await user.click(screen.getByRole("button", { name: "Inspect changes" }));
+  expect(inspect).toHaveBeenCalledWith({ kind: "working-tree" }, false);
+  ai.mode = "never";
+  rerender(<NewReviewPopover {...props} />);
+  await user.click(screen.getByRole("button", { name: "New review" }));
+  expect(screen.queryByRole("switch")).toBeNull();
+});
+
+test("the per-review grouping switch is disabled without a grouping model", async () => {
+  ai.mode = "ask";
+  ai.configured = false;
+  render(
+    <NewReviewPopover
+      metadata={metadata}
+      preview={null}
+      loading={false}
+      busy={false}
+      error={null}
+      onInspect={vi.fn()}
+    />,
+  );
+  await userEvent
+    .setup()
+    .click(screen.getByRole("button", { name: "New review" }));
+  const toggle = screen.getByRole("switch", {
+    name: "Group and summarize this review",
+  });
+  expect(toggle.getAttribute("aria-disabled")).toBe("true");
+  expect(toggle.getAttribute("aria-checked")).toBe("false");
+});
+
+test("inspection loading keeps the button label and uses the shared loading swap", async () => {
+  render(
+    <NewReviewPopover
+      metadata={metadata}
+      preview={null}
+      loading={false}
+      busy
+      error={null}
+      onInspect={vi.fn()}
+    />,
+  );
+  await userEvent
+    .setup()
+    .click(screen.getByRole("button", { name: "New review" }));
+  const button = screen.getByRole("button", { name: "Inspect changes" });
+  expect(button.hasAttribute("disabled")).toBe(true);
+  expect(button.getAttribute("aria-busy")).toBe("true");
+  expect(
+    button.querySelector('[role="status"][aria-hidden="false"]'),
+  ).toBeTruthy();
+  expect(button.textContent).toBe("Inspect changes");
 });

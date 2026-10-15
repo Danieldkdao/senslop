@@ -8,8 +8,12 @@ import {
   previewSourceKinds,
   type SourceSelectionSchema,
 } from "@senslop/contracts";
+import { assignedModel } from "../../agents/lib/model-selection";
+import { useAiSettings } from "../../agents/hooks/use-ai-settings";
+import { Switch } from "@/components/ui/switch";
 import { Plus } from "lucide-react";
 import { TooltipWrapper } from "@/components/ui/tooltip-wrapper";
+import { LoadingSwap } from "@/components/ui/loading-swap";
 import { Button } from "@/components/ui/button";
 import {
   Combobox,
@@ -43,6 +47,7 @@ import type { WorkspaceMetadata } from "../types";
 
 const inspectionSchema = z
   .object({
+    group: z.boolean(),
     kind: z.enum(previewSourceKinds),
     commit: z.string().trim().max(200),
     base: z.string().trim().max(200),
@@ -73,7 +78,10 @@ type NewReviewPopoverProps = {
   loading: boolean;
   busy: boolean;
   error: string | null;
-  onInspect: (source: SourceSelectionSchema) => Promise<boolean>;
+  onInspect: (
+    source: SourceSelectionSchema,
+    grouping?: boolean,
+  ) => Promise<boolean>;
 };
 
 export const NewReviewPopover = ({
@@ -84,6 +92,8 @@ export const NewReviewPopover = ({
   error,
   onInspect,
 }: NewReviewPopoverProps) => {
+  const { settings } = useAiSettings();
+  const groupingConfigured = !!assignedModel(settings.data, "grouping");
   const [open, setOpen] = useState(false);
   const {
     handleSubmit,
@@ -92,6 +102,7 @@ export const NewReviewPopover = ({
   } = useForm<InspectionSchema>({
     resolver: zodResolver(inspectionSchema),
     defaultValues: {
+      group: true,
       kind: "working-tree",
       commit: "HEAD",
       base: "",
@@ -131,7 +142,11 @@ export const NewReviewPopover = ({
         };
         break;
     }
-    if (await onInspect(source)) setOpen(false);
+    const succeeded =
+      settings.data?.groupingMode === "ask"
+        ? await onInspect(source, groupingConfigured && values.group)
+        : await onInspect(source);
+    if (succeeded) setOpen(false);
   });
   const revisionInput = (name: "commit" | "head" | "base", label: string) => (
     <div className="min-w-0 flex-1 flex flex-col gap-1">
@@ -309,11 +324,39 @@ export const NewReviewPopover = ({
                 {revisionInput("base", "Base revision: optional")}
               </>
             )}
+            {settings.data?.groupingMode === "ask" && (
+              <div className="rounded-lg border p-3 flex flex-col gap-2">
+                <label
+                  htmlFor="review-grouping"
+                  className="flex items-center justify-between gap-3"
+                >
+                  Group and summarize this review
+                  <Controller
+                    name="group"
+                    control={control}
+                    render={({ field }) => (
+                      <Switch
+                        id="review-grouping"
+                        checked={groupingConfigured && field.value}
+                        onCheckedChange={field.onChange}
+                        disabled={busy || !groupingConfigured}
+                      />
+                    )}
+                  />
+                </label>
+                <p className="text-muted-foreground">
+                  Wait for AI to prepare groups and file summaries before
+                  opening changes.
+                </p>
+              </div>
+            )}
             <Button
               type="submit"
+              aria-label="Inspect changes"
+              aria-busy={busy}
               disabled={busy || loading || !metadata?.repository}
             >
-              {busy ? "Inspecting…" : "Inspect changes"}
+              <LoadingSwap isLoading={busy}>Inspect changes</LoadingSwap>
             </Button>
           </form>
           {preview?.hash && (
