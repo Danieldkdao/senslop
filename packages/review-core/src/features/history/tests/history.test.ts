@@ -194,3 +194,144 @@ test("database search matches review names literally and remains scoped after re
     store.close();
   }
 });
+
+test("multiline notes validate the entire frozen range and overlapping notes survive reopening", async () => {
+  const path = await fixture();
+  let store = new LocalStore(path);
+  const input = preview();
+  input.files[0]!.after = "one\ntwo\nthree\n";
+  const saved = store.saveReview("/repo", input, null);
+  const note = {
+    id: randomUUID(),
+    previewId: saved.id,
+    path: "file.ts",
+    body: "Range",
+    line: {
+      side: "additions" as const,
+      lineNumber: 1,
+      endLineNumber: 2,
+      code: "one\ntwo",
+    },
+  };
+  store.changeReview("/repo", saved.id, { action: "add-note", note });
+  const overlap = {
+    ...note,
+    id: randomUUID(),
+    line: { ...note.line, lineNumber: 2, endLineNumber: 3, code: "two\nthree" },
+  };
+  store.changeReview("/repo", saved.id, { action: "add-note", note: overlap });
+  expect(() =>
+    store.changeReview("/repo", saved.id, {
+      action: "add-note",
+      note: {
+        ...note,
+        id: randomUUID(),
+        line: { ...note.line, code: "one\nWRONG" },
+      },
+    }),
+  ).toThrow(/does not match/);
+  expect(() =>
+    store.changeReview("/repo", saved.id, {
+      action: "add-note",
+      note: {
+        ...note,
+        id: randomUUID(),
+        line: { ...note.line, endLineNumber: 5 },
+      },
+    }),
+  ).toThrow();
+  store.close();
+  store = new LocalStore(path);
+  try {
+    expect(store.getReview("/repo", saved.id)?.notes).toEqual([note, overlap]);
+  } finally {
+    store.close();
+  }
+});
+
+test("cumulative snapshots retain file notes and re-anchor exact unique line ranges while preserving history", async () => {
+  const store = new LocalStore(await fixture());
+  try {
+    const first = store.saveReview(
+      "/repo",
+      {
+        ...preview(),
+        files: [{ ...preview().files[0]!, after: "one\ntwo\n" }],
+      },
+      null,
+    );
+    const fileNote = {
+      id: randomUUID(),
+      previewId: first.id,
+      path: "file.ts",
+      body: "File note",
+      line: null,
+    };
+    const lineNote = {
+      ...fileNote,
+      id: randomUUID(),
+      body: "Line note",
+      line: {
+        side: "additions" as const,
+        lineNumber: 1,
+        endLineNumber: 2,
+        code: "one\ntwo",
+      },
+    };
+    store.changeReview("/repo", first.id, {
+      action: "add-note",
+      note: fileNote,
+    });
+    store.changeReview("/repo", first.id, {
+      action: "add-note",
+      note: lineNote,
+    });
+    const input = {
+      ...preview(),
+      files: [
+        {
+          ...first.files[0]!,
+          after: "prefix\none\ntwo\n",
+          afterHash: "b".repeat(64),
+        },
+      ],
+    };
+    const second = store.saveReview("/repo", input, null, false, {
+      previousReviewId: first.id,
+      resyncMode: "keep",
+    });
+    expect(second.notes).toEqual([
+      { ...fileNote, previewId: second.id },
+      {
+        ...lineNote,
+        previewId: second.id,
+        line: { ...lineNote.line, lineNumber: 2, endLineNumber: 3 },
+      },
+    ]);
+    expect(store.getReview("/repo", first.id)?.notes).toEqual([
+      fileNote,
+      lineNote,
+    ]);
+    const third = store.saveReview(
+      "/repo",
+      {
+        ...input,
+        id: randomUUID(),
+        files: [
+          {
+            ...input.files[0]!,
+            after: "another\nprefix\none\ntwo\nprefix\none\ntwo\n",
+            afterHash: "c".repeat(64),
+          },
+        ],
+      },
+      null,
+      false,
+      { previousReviewId: second.id, resyncMode: "keep" },
+    );
+    expect(third.notes).toEqual([{ ...fileNote, previewId: third.id }]);
+    expect(store.getReview("/repo", second.id)?.notes).toHaveLength(2);
+  } finally {
+    store.close();
+  }
+});
