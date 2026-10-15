@@ -84,16 +84,35 @@ export const freezeContext = async (
   const existingContext = store.database
     .prepare("SELECT body FROM ai_context WHERE snapshot_id = ?")
     .get(snapshot.id);
-  if (existingContext) return;
+  const existing = existingContext
+    ? (JSON.parse(String(existingContext.body)) as {
+        previousReview?: SavedReviewSchema;
+        hash?: string;
+        sources?: SourceMap;
+        error?: string;
+      })
+    : null;
+  if (
+    existing &&
+    (existing.sources || existing.error) &&
+    (!existing.hash || existing.hash === snapshot.hash)
+  )
+    return;
+  const previousReview =
+    existing?.previousReview ??
+    (snapshot.previousReviewId && snapshot.previousReviewId !== snapshot.id
+      ? store.getReview(root, snapshot.previousReviewId)
+      : null);
   let body: object;
   try {
     const captured = await captureSources(root, snapshot);
-    const previousReview = snapshot.previousReviewId
-      ? store.getReview(root, snapshot.previousReviewId)
-      : null;
+    const selected = new Set(
+      snapshot.files.flatMap((file) => [file.path, file.oldPath]),
+    );
     for (const file of previousReview?.syncBaseline ??
       previousReview?.files ??
       []) {
+      if (snapshot.resyncMode === "keep" && selected.has(file.path)) continue;
       if (
         file.status.startsWith("R") &&
         file.oldPath &&
@@ -103,14 +122,23 @@ export const freezeContext = async (
       if (file.after !== null) captured.before[file.path] = file.after;
       else delete captured.before[file.path];
     }
-    body = captured;
+    body = {
+      ...captured,
+      hash: snapshot.hash,
+      previousReview:
+        snapshot.resyncMode === "keep" ? previousReview : undefined,
+    };
   } catch (error) {
-    body = { error: (error as Error).message };
+    body = {
+      error: (error as Error).message,
+      hash: snapshot.hash,
+      previousReview,
+    };
   }
-  if (!store.getReview(root, snapshot.id)) return;
+  if (store.getReview(root, snapshot.id)?.hash !== snapshot.hash) return;
   store.database
     .prepare(
-      "INSERT INTO ai_context VALUES (?, ?) ON CONFLICT(snapshot_id) DO NOTHING",
+      "INSERT INTO ai_context VALUES (?, ?) ON CONFLICT(snapshot_id) DO UPDATE SET body = excluded.body",
     )
     .run(snapshot.id, JSON.stringify(body));
 };
@@ -131,7 +159,13 @@ export const loadContext = async (
     limitations: string[];
     analysis?: import("./types").Analysis;
     error?: string;
+    hash?: string;
+    previousReview?: SavedReviewSchema;
   };
+  if (captured.hash && captured.hash !== snapshot.hash)
+    throw new Error(
+      "Snapshot changed during context loading. Reload and retry.",
+    );
   if (captured.error) throw new Error(captured.error);
   const sources = { ...captured.sources };
   for (const file of snapshot.files)
@@ -143,7 +177,10 @@ export const loadContext = async (
       sources,
       snapshot.files.map((file) => file.path),
     ));
-  if (!captured.analysis)
+  if (
+    !captured.analysis &&
+    store.getReview(root, snapshot.id)?.hash === snapshot.hash
+  )
     store.database
       .prepare("UPDATE ai_context SET body = ? WHERE snapshot_id = ?")
       .run(JSON.stringify({ ...captured, analysis }), snapshot.id);
