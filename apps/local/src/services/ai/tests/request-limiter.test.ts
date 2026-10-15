@@ -169,3 +169,105 @@ test("structured provider concurrency codes are recognized even with a generic H
   });
   expect(getAiProviderBackoff(error)?.kind).toBe("concurrency");
 });
+
+test("input tokens are reserved across concurrent requests and expire after one minute", async () => {
+  vi.useFakeTimers();
+  const limiter = createRequestLimiter({
+    initialConcurrency: 3,
+    maxConcurrency: 3,
+    limits: { inputTokensPerMinute: 250000 },
+  });
+  const started: number[] = [];
+  const requests = Array.from({ length: 3 }, () =>
+    limiter.run(
+      async () => {
+        started.push(Date.now());
+      },
+      undefined,
+      { inputTokens: 100000 },
+    ),
+  );
+  await vi.advanceTimersByTimeAsync(1);
+  expect(started).toHaveLength(2);
+  await vi.advanceTimersByTimeAsync(59998);
+  expect(started).toHaveLength(2);
+  await vi.advanceTimersByTimeAsync(1);
+  await Promise.all(requests);
+  expect(started[2]! - started[0]!).toBe(60000);
+});
+
+test("request pacing applies even when a model responds immediately", async () => {
+  vi.useFakeTimers();
+  const limiter = createRequestLimiter({ limits: { requestsPerMinute: 2 } });
+  const started: number[] = [];
+  const requests = Array.from({ length: 3 }, () =>
+    limiter.run(async () => {
+      started.push(Date.now());
+    }),
+  );
+  await vi.advanceTimersByTimeAsync(1);
+  expect(started).toHaveLength(2);
+  await vi.runAllTimersAsync();
+  await Promise.all(requests);
+  expect(started[2]! - started[0]!).toBe(60000);
+});
+
+test("actual input usage releases unused reservations without ignoring request limits", async () => {
+  const limiter = createRequestLimiter({
+    limits: { inputTokensPerMinute: 100, requestsPerMinute: 3 },
+  });
+  await limiter.run(async () => 20, undefined, {
+    inputTokens: 80,
+    actualInputTokens: (usage) => usage,
+  });
+  const next = vi.fn(async () => 80);
+  await limiter.run(next, undefined, { inputTokens: 80 });
+  expect(next).toHaveBeenCalledOnce();
+});
+
+test("a request larger than the entire minute allowance fails locally", async () => {
+  const limiter = createRequestLimiter({
+    limits: { inputTokensPerMinute: 100 },
+  });
+  const operation = vi.fn(async () => {});
+  await expect(
+    limiter.run(operation, undefined, { inputTokens: 101 }),
+  ).rejects.toThrow(/token.*minute/i);
+  expect(operation).not.toHaveBeenCalled();
+});
+
+test("cancellation removes requests waiting for the token window", async () => {
+  vi.useFakeTimers();
+  const limiter = createRequestLimiter({
+    limits: { inputTokensPerMinute: 100 },
+  });
+  await limiter.run(async () => {}, undefined, { inputTokens: 100 });
+  const abort = new AbortController();
+  const operation = vi.fn(async () => {});
+  const pending = limiter.run(operation, abort.signal, { inputTokens: 1 });
+  abort.abort();
+  await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+  await vi.runAllTimersAsync();
+  expect(operation).not.toHaveBeenCalled();
+  expect(limiter.state().queued).toBe(0);
+});
+
+test("provider retry delays in a structured error body are honored", () => {
+  const error = new APICallError({
+    message: "Resource exhausted",
+    url: "https://example.test",
+    requestBodyValues: undefined,
+    statusCode: 429,
+    responseBody: JSON.stringify({
+      error: {
+        details: [
+          {
+            "@type": "type.googleapis.com/google.rpc.RetryInfo",
+            retryDelay: "45s",
+          },
+        ],
+      },
+    }),
+  });
+  expect(getAiProviderBackoff(error)?.retryAfterMs).toBe(45000);
+});
