@@ -1,3 +1,4 @@
+import type { ResyncMode } from "@senslop/contracts";
 import type { RepositoryState, SavedReviewSummary } from "../types";
 
 export const formatRepository = (
@@ -9,6 +10,7 @@ export const formatRepository = (
 
 export const formatReviewSummary = (review: SavedReviewSummary) => ({
   date: new Date(review.createdAt).toLocaleString(),
+  round: `Round ${review.round ?? 1}`,
   files: `${review.fileCount} ${review.fileCount === 1 ? "file" : "files"}`,
   notes: `${review.noteCount} ${review.noteCount === 1 ? "note" : "notes"}`,
   completed: `${review.completedCount} complete`,
@@ -24,4 +26,13 @@ export const formatFreshness = (
   return saved === current
     ? "Repository matches inspection state"
     : "Repository has changed since this inspection. This review remains frozen.";
+};
+
+export const formatResyncMode = (mode: ResyncMode) => {
+  switch (mode) {
+    case "new":
+      return "Show only newer edits";
+    case "keep":
+      return "Keep current changes and add newer edits";
+  }
 };
