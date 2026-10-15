@@ -941,3 +941,375 @@ test("a persistently missing single-file assessment fails clearly without claimi
   );
   expect(requests).toHaveLength(3);
 });
+
+test("an incomplete analysis batch stops after bounded correction instead of publishing partial coverage", async () => {
+  state.model = new MockLanguageModelV4({
+    doGenerate: async (options) => {
+      requests.push(options);
+      return response({
+        groups: [
+          {
+            title: "Flow",
+            rationale: "Change",
+            files: [
+              { path: "invented.ts", summary: "Unsupported", related: [] },
+            ],
+          },
+        ],
+      });
+    },
+  });
+  await expect((await agent()).grouping()).rejects.toThrow(
+    /unresolved defects/,
+  );
+  expect(requests).toHaveLength(3);
+});
+
+test("malformed output corrects only the failed batch before global ordering", async () => {
+  const selected = Array.from({ length: 9 }, (_, index) => ({
+    ...files[0]!,
+    path: `${index}.ts`,
+    diff: "small patch",
+  }));
+  const sourceBatches: string[][] = [];
+  let failedBatchCalls = 0;
+  state.model = new MockLanguageModelV4({
+    doGenerate: async (options) => {
+      requests.push(options);
+      if (text(options).includes("Order these prepared files"))
+        return response({
+          groups: [
+            {
+              title: "Flow",
+              rationale: "Change",
+              files: selected.map((_, index) => index),
+            },
+          ],
+        });
+      const input = batch(options);
+      sourceBatches.push(input.changes.map((file) => file.path));
+      if (input.changes[0]?.path === "8.ts" && ++failedBatchCalls === 1)
+        return {
+          ...response({}),
+          content: [{ type: "text", text: "This is the last file's summary." }],
+        };
+      if (failedBatchCalls === 2) expect(options.tools ?? []).toEqual([]);
+      return response({
+        groups: [
+          {
+            title: "Flow",
+            rationale: "Change",
+            files: input.changes.map((file) => ({
+              path: file.path,
+              summary: "Changes value",
+              related: [],
+            })),
+          },
+        ],
+      });
+    },
+  });
+  const grouped = await (await agent(selected)).grouping();
+  expect(
+    grouped.groups.flatMap((group) => group.files.map((file) => file.path)),
+  ).toEqual(selected.map((file) => file.path));
+  expect(sourceBatches).toEqual([
+    selected.slice(0, 8).map((file) => file.path),
+    ["8.ts"],
+    ["8.ts"],
+  ]);
+  expect(requests).toHaveLength(4);
+});
+
+test("a 16K model can use the default grouping instructions with smaller requests", async () => {
+  state.contextWindow = 16000;
+  const selected = files.slice(0, 2);
+  state.model = new MockLanguageModelV4({
+    doGenerate: async (options) => {
+      requests.push(options);
+      if (text(options).includes("Order these prepared files"))
+        return response({
+          groups: [
+            {
+              title: "Flow",
+              rationale: "Change",
+              files: selected.map((_, index) => index),
+            },
+          ],
+        });
+      return response({
+        groups: [
+          {
+            title: "Flow",
+            rationale: "Change",
+            files: batch(options).changes.map((file) => ({
+              path: file.path,
+              summary: "Changes value",
+              related: [],
+            })),
+          },
+        ],
+      });
+    },
+  });
+  const result = await (
+    await agent(selected, defaultAiSettings.prompt)
+  ).grouping();
+  expect(result.groups.flatMap((group) => group.files)).toHaveLength(2);
+  for (const request of requests) {
+    const estimated =
+      Math.ceil(
+        Buffer.byteLength(
+          JSON.stringify({ prompt: request.prompt, tools: request.tools }),
+        ) / 3,
+      ) + request.maxOutputTokens!;
+    expect(estimated).toBeLessThan(16000);
+  }
+});
+
+test("invalid review evidence receives bounded repair and explicit limitations without losing other batches", async () => {
+  state.model = new MockLanguageModelV4({
+    doGenerate: async (options) => {
+      requests.push(options);
+      if (text(options).includes("Repair input:"))
+        return response({ files: [], findings: [], limitations: [] });
+      return response({
+        files: batch(options).changes.map((file) => ({
+          path: file.path,
+          findings: [
+            {
+              severity: "high",
+              title: "Invented issue",
+              problem: "Unsupported",
+              rationale: "Unsupported",
+              path: file.path,
+              side: "after",
+              start: 1,
+              end: 1,
+              code: "invented code",
+              fixPrompt: "Fix it",
+            },
+          ],
+        })),
+        limitations: [],
+      });
+    },
+  });
+  const result = await (await agent()).review();
+  expect(result.findings).toEqual([]);
+  expect(
+    result.limitations.filter((item) => item.includes("could not be verified")),
+  ).toHaveLength(files.length);
+  expect(requests).toHaveLength(files.length * 3);
+});
+
+test.each([null, 64000, 1000000])(
+  "a large shared dependency graph groups with a %s-token override without a metadata-budget failure",
+  async (contextWindow) => {
+    state.contextWindow = contextWindow;
+    const selected = Array.from({ length: 145 }, (_, index) => ({
+      ...files[0]!,
+      path: `src/${"feature-section/".repeat(5)}${index}.ts`,
+      diff: files[0]!.diff.slice(0, 4000),
+    }));
+    const edges = Array.from({ length: 244 }, (_, index) => ({
+      from: selected[index % selected.length]!.path,
+      to: selected[(index + 1) % selected.length]!.path,
+      specifier: "./shared-dependency",
+      typeOnly: false,
+      provenance: "compiler-resolved" as const,
+    }));
+    state.model = new MockLanguageModelV4({
+      doGenerate: async (options) => {
+        requests.push(options);
+        if (text(options).includes("Order these prepared files"))
+          return response({
+            groups: [
+              {
+                title: "Flow",
+                rationale: "Definitions first",
+                files: selected.map((_, index) => index),
+              },
+            ],
+          });
+        return response({
+          groups: [
+            {
+              title: "Flow",
+              rationale: "Change",
+              files: batch(options).changes.map((file) => ({
+                path: file.path,
+                summary: "Changes value",
+                related: [],
+              })),
+            },
+          ],
+        });
+      },
+    });
+    const reviewer = await agent(selected, defaultAiSettings.prompt, {
+      edges,
+      symbols: [],
+      diagnostics: [],
+      cycles: [],
+      limitations: [],
+    });
+    const grouped = await reviewer.grouping();
+    expect(
+      grouped.groups.flatMap((group) => group.files.map((file) => file.path)),
+    ).toEqual(selected.map((file) => file.path));
+    expect(requests.length).toBeGreaterThan(1);
+    for (const request of requests) {
+      const estimated =
+        Math.ceil(
+          Buffer.byteLength(
+            JSON.stringify({ prompt: request.prompt, tools: request.tools }),
+          ) / 3,
+        ) + request.maxOutputTokens!;
+      expect(estimated).toBeLessThan((contextWindow ?? 128000) * 0.8);
+      expect(text(request)).toContain("compiler-resolved");
+    }
+  },
+);
+
+test("successful batches are retained when a later batch needs smaller requests", async () => {
+  const selected = Array.from({ length: 12 }, (_, index) => ({
+    ...files[0]!,
+    path: `${index}.ts`,
+    diff: "small patch",
+  }));
+  let firstBatchCalls = 0;
+  state.model = new MockLanguageModelV4({
+    doGenerate: async (options) => {
+      requests.push(options);
+      if (text(options).includes("Order these prepared files"))
+        return response({
+          groups: [
+            {
+              title: "Flow",
+              rationale: "Change",
+              files: selected.map((_, index) => index),
+            },
+          ],
+        });
+      const input = batch(options);
+      if (input.changes[0]!.path === "0.ts") firstBatchCalls++;
+      if (input.changes[0]!.path === "8.ts" && input.changes.length === 4)
+        return {
+          ...response({}),
+          finishReason: { unified: "length", raw: "length" },
+        };
+      return response({
+        groups: [
+          {
+            title: "Flow",
+            rationale: "Change",
+            files: input.changes.map((file) => ({
+              path: file.path,
+              summary: "Complete summary",
+              related: [],
+            })),
+          },
+        ],
+      });
+    },
+  });
+  const grouped = await (await agent(selected)).grouping();
+  expect(
+    grouped.groups.flatMap((group) => group.files.map((file) => file.path)),
+  ).toEqual(selected.map((file) => file.path));
+  expect(firstBatchCalls).toBe(1);
+});
+
+test("cancellation stops before requesting a smaller batch", async () => {
+  const abort = new AbortController();
+  state.model = new MockLanguageModelV4({
+    doGenerate: async (options) => {
+      requests.push(options);
+      abort.abort();
+      return {
+        ...response({}),
+        finishReason: { unified: "length", raw: "length" },
+      };
+    },
+  });
+  await expect(
+    (
+      await agent(files.slice(0, 2), "Group", undefined, abort.signal)
+    ).grouping(),
+  ).rejects.toThrow(/abort/i);
+  expect(requests).toHaveLength(1);
+});
+
+test("reviews also narrow truncated batches and merge only validated complete results", async () => {
+  const selected = files
+    .slice(0, 2)
+    .map((file) => ({ ...file, diff: "small patch" }));
+  state.model = new MockLanguageModelV4({
+    doGenerate: async (options) => {
+      requests.push(options);
+      if (batch(options).changes.length > 1)
+        return {
+          ...response({}),
+          finishReason: { unified: "length", raw: "length" },
+        };
+      return response({
+        files: batch(options).changes.map((file) => ({
+          path: file.path,
+          findings: [],
+        })),
+        limitations: [],
+      });
+    },
+  });
+  await expect((await agent(selected)).review()).resolves.toMatchObject({
+    findings: [],
+  });
+  expect(requests).toHaveLength(3);
+});
+
+test("incomplete multi-file grouping narrows the failed batch instead of losing the entire review", async () => {
+  const selected = files
+    .slice(0, 3)
+    .map((file) => ({ ...file, diff: "small patch" }));
+  let smallCalls = 0;
+  state.model = new MockLanguageModelV4({
+    doGenerate: async (options) => {
+      requests.push(options);
+      const properties =
+        options.responseFormat?.type === "json"
+          ? (options.responseFormat.schema?.properties as Record<
+              string,
+              unknown
+            >)
+          : undefined;
+      if (properties?.files) return response({ groups: [], files: [] });
+      if (text(options).includes("Order these prepared files"))
+        return response({
+          groups: [{ title: "Flow", rationale: "Review", files: [0, 1, 2] }],
+        });
+      const input = batch(options);
+      if (input.changes.length === 1) smallCalls++;
+      return response({
+        groups: [
+          {
+            title: "Flow",
+            rationale: "Review",
+            files: input.changes.slice(0, 1).map((file) => ({
+              path: file.path,
+              summary: "Verified summary",
+              related: [],
+            })),
+          },
+        ],
+      });
+    },
+  });
+  const result = await (await agent(selected)).grouping();
+  expect(
+    result.groups
+      .flatMap((group) => group.files.map((file) => file.path))
+      .sort(),
+  ).toEqual(["0.ts", "1.ts", "2.ts"]);
+  expect(smallCalls).toBeGreaterThan(0);
+});
