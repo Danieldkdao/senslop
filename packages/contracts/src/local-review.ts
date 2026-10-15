@@ -63,6 +63,19 @@ export const savedReviewSchema = localPreviewSchema.extend({
 });
 export type SavedReviewSchema = z.infer<typeof savedReviewSchema>;
 
+export const reviewStateSchema = savedReviewSchema.pick({
+  id: true,
+  hash: true,
+  round: true,
+  revision: true,
+  title: true,
+  updatedAt: true,
+  notes: true,
+  completedPaths: true,
+  selectedPath: true,
+});
+export type ReviewStateSchema = z.infer<typeof reviewStateSchema>;
+
 export const reviewChangeSchema = z.discriminatedUnion("action", [
   z.object({
     action: z.literal("rename"),

@@ -1,5 +1,9 @@
 import { z } from "zod";
-import { reviewChangeSchema, resyncModes } from "@senslop/contracts";
+import {
+  reviewChangeSchema,
+  reviewStateSchema,
+  resyncModes,
+} from "@senslop/contracts";
 import {
   getWorkspace,
   localWorkspaceError,
@@ -30,6 +34,7 @@ const workspaceActionSchema = z.discriminatedUnion("action", [
       action: z.literal("change"),
       id: z.uuid(),
       change: reviewChangeSchema,
+      response: z.literal("state").optional(),
     })
     .strict(),
 ]);
@@ -104,10 +109,23 @@ export const POST = async (request: Request) => {
         );
       case "open":
         return Response.json(workspace.store.openReview(root, action.id));
-      case "change":
-        return Response.json(
-          workspace.store.changeReview(root, action.id, action.change),
+      case "change": {
+        const updatedReview = workspace.store.changeReview(
+          root,
+          action.id,
+          action.change,
         );
+        return Response.json(
+          action.response === "state"
+            ? reviewStateSchema.parse(updatedReview)
+            : updatedReview,
+          {
+            headers: {
+              ETag: `W/"${updatedReview.id}-${updatedReview.revision}"`,
+            },
+          },
+        );
+      }
       case "delete":
         workspace.store.deleteReview(root, action.id);
         return Response.json(null);
