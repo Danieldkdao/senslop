@@ -146,6 +146,7 @@ test("re-sync is enabled only for an uncommitted review on the captured branch a
     status: "ready",
     error: null,
     id: "round-one",
+    fingerprint: "e".repeat(64),
     hash: "c".repeat(64),
     source: {
       kind: "working-tree",
@@ -197,6 +198,8 @@ test("re-sync is enabled only for an uncommitted review on the captured branch a
 test("re-sync offers a cumulative mode before submitting", async () => {
   context.preview = {
     id: "round",
+    status: "ready",
+    fingerprint: "e".repeat(64),
     files: [],
     excluded: [],
     source: { kind: "working-tree", base: metadata.repository.head },
@@ -243,6 +246,8 @@ test("ask grouping mode exposes a toggle and submits the selected choice", async
   groupingPreference.configured = true;
   context.preview = {
     id: "round",
+    status: "ready",
+    fingerprint: "e".repeat(64),
     files: [],
     excluded: [],
     source: { kind: "working-tree", base: metadata.repository.head },
@@ -330,3 +335,108 @@ test.each([true, false])(
     expect(toast.success).not.toHaveBeenCalled();
   },
 );
+
+test.each([
+  [
+    "unchanged",
+    "No new changes to re-sync. Edit the repository, then refresh.",
+  ],
+  [
+    "missing fingerprint",
+    "Repository freshness is unavailable. Refresh the repository and retry.",
+  ],
+  [
+    "unavailable",
+    "Repository unavailable. Check Git and refresh the repository.",
+  ],
+  [
+    "different branch",
+    "The Git branch or HEAD changed. Start a new review for this repository state.",
+  ],
+  [
+    "commit review",
+    "Re-sync is available only for uncommitted-changes reviews. Start a new review.",
+  ],
+  [
+    "receiving",
+    "Wait for the current changes to finish loading before re-syncing.",
+  ],
+  ["grouping", "Wait for grouping to finish or stop it before re-syncing."],
+])("re-sync explains why it is unavailable when %s", async (state, reason) => {
+  context.preview = {
+    id: "round",
+    status: "ready",
+    fingerprint:
+      state === "unchanged" ? metadata.repository.fingerprint : "e".repeat(64),
+    files: [],
+    excluded: [],
+    source: { kind: "working-tree", base: metadata.repository.head },
+    repositoryState: {
+      branch: state === "different branch" ? "other" : "feature",
+      head: metadata.repository.head,
+    },
+  } as unknown as LivePreview;
+  if (state === "commit review") context.preview.source.kind = "commit";
+  if (state === "receiving") context.preview.status = "receiving";
+  const currentMetadata = {
+    ...metadata,
+    repository:
+      state === "unavailable"
+        ? null
+        : {
+            ...metadata.repository,
+            fingerprint:
+              state === "missing fingerprint"
+                ? null
+                : metadata.repository.fingerprint,
+          },
+  };
+  const fetcher = vi
+    .fn()
+    .mockResolvedValue({ ok: true, json: async () => currentMetadata });
+  vi.stubGlobal("fetch", fetcher);
+  render(<WorkspaceToolbar preparing={state === "grouping"} />, {
+    wrapper: QueryProvider,
+  });
+  await waitFor(() => expect(fetcher).toHaveBeenCalled());
+  await waitFor(() =>
+    expect(
+      screen
+        .getByRole("button", { name: "Re-sync review" })
+        .hasAttribute("disabled"),
+    ).toBe(true),
+  );
+  expect(await screen.findByLabelText(reason)).toBeTruthy();
+  expect(fetcher.mock.calls.some((call) => call[1]?.method === "POST")).toBe(
+    false,
+  );
+});
+
+test("a failed metadata refresh disables re-sync even with previously cached data", async () => {
+  context.preview = {
+    id: "round",
+    status: "ready",
+    fingerprint: "e".repeat(64),
+    files: [],
+    excluded: [],
+    source: { kind: "working-tree", base: metadata.repository.head },
+    repositoryState: { branch: "feature", head: metadata.repository.head },
+  } as unknown as LivePreview;
+  const fetcher = vi
+    .fn()
+    .mockResolvedValue({ ok: true, json: async () => metadata });
+  vi.stubGlobal("fetch", fetcher);
+  render(<WorkspaceToolbar />, { wrapper: QueryProvider });
+  const button = () => screen.getByRole("button", { name: "Re-sync review" });
+  await waitFor(() => expect(button().hasAttribute("disabled")).toBe(false));
+  fetcher.mockRejectedValue(new Error("Git unavailable"));
+  await userEvent
+    .setup()
+    .click(screen.getByRole("button", { name: "Refresh repository" }));
+  await waitFor(() => expect(button().hasAttribute("disabled")).toBe(true));
+  expect(
+    await screen.findByLabelText(
+      "Repository unavailable. Check Git and refresh the repository.",
+    ),
+  ).toBeTruthy();
+});

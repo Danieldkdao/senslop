@@ -9,7 +9,10 @@ import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 import { useLivePreview } from "../../review/components/live-preview-provider";
 import { useWorkspaceMetadata } from "../hooks/use-workspace-metadata";
-import { formatFreshness } from "../lib/formatters";
+import {
+  formatFreshness,
+  formatResyncUnavailableReason,
+} from "../lib/formatters";
 import { ReviewHistory } from "./review-history";
 import { ResyncPopover } from "./resync-popover";
 import { NewReviewPopover } from "./new-review-popover";
@@ -63,12 +66,14 @@ export const WorkspaceToolbar = ({
       setBusy(false);
     }
   };
-  const canResync =
-    preview?.source.kind === "working-tree" &&
-    preview.repositoryState &&
-    metadata?.repository?.branch === preview.repositoryState.branch &&
-    metadata.repository.head === preview.repositoryState.head &&
-    metadata.repository.head === preview.source.base;
+  const resyncUnavailableReason = formatResyncUnavailableReason({
+    preview,
+    repository: metadata?.repository,
+    preparing,
+    busy,
+    loading,
+    failed: repository.isError,
+  });
   return (
     <div
       className="flex shrink-0 items-center gap-1"
@@ -117,12 +122,8 @@ export const WorkspaceToolbar = ({
         </Button>
       </TooltipWrapper>
       <ResyncPopover
-        disabled={preparing || busy || loading || !canResync}
-        unavailableReason={
-          preparing
-            ? "Wait for grouping to finish or stop it before re-syncing."
-            : "Re-sync needs an uncommitted-changes review on the captured branch and HEAD. Start a new review if either changed."
-        }
+        disabled={!!resyncUnavailableReason}
+        unavailableReason={resyncUnavailableReason}
         busy={busy}
         error={error}
         onResync={(mode, grouping) =>
