@@ -284,3 +284,20 @@ test("manual entry uses a saved connection and exact validated ID", async () => 
     ).toBeTruthy(),
   );
 });
+
+test("chat-owned default selection can disable the picker's provider-default initialization", () => {
+  const provider = entry(
+    "openrouter",
+    "first",
+    "Provider",
+    "provider-default",
+    "Provider default",
+  );
+  provider.connection.model = "provider-default";
+  state.entries = [provider];
+  state.defaultId = "first";
+  const onChange = vi.fn();
+  render(<ModelPicker value={null} onChange={onChange} autoSelect={false} />);
+  expect(onChange).not.toHaveBeenCalled();
+  expect(screen.getByRole("combobox", { name: "Select a model" })).toBeTruthy();
+});

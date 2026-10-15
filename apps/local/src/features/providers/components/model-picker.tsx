@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { ComponentProps, useEffect, useRef, useState } from "react";
 import { providerIds, type ProviderId } from "@senslop/contracts";
 import { Button } from "@/components/ui/button";
 import {
@@ -22,6 +22,7 @@ import { formatModelOptionName, formatProvider } from "../lib/formatters";
 import { matchesCatalogModel, normalizeModels } from "../lib/normalize-models";
 import type { ModelSelection } from "../model-schemas";
 import { ManualModelForm } from "./manual-model-form";
+import { cn } from "@/lib/utils";
 
 type PickerItem = ModelSelection & {
   provider: ProviderId;
@@ -35,13 +36,20 @@ type ModelPickerProps = {
   value: ModelSelection | null;
   onChange: (value: ModelSelection | null) => void;
   disabled?: boolean;
+  preserveSelection?: boolean;
+  autoSelect?: boolean;
+  buttonProps?: ComponentProps<typeof Button>;
 };
 
 export const ModelPicker = ({
   value,
   onChange,
   disabled = false,
+  preserveSelection = false,
+  autoSelect = true,
+  buttonProps: fullButtonProps = {},
 }: ModelPickerProps) => {
+  const { className, ...buttonProps } = fullButtonProps;
   const { settings, entries, refresh } = useProviderModels();
   const [open, setOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -136,6 +144,7 @@ export const ModelPicker = ({
   useEffect(() => {
     if (!settings.data) return;
     if (value) {
+      if (preserveSelection) return;
       const entry = entries.find(
         (entry) => entry.connection.id === value.connectionId,
       );
@@ -154,7 +163,7 @@ export const ModelPicker = ({
       initialized.current = true;
       return;
     }
-    if (initialized.current) return;
+    if (!autoSelect || initialized.current) return;
     const entry = entries.find(
       (entry) => entry.connection.id === settings.data.defaultId,
     );
@@ -170,7 +179,7 @@ export const ModelPicker = ({
         modelId: entry.connection.model,
         name: model.name,
       });
-  }, [settings.data, entries, value, onChange]);
+  }, [settings.data, entries, value, onChange, preserveSelection, autoSelect]);
   return (
     <>
       <Combobox<PickerItem>
@@ -200,25 +209,33 @@ export const ModelPicker = ({
         }
       >
         <ComboboxTrigger
-          render={<Button variant="outline" className="max-w-full text-base" />}
+          render={
+            <Button
+              variant="outline"
+              className={cn("max-w-full text-base justify-start", className)}
+              {...buttonProps}
+            />
+          }
           aria-label={
             value
               ? `Model: ${selectedItem?.name ?? value.name}`
               : "Select a model"
           }
         >
-          {selectionConnection && (
-            <ProviderIcon
-              name={
-                formatProvider(selectionConnection.connection.provider).icon
-              }
-              size={20}
-              aria-hidden="true"
-            />
-          )}
-          <span className="truncate">
-            {selectedItem?.name ?? value?.name ?? "Select a model…"}
-          </span>
+          <div className="flex items-center gap-2 flex-1 min-w-0">
+            {selectionConnection && (
+              <ProviderIcon
+                name={
+                  formatProvider(selectionConnection.connection.provider).icon
+                }
+                size={20}
+                aria-hidden="true"
+              />
+            )}
+            <span className="truncate">
+              {selectedItem?.name ?? value?.name ?? "Select a model…"}
+            </span>
+          </div>
         </ComboboxTrigger>
         <ComboboxContent className="w-[min(28rem,calc(100vw-2rem))] min-w-0 text-base">
           <ComboboxInput
