@@ -25,7 +25,7 @@ type DiffSettingsProps = {
 export const DiffSettings = ({ settings, onChange }: DiffSettingsProps) => {
   const id = useId();
   return (
-    <div className="space-y-5 text-base">
+    <div className="flex flex-col gap-5 text-base">
       <div className="grid gap-2">
         <p id={`${id}-indicators`} className="font-medium">
           Change indicators

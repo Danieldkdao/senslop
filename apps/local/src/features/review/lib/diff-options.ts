@@ -1,5 +1,6 @@
 import type { BaseDiffOptions } from "@pierre/diffs";
 import type { DiffSettingsState, DiffView } from "../types";
+import { diffThemes } from "../constants";
 
 export const getDiffOptions = (
   settings: DiffSettingsState,
@@ -8,7 +9,7 @@ export const getDiffOptions = (
 ) =>
   ({
     // Pierre supplies syntax token colors; change markers use Senslop's semantic colors.
-    theme: { dark: "pierre-dark", light: "pierre-light" },
+    theme: diffThemes,
     themeType: resolvedTheme === "dark" ? "dark" : "light",
     diffStyle: view,
     disableFileHeader: true,
