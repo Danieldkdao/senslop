@@ -192,3 +192,199 @@ export const groupOutlineSchema = z.object({
     ),
 });
 export type GroupOutlineSchema = z.infer<typeof groupOutlineSchema>;
+export const findingSeverities = [
+  "critical",
+  "high",
+  "medium",
+  "low",
+  "informational",
+] as const;
+export type FindingSeverity = (typeof findingSeverities)[number];
+export const evidenceSides = ["before", "after"] as const;
+export type EvidenceSide = (typeof evidenceSides)[number];
+export const messageRoles = ["user", "assistant"] as const;
+export type MessageRole = (typeof messageRoles)[number];
+export const findingSchema = z.object({
+  severity: z
+    .enum(findingSeverities)
+    .describe(
+      "Impact supported by evidence: critical for severe security or data loss, high for major failures, medium for limited cases, low for minor defects, informational for nonblocking observations.",
+    ),
+  title: z
+    .string()
+    .min(1)
+    .max(300)
+    .describe("Short user-facing description of the specific issue."),
+  problem: z
+    .string()
+    .min(1)
+    .max(5000)
+    .describe(
+      "Concrete trigger, incorrect behavior, and consequence caused by the selected changes; do not report speculative or unrelated pre-existing issues.",
+    ),
+  rationale: z
+    .string()
+    .max(5000)
+    .describe(
+      "Evidence from source, callers, types, dependencies, or tests that supports this finding; distinguish compiler facts from inference.",
+    ),
+  path: z
+    .string()
+    .min(1)
+    .max(4096)
+    .describe(
+      "Exact repository-relative path of a selected changed text file containing the evidence.",
+    ),
+  side: z
+    .enum(evidenceSides)
+    .describe(
+      "Frozen source version containing the evidence: before is the original file, after is the changed file.",
+    ),
+  start: z
+    .number()
+    .int()
+    .positive()
+    .describe(
+      "Inclusive 1-based starting line in the chosen source side; the range must overlap a selected diff hunk.",
+    ),
+  end: z
+    .number()
+    .int()
+    .positive()
+    .describe(
+      "Inclusive 1-based ending line on the same source side; at least start and at most start plus 100.",
+    ),
+  code: z
+    .string()
+    .min(1)
+    .max(10000)
+    .describe(
+      "Exact contiguous source text from start through end, joined with newlines; preserve whitespace and do not paraphrase or add line numbers.",
+    ),
+  fixPrompt: z
+    .string()
+    .min(1)
+    .max(10000)
+    .describe(
+      "Copyable instructions for an AI to verify the issue against current source, make a focused fix, and run relevant tests; this does not execute changes.",
+    ),
+});
+export type FindingSchema = z.infer<typeof findingSchema>;
+export const correctnessSchema = z.object({
+  fixAllPrompt: z
+    .string()
+    .max(20000)
+    .default("")
+    .describe(
+      "Combined fix instructions for all verified findings, including current-source checks and relevant tests; state that no fixes are needed when there are no findings.",
+    ),
+  findings: z
+    .array(
+      findingSchema.extend({
+        // Saved prompts include the verified source excerpt and location.
+        fixPrompt: z
+          .string()
+          .min(1)
+          .max(30000)
+          .describe(findingSchema.shape.fixPrompt.description!),
+      }),
+    )
+    .describe(
+      "Evidence-backed issues in the selected changes, ordered from highest to lowest severity; return an empty array when none are established.",
+    ),
+  limitations: z
+    .array(
+      z
+        .string()
+        .max(3000)
+        .describe(
+          "A concrete gap in the available evidence, analysis coverage, or verification.",
+        ),
+    )
+    .describe(
+      "Missing dependencies, uncaptured context, unsupported diagnostics, or other analysis limits; do not imply these are proven bugs.",
+    ),
+});
+export type CorrectnessSchema = z.infer<typeof correctnessSchema>;
+export const jobKinds = ["grouping", "review"] as const;
+export type JobKind = (typeof jobKinds)[number];
+export const jobStatuses = [
+  "queued",
+  "running",
+  "completed",
+  "failed",
+  "canceled",
+] as const;
+export type JobStatus = (typeof jobStatuses)[number];
+export const jobSchema = z.object({
+  title: z
+    .string()
+    .trim()
+    .min(1)
+    .max(200)
+    .optional()
+    .describe("User-assigned review name; absent in older runs."),
+  id: z
+    .uuid()
+    .describe("Application-assigned identifier of this local AI job."),
+  snapshotId: z
+    .uuid()
+    .describe(
+      "Identifier of the immutable review snapshot analyzed by the job.",
+    ),
+  hash: z
+    .string()
+    .describe("Captured snapshot content hash used to reject stale results."),
+  snapshotRound: z
+    .number()
+    .int()
+    .positive()
+    .optional()
+    .describe(
+      "Re-sync round captured at job creation; absent in older saved runs.",
+    ),
+  kind: z
+    .enum(jobKinds)
+    .describe(
+      "Task performed by the job: grouping changed files or reviewing their correctness.",
+    ),
+  generation: z
+    .number()
+    .int()
+    .describe("Application-assigned run sequence for this task and snapshot."),
+  settings: aiSettingsSchema.describe(
+    "Model assignments and grouping instructions captured when the job was created.",
+  ),
+  status: z
+    .enum(jobStatuses)
+    .describe(
+      "Persisted job lifecycle state; completed means the validated result was published.",
+    ),
+  progress: z
+    .string()
+    .describe("User-facing description of the job's current stage."),
+  error: z
+    .string()
+    .nullable()
+    .describe("Sanitized failure details, or null when no error is recorded."),
+  createdAt: z.iso
+    .datetime()
+    .describe("ISO timestamp when the job was created."),
+  updatedAt: z.iso
+    .datetime()
+    .describe("ISO timestamp of the most recent job update."),
+  runId: z
+    .string()
+    .nullable()
+    .describe("Local Inngest run identifier, or null before registration."),
+  dispatched: z
+    .boolean()
+    .describe("Whether the job event has been dispatched to the local worker."),
+  result: z
+    .union([groupingSchema, correctnessSchema])
+    .nullable()
+    .describe(
+      "Validated output matching the job kind, or null before a result is available.",
+    ),
+});
+export type JobSchema = z.infer<typeof jobSchema>;
