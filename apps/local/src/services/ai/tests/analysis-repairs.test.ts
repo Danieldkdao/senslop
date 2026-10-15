@@ -126,6 +126,87 @@ test("unrequested repairs cannot overwrite accepted files and incomplete patches
   expect(generate.mock.calls[1]![1]).not.toContain("OVERWRITE");
 });
 
+test("review repairs missing coverage and bad evidence without regenerating accepted findings", async () => {
+  const generate = vi.fn<AnalysisRepairOptions["generate"]>(async () => ({
+    files: [{ path: "c.ts", findings: [] }],
+    findings: [{ id: "finding-0", finding: finding("b.ts") }],
+    limitations: [],
+  }));
+  const result = await repairReviewResult(
+    {
+      files: [
+        { path: "a.ts", findings: [finding("a.ts")] },
+        { path: "b.ts", findings: [finding("b.ts", "WRONG")] },
+      ],
+      limitations: [],
+    },
+    options(generate),
+  );
+  expect(result.findings.map((entry) => entry.path)).toEqual(["a.ts", "b.ts"]);
+  const prompt = generate.mock.calls[0]![1];
+  expect(prompt).toContain("WRONG");
+  expect(prompt).toContain("new");
+  expect(prompt).toContain("c.ts");
+  expect(prompt).toContain("finding-0");
+});
+
+test("an unsupported finding can be retracted while other findings in the same file survive", async () => {
+  const generate = vi.fn<AnalysisRepairOptions["generate"]>(async () => ({
+    files: [],
+    findings: [{ id: "finding-0", finding: null }],
+    limitations: [],
+  }));
+  const result = await repairReviewResult(
+    {
+      files: [
+        {
+          path: "a.ts",
+          findings: [
+            finding("a.ts"),
+            { ...finding("a.ts", "WRONG"), title: "Unsupported" },
+          ],
+        },
+        { path: "b.ts", findings: [] },
+        { path: "c.ts", findings: [] },
+      ],
+      limitations: [],
+    },
+    options(generate),
+  );
+  expect(result.findings).toHaveLength(1);
+  expect(result.findings[0]!.title).toBe("Bug");
+});
+
+test("duplicate review assessments require only the affected file to be reviewed again", async () => {
+  const generate = vi.fn<AnalysisRepairOptions["generate"]>(async () => ({
+    files: [{ path: "b.ts", findings: [] }],
+    findings: [],
+    limitations: [],
+  }));
+  await repairReviewResult(
+    {
+      files: [
+        { path: "a.ts", findings: [] },
+        { path: "b.ts", findings: [] },
+        { path: "b.ts", findings: [] },
+        { path: "c.ts", findings: [] },
+      ],
+      limitations: [],
+    },
+    options(generate),
+  );
+  const prompt = generate.mock.calls[0]![1];
+  expect(prompt).toMatch(/duplicate/i);
+  const payload = JSON.parse(
+    prompt.slice(
+      prompt.indexOf("\nRepair input:\n") + "\nRepair input:\n".length,
+    ),
+  );
+  expect(payload.changes.map((entry: { path: string }) => entry.path)).toEqual([
+    "b.ts",
+  ]);
+});
+
 test("exhausted targeted repair never returns incomplete coverage", async () => {
   const generate = vi.fn<AnalysisRepairOptions["generate"]>(async () => ({
     groups: [],
@@ -163,6 +244,25 @@ test("ordering repairs regenerate placement only and keep prepared file summarie
   ).toBe(true);
 });
 
+test("review preserves valid long fix instructions without overflowing the combined prompt contract", async () => {
+  const generate = vi.fn();
+  const result = await repairReviewResult(
+    {
+      limitations: [],
+      files: ["a.ts", "b.ts", "c.ts"].map((path) => ({
+        path,
+        findings: [{ ...finding(path), fixPrompt: "x".repeat(9000) }],
+      })),
+    },
+    options(generate),
+  );
+  expect(result.findings).toHaveLength(3);
+  expect(result.findings.every((item) => item.fixPrompt.length === 9000)).toBe(
+    true,
+  );
+  expect(generate).not.toHaveBeenCalled();
+});
+
 test("a malformed grouping patch reports the actual defective field on the next repair", async () => {
   const generate = vi
     .fn()
@@ -189,6 +289,37 @@ test("a malformed grouping patch reports the actual defective field on the next 
   ).toBe(true);
 });
 
+test("duplicate finding patches remain pending and cannot replace a valid finding", async () => {
+  const generate = vi
+    .fn()
+    .mockResolvedValueOnce({
+      files: [],
+      limitations: [],
+      findings: [
+        { id: "finding-0", finding: null },
+        { id: "finding-0", finding: finding("b.ts") },
+      ],
+    })
+    .mockResolvedValueOnce({
+      files: [{ path: "a.ts", findings: [] }],
+      limitations: [],
+      findings: [{ id: "finding-0", finding: finding("b.ts") }],
+    });
+  const result = await repairReviewResult(
+    {
+      limitations: [],
+      files: [
+        { path: "a.ts", findings: [finding("a.ts")] },
+        { path: "b.ts", findings: [finding("b.ts", "WRONG")] },
+        { path: "c.ts", findings: [] },
+      ],
+    },
+    options(generate),
+  );
+  expect(generate).toHaveBeenCalledTimes(2);
+  expect(result.findings.map((item) => item.path)).toEqual(["a.ts", "b.ts"]);
+});
+
 test("canceling during targeted repair never merges the returned patch", async () => {
   const abort = new AbortController();
   const generate = vi.fn(async () => {
@@ -202,4 +333,114 @@ test("canceling during targeted repair never merges the returned patch", async (
     ),
   ).rejects.toThrow("Canceled");
   expect(generate).toHaveBeenCalledTimes(1);
+});
+
+test("evidence repairs receive numbered frozen source around the finding, not just a diff", async () => {
+  const generate = vi.fn<AnalysisRepairOptions["generate"]>(async () => ({
+    files: [],
+    findings: [{ id: "finding-0", finding: finding("b.ts") }],
+    limitations: [],
+  }));
+  await repairReviewResult(
+    {
+      files: [
+        { path: "a.ts", findings: [] },
+        { path: "b.ts", findings: [finding("b.ts", "WRONG")] },
+        { path: "c.ts", findings: [] },
+      ],
+      limitations: [],
+    },
+    options(generate),
+  );
+  const prompt = generate.mock.calls[0]![1];
+  expect(prompt).toContain(
+    '"sourceLines":[{"line":1,"code":"new"},{"line":2,"code":"next"}]',
+  );
+  expect(prompt).toContain(
+    "Do not copy diff markers or line-number prefixes into code",
+  );
+});
+
+test("unverifiable findings are excluded with a limitation after repair while verified findings survive", async () => {
+  const generate = vi.fn<AnalysisRepairOptions["generate"]>(async () => ({
+    files: [],
+    findings: [{ id: "finding-0", finding: finding("b.ts", "WRONG") }],
+    limitations: [],
+  }));
+  const result = await repairReviewResult(
+    {
+      files: [
+        { path: "a.ts", findings: [finding("a.ts")] },
+        { path: "b.ts", findings: [finding("b.ts", "WRONG")] },
+        { path: "c.ts", findings: [] },
+      ],
+      limitations: [],
+    },
+    options(generate),
+  );
+  expect(generate).toHaveBeenCalledTimes(2);
+  expect(result.findings.map((finding) => finding.path)).toEqual(["a.ts"]);
+  expect(result.limitations.join(" ")).toMatch(/b.ts.*could not be verified/i);
+});
+
+test("repair exclusions preserve a full response's limitations instead of exceeding the saved-result cap", async () => {
+  const limitations = Array.from(
+    { length: 30 },
+    (_, index) => `Evidence gap ${index}`,
+  );
+  const generate = vi.fn<AnalysisRepairOptions["generate"]>(async () => ({
+    files: [],
+    findings: [],
+    limitations: [],
+  }));
+  const result = await repairReviewResult(
+    {
+      files: [
+        { path: "a.ts", findings: [finding("a.ts")] },
+        { path: "b.ts", findings: [finding("b.ts", "WRONG")] },
+        { path: "c.ts", findings: [] },
+      ],
+      limitations,
+    },
+    options(generate),
+  );
+  expect(result.findings.map((entry) => entry.path)).toEqual(["a.ts"]);
+  expect(result.limitations).toHaveLength(31);
+  expect(result.limitations.slice(0, 30)).toEqual(limitations);
+  expect(result.limitations[30]).toMatch(/b.ts.*could not be verified/);
+});
+
+test("invalid evidence ranges and very long source lines cannot inflate the repair prompt", async () => {
+  const generate = vi.fn<AnalysisRepairOptions["generate"]>(async () => ({
+    files: [],
+    findings: [{ id: "finding-0", finding: null }],
+    limitations: [],
+  }));
+  const repairOptions = options(generate);
+  repairOptions.snapshot = {
+    ...snapshot,
+    files: snapshot.files.map((file) =>
+      file.path === "b.ts"
+        ? { ...file, after: "x".repeat(200000) + "\n" + "short\n".repeat(1000) }
+        : file,
+    ),
+  };
+  await repairReviewResult(
+    {
+      files: [
+        { path: "a.ts", findings: [] },
+        {
+          path: "b.ts",
+          findings: [{ ...finding("b.ts", "WRONG"), end: 1000 }],
+        },
+        { path: "c.ts", findings: [] },
+      ],
+      limitations: [],
+    },
+    repairOptions,
+  );
+  const prompt = generate.mock.calls[0]![1];
+  expect(prompt.length).toBeLessThan(40000);
+  expect(prompt).toContain('"lineCount":1002');
+  expect(prompt).toContain('"omittedLines":[1]');
 });
