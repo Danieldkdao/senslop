@@ -733,3 +733,211 @@ test("one oversized file is split without losing diff text and carries its earli
   ).toBe(huge.diff);
   expect(result.groups.flatMap((group) => group.files)).toHaveLength(1);
 });
+
+test("large reviews validate merged evidence and remove duplicate findings across batches", async () => {
+  state.model = new MockLanguageModelV4({
+    doGenerate: async (options) => {
+      requests.push(options);
+      const finding = {
+        severity: "high",
+        title: "Value changed incorrectly",
+        problem: "Caller requires zero",
+        rationale: "Verified",
+        path: "0.ts",
+        side: "after",
+        start: 1,
+        end: 1,
+        code: files[0]!.after,
+        fixPrompt: "Restore zero and test the caller",
+      };
+      return response({
+        files: batch(options).changes.map((file) => ({
+          path: file.path,
+          findings: file.path === finding.path ? [finding] : [],
+        })),
+        limitations: [],
+      });
+    },
+  });
+  const result = await (await agent()).review();
+  expect(requests.length).toBeGreaterThan(1);
+  expect(result.findings).toHaveLength(1);
+  expect(result.findings[0]!.fixPrompt).toContain("Evidence:");
+  expect(result.findings[0]!.fixPrompt).toContain("Restore zero");
+  for (const request of requests)
+    expect(Buffer.byteLength(text(request))).toBeLessThan(100000);
+});
+
+test("reviews preserve all batch and context limitations and can restore them from checkpoints", async () => {
+  const saved = new Map<string, unknown>();
+  const checkpoint = {
+    read: (key: string) => saved.get(key),
+    write: (key: string, value: unknown) => {
+      saved.set(key, value);
+    },
+  };
+  const expected = new Set<string>(["Compiler context unavailable"]);
+  state.model = new MockLanguageModelV4({
+    doGenerate: async (options) => {
+      requests.push(options);
+      const changes = batch(options).changes;
+      const limitations = Array.from(
+        { length: 30 },
+        (_, index) => `${changes[0]!.path}: evidence limitation ${index}`,
+      );
+      limitations.forEach((entry) => expected.add(entry));
+      return response({
+        files: changes.map(({ path }) => ({ path, findings: [] })),
+        limitations,
+      });
+    },
+  });
+  const analysis = {
+    edges: [],
+    symbols: [],
+    diagnostics: [],
+    cycles: [],
+    limitations: ["Compiler context unavailable"],
+  };
+  const first = await (
+    await agent(files, undefined, analysis, undefined, checkpoint)
+  ).review();
+  expect(expected.size).toBeGreaterThan(30);
+  expect(new Set(first.limitations)).toEqual(expected);
+  // Completed results must survive the same validation used by persistence.
+  expect(correctnessSchema.parse(first)).toEqual(first);
+  const calls = requests.length;
+  const restored = await (
+    await agent(files, undefined, analysis, undefined, checkpoint)
+  ).review();
+  expect(restored).toEqual(first);
+  expect(requests).toHaveLength(calls);
+});
+
+test("merged reviews retain more than one response's finding limit and persist source-enriched prompts", async () => {
+  state.model = new MockLanguageModelV4({
+    doGenerate: async (options) =>
+      response({
+        files: batch(options).changes.map(({ path }) => ({
+          path,
+          findings: Array.from({ length: 60 }, (_, index) => ({
+            severity: "high",
+            title: `Verified issue ${index}`,
+            problem: "Caller requires zero",
+            rationale: "Verified",
+            path,
+            side: "after",
+            start: 1,
+            end: 1,
+            code: files[0]!.after,
+            fixPrompt: index
+              ? "Verify the caller before editing."
+              : "x".repeat(10000),
+          })),
+        })),
+        limitations: [],
+      }),
+  });
+  const result = await (await agent()).review();
+  expect(result.findings).toHaveLength(360);
+  expect(
+    result.findings.some((finding) => finding.fixPrompt.length > 10000),
+  ).toBe(true);
+  expect(
+    result.findings.every((finding) => finding.fixPrompt.includes("Evidence:")),
+  ).toBe(true);
+  expect(correctnessSchema.parse(result)).toEqual(result);
+});
+
+test("missing review assessments narrow into smaller requests instead of failing the entire review", async () => {
+  const selected = Array.from({ length: 18 }, (_, index) => ({
+    ...files[0]!,
+    path: `${index}.ts`,
+    diff: "small patch",
+  }));
+  let singleFileCalls = 0;
+  state.model = new MockLanguageModelV4({
+    doGenerate: async (options) => {
+      requests.push(options);
+      if (text(options).includes("Repair input:"))
+        return response({ files: [], findings: [], limitations: [] });
+      const changes = batch(options).changes;
+      if (changes.length === 1) singleFileCalls++;
+      return response({
+        files: changes.slice(0, 1).map(({ path }) => ({ path, findings: [] })),
+        limitations: [],
+      });
+    },
+  });
+  const result = await (await agent(selected)).review();
+  expect(result.findings).toEqual([]);
+  expect(result.limitations).toEqual([]);
+  expect(singleFileCalls).toBeGreaterThan(0);
+  expect(requests.length).toBeLessThan(80);
+});
+
+test("review requests name the exact expected paths and finding repairs accept explicit retractions", async () => {
+  const selected = files
+    .slice(0, 2)
+    .map((file) => ({ ...file, diff: "small patch" }));
+  state.model = new MockLanguageModelV4({
+    doGenerate: async (options) => {
+      requests.push(options);
+      if (text(options).includes("Repair input:")) {
+        expect(text(options)).toContain("never a bare null array entry");
+        expect(text(options)).not.toContain(
+          "Return one files assessment per batch path",
+        );
+        return response({
+          files: [],
+          findings: [{ id: "finding-0", finding: null }],
+          limitations: [],
+        });
+      }
+      const schema = JSON.stringify(options.responseFormat);
+      expect(schema).toContain('"enum":["0.ts","1.ts"]');
+      return response({
+        files: selected.map(({ path }, index) => ({
+          path,
+          findings: index
+            ? []
+            : [
+                {
+                  severity: "high",
+                  title: "Unsupported",
+                  problem: "Unsupported",
+                  rationale: "Unsupported",
+                  path,
+                  side: "after",
+                  start: 1,
+                  end: 1,
+                  code: "invented",
+                  fixPrompt: "Verify",
+                },
+              ],
+        })),
+        limitations: [],
+      });
+    },
+  });
+  const result = await (await agent(selected)).review();
+  expect(result.findings).toEqual([]);
+  expect(result.limitations).toEqual([]);
+  expect(requests).toHaveLength(2);
+});
+
+test("a persistently missing single-file assessment fails clearly without claiming a clean review", async () => {
+  state.model = new MockLanguageModelV4({
+    doGenerate: async (options) => {
+      requests.push(options);
+      return response({ files: [], findings: [], limitations: [] });
+    },
+  });
+  await expect((await agent(files.slice(0, 1))).review()).rejects.toMatchObject(
+    {
+      name: "AiReviewRepairError",
+      message: expect.stringContaining("File assessment is missing"),
+    },
+  );
+  expect(requests).toHaveLength(3);
+});
