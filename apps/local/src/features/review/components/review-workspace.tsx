@@ -1,6 +1,12 @@
 "use client";
 
-import { useCallback, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import dynamic from "next/dynamic";
 import { useLivePreview } from "./live-preview-provider";
 import { PreviewFiles } from "./preview-files";
@@ -16,6 +22,7 @@ import { useAgentState } from "../../agents/hooks/use-agent-state";
 import type { FindingSchema } from "../../agents/schemas";
 import { FileSearchDialog } from "./file-search-dialog";
 import { useReviewReadyToast } from "../hooks/use-review-ready-toast";
+import { useReviewPreferences } from "../../settings/hooks/use-review-preferences";
 import { matchesJobSnapshot } from "../../agents/lib/job-snapshots";
 import { useReviewNavigation } from "../hooks/use-review-navigation";
 import { defaultDiffSettings } from "../constants";
@@ -77,6 +84,7 @@ export const ReviewWorkspace = ({ children }: ReviewWorkspaceProps) => {
     path: string;
   } | null>(null);
   const agents = useAgentState(preview?.id);
+  const { preferences } = useReviewPreferences();
   const { settings: aiSettings } = useAiSettings();
   const groupingConfigured = !!assignedModel(aiSettings.data, "grouping");
   const groupingJobs =
@@ -153,22 +161,67 @@ export const ReviewWorkspace = ({ children }: ReviewWorkspaceProps) => {
     },
     [preview, changeReview],
   );
-  const completionPending = useRef(false);
+  const completionPending = useRef(new Set<string>());
+  const latestSelection = useRef({
+    id: preview?.id,
+    hash: preview?.hash,
+    round: preview?.round,
+    path: selectedFile?.path,
+  });
+  useEffect(() => {
+    latestSelection.current = {
+      id: preview?.id,
+      hash: preview?.hash,
+      round: preview?.round,
+      path: selectedFile?.path,
+    };
+  }, [preview?.id, preview?.hash, preview?.round, selectedFile?.path]);
   const completed =
     !!selectedFile && !!preview?.completedPaths?.includes(selectedFile.path);
+  const nextFile = orderedFiles[selectedIndex + 1];
   const toggleCompletion = useCallback(() => {
-    if (!selectedFile || completionPending.current) return;
-    completionPending.current = true;
+    if (!selectedFile) return;
+    const key = JSON.stringify([
+      preview?.id,
+      preview?.hash,
+      preview?.round,
+      selectedFile.path,
+    ]);
+    if (completionPending.current.has(key)) return;
+    completionPending.current.add(key);
     void changeReview({
       action: "complete",
       path: selectedFile.path,
       complete: !completed,
     })
+      .then(() => {
+        const current = latestSelection.current;
+        if (
+          !completed &&
+          preferences.data?.autoAdvance &&
+          nextFile &&
+          current.id === preview?.id &&
+          current.hash === preview?.hash &&
+          current.round === preview?.round &&
+          current.path === selectedFile.path
+        )
+          selectFile(nextFile.path);
+      })
       .catch(() => {})
       .finally(() => {
-        completionPending.current = false;
+        completionPending.current.delete(key);
       });
-  }, [changeReview, selectedFile, completed]);
+  }, [
+    changeReview,
+    selectedFile,
+    completed,
+    preferences.data?.autoAdvance,
+    nextFile,
+    preview?.id,
+    preview?.hash,
+    preview?.round,
+    selectFile,
+  ]);
   const { searchOpen, setSearchOpen, navigateFile } = useReviewNavigation({
     preview: preparing ? null : orderedPreview,
     selectedPath: selectedFile?.path,

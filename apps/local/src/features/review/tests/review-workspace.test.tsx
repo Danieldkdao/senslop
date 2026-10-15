@@ -3,6 +3,7 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import {
   cleanup,
+  act,
   fireEvent,
   render,
   screen,
@@ -60,6 +61,7 @@ vi.mock("../../providers/hooks/use-provider-models", () => ({
 
 const state = vi.hoisted(() => ({
   groupingConfigured: true,
+  autoAdvance: false,
   jobs: [] as JobSchema[],
   act: vi.fn(async () => ({})),
   discard: vi.fn(async () => {}),
@@ -69,6 +71,11 @@ const state = vi.hoisted(() => ({
   toastError: vi.fn(),
   toastSuccess: vi.fn(),
   trackReviewOperation: vi.fn(),
+}));
+vi.mock("../../settings/hooks/use-review-preferences", () => ({
+  useReviewPreferences: () => ({
+    preferences: { data: { autoAdvance: state.autoAdvance } },
+  }),
 }));
 vi.mock("../../workspace/components/workspace-toolbar", () => ({
   WorkspaceToolbar: () => null,
@@ -96,7 +103,8 @@ vi.mock("../components/live-preview-provider", async () => {
           path?: string;
           complete?: boolean;
         }) => {
-          state.change(change);
+          const pending = state.change(change);
+          if (pending) await pending;
           if (!state.preview) return;
           const notes = state.preview.notes ?? [];
           if (change.action === "add-note")
@@ -172,6 +180,7 @@ beforeEach(() => {
   });
   vi.resetAllMocks();
   localStorage.clear();
+  state.autoAdvance = false;
   state.jobs = [];
   state.act.mockResolvedValue({});
   state.mobile = false;
@@ -982,4 +991,100 @@ test("retained notes for removed files stay readable without trying to select a 
     .click(screen.getByRole("button", { name: "removed.ts" }));
   expect(screen.getByText("Keep this context")).toBeTruthy();
   expect(state.change).not.toHaveBeenCalled();
+});
+
+test("auto advance is opt-in, follows review order and stops at the final file", async () => {
+  setNavigationPreview();
+  state.autoAdvance = true;
+  render(<ReviewWorkspace>Setup</ReviewWorkspace>);
+  fireEvent.keyDown(document, { key: "d" });
+  await waitFor(() =>
+    expect(state.change).toHaveBeenCalledWith({
+      action: "select",
+      path: "src/second.tsx",
+    }),
+  );
+  expect(state.preview!.completedPaths).toContain("src/first.ts");
+  await waitFor(() =>
+    expect(
+      screen
+        .getByRole("button", { name: "Next file" })
+        .hasAttribute("disabled"),
+    ).toBe(true),
+  );
+  state.change.mockClear();
+  fireEvent.keyDown(document, { key: "d" });
+  await waitFor(() =>
+    expect(state.preview!.completedPaths).toContain("src/second.tsx"),
+  );
+  expect(state.change).not.toHaveBeenCalledWith(
+    expect.objectContaining({ action: "select" }),
+  );
+});
+
+test("auto advance does not override manual navigation while completion is saving", async () => {
+  setNavigationPreview();
+  state.autoAdvance = true;
+  let finish!: () => void;
+  state.change.mockReturnValueOnce(
+    new Promise<void>((resolve) => {
+      finish = resolve;
+    }),
+  );
+  render(<ReviewWorkspace>Setup</ReviewWorkspace>);
+  fireEvent.keyDown(document, { key: "d" });
+  fireEvent.keyDown(document, { key: "ArrowRight" });
+  await waitFor(() =>
+    expect(screen.getByText("Diff for src/second.tsx")).toBeTruthy(),
+  );
+  finish();
+  await waitFor(() =>
+    expect(state.preview!.completedPaths).toContain("src/first.ts"),
+  );
+  expect(
+    state.change.mock.calls.filter(([change]) => change.action === "select"),
+  ).toHaveLength(1);
+});
+
+test("failed completion does not advance and a later completion still works", async () => {
+  setNavigationPreview();
+  state.autoAdvance = true;
+  state.change.mockRejectedValueOnce(new Error("Save failed"));
+  render(<ReviewWorkspace>Setup</ReviewWorkspace>);
+  fireEvent.keyDown(document, { key: "d" });
+  await act(async () => {});
+  expect(
+    state.change.mock.calls.some(([change]) => change.action === "select"),
+  ).toBe(false);
+  expect(state.preview!.completedPaths ?? []).not.toContain("src/first.ts");
+  fireEvent.keyDown(document, { key: "d" });
+  await waitFor(() =>
+    expect(screen.getByText("Diff for src/second.tsx")).toBeTruthy(),
+  );
+});
+
+test("rapid D and next-file navigation queues completion for each file instead of dropping later shortcuts", async () => {
+  setNavigationPreview();
+  const releases: (() => void)[] = [];
+  state.change.mockImplementation((change) =>
+    change.action === "complete"
+      ? new Promise<void>((resolve) => releases.push(resolve))
+      : undefined,
+  );
+  render(<ReviewWorkspace>Setup</ReviewWorkspace>);
+  fireEvent.keyDown(document, { key: "d" });
+  fireEvent.keyDown(document, { key: "ArrowRight" });
+  fireEvent.keyDown(document, { key: "d" });
+  expect(
+    state.change.mock.calls
+      .filter(([change]) => change.action === "complete")
+      .map(([change]) => change.path),
+  ).toEqual(["src/first.ts", "src/second.tsx"]);
+  await act(async () => {
+    releases.forEach((resolve) => resolve());
+  });
+  expect(state.preview!.completedPaths).toEqual([
+    "src/first.ts",
+    "src/second.tsx",
+  ]);
 });
