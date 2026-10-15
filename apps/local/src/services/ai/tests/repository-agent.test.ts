@@ -425,6 +425,173 @@ test("OpenRouter retries only a failed structured-output step and preserves comp
   expect(bodies[1]).toBe(bodies[2]);
 });
 
+test("concurrent batches keep context quotas and parent request IDs isolated", async () => {
+  const info = vi.spyOn(console, "info").mockImplementation(() => {});
+  vi.spyOn(console, "warn").mockImplementation(() => {});
+  const files = Array.from({ length: 8 }, (_, id) => ({
+    path: `${id}.ts`,
+    diff: "patch",
+  }));
+  let contextCalls = 0;
+  state.contextResolved = {
+    model: new MockLanguageModelV4({
+      doGenerate: async () => {
+        contextCalls++;
+        await new Promise<void>((resolve) => setTimeout(resolve, 0));
+        return {
+          content: [{ type: "text", text: "Compact evidence" }],
+          finishReason: { unified: "stop", raw: "stop" },
+          usage: resultUsage,
+          warnings: [],
+        };
+      },
+    }),
+  };
+  state.resolved = {
+    model: new MockLanguageModelV4({
+      doGenerate: async (options) => {
+        const prompt = JSON.stringify(options.prompt);
+        if (prompt.includes("Order these prepared files"))
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify({
+                  groups: [
+                    {
+                      title: "Flow",
+                      rationale: "Change",
+                      files: files.map((_, id) => id),
+                    },
+                  ],
+                }),
+              },
+            ],
+            finishReason: { unified: "stop", raw: "stop" },
+            usage: resultUsage,
+            warnings: [],
+          };
+        const userText = options.prompt
+          .filter((message) => message.role === "user")
+          .flatMap((message) => message.content)
+          .filter((part) => part.type === "text")
+          .map((part) => part.text)
+          .join("\n");
+        const input = JSON.parse(
+          userText.match(/Batch input:\n([^\n]+)/)![1]!,
+        ) as { changes: { path: string }[] };
+        const path = input.changes[0]!.path;
+        const toolResult = options.prompt.some(
+          (message) => message.role === "tool",
+        );
+        expect(prompt).not.toContain("Context-agent request budget reached");
+        if (toolResult)
+          return jsonResponse({
+            groups: [
+              {
+                title: "Flow",
+                rationale: "Change",
+                files: [{ path, summary: "Change", related: [] }],
+              },
+            ],
+          });
+        return {
+          content: [
+            {
+              type: "tool-call",
+              toolCallId: `context-${path}`,
+              toolName: "askContext",
+              input: JSON.stringify({ query: `Inspect ${path}` }),
+            },
+          ],
+          finishReason: { unified: "tool-calls", raw: "tool_calls" },
+          usage: resultUsage,
+          warnings: [],
+        };
+      },
+    }),
+  };
+  const selection = {
+    connectionId: "connection",
+    modelId: "model",
+    name: "Model",
+  };
+  const agent = await createRepositoryAgent({
+    local: {} as never,
+    snapshot: { id: "snapshot", source: {}, files } as never,
+    settings: {
+      ...defaultAiSettings,
+      separate: true,
+      roles: {
+        grouping: selection,
+        review: selection,
+        explain: selection,
+        context: { ...selection, modelId: "context" },
+      },
+    },
+    selection,
+    context: {
+      sources: Object.fromEntries(files.map((file) => [file.path, "code"])),
+      analysis: {
+        edges: [],
+        symbols: [],
+        diagnostics: [],
+        cycles: [],
+        limitations: [],
+      },
+      limitations: [],
+    },
+    signal: new AbortController().signal,
+    executionPolicy: { groupingMaxFiles: 1, batchConcurrency: 8 },
+  });
+  await expect(agent.grouping()).resolves.toMatchObject({
+    groups: [{ files: expect.any(Array) }],
+  });
+  expect(contextCalls).toBe(8);
+  const parents = info.mock.calls
+    .filter(
+      ([tag, details]) =>
+        tag === "[senslop:ai-request]" &&
+        details.event === "started" &&
+        details.task === "Context retrieval",
+    )
+    .map(([, details]) => details.parentRequestId);
+  expect(parents).toHaveLength(8);
+  expect(parents.every((parent) => typeof parent === "string")).toBe(true);
+  expect(new Set(parents).size).toBe(8);
+});
+
+test("a reasoning allowance fits a small configured window without hiding its remaining answer budget", async () => {
+  state.provider = "openrouter";
+  state.contextWindow = 16000;
+  state.resolved = {
+    model: new MockLanguageModelV4({
+      doGenerate: async (options) => {
+        const reasoning = options.providerOptions?.openrouter?.reasoning as {
+          max_tokens: number;
+        };
+        expect(reasoning.max_tokens).toBeGreaterThan(0);
+        expect(reasoning.max_tokens).toBeLessThan(options.maxOutputTokens!);
+        expect(options.maxOutputTokens).toBeLessThanOrEqual(4000);
+        const estimated =
+          Math.ceil(
+            Buffer.byteLength(
+              JSON.stringify({ prompt: options.prompt, tools: options.tools }),
+            ) / 3,
+          ) + options.maxOutputTokens!;
+        expect(estimated).toBeLessThan(16000 * 0.8);
+        return {
+          content: [{ type: "text", text: JSON.stringify(resultGroups) }],
+          finishReason: { unified: "stop", raw: "stop" },
+          usage: resultUsage,
+          warnings: [],
+        };
+      },
+    }),
+  };
+  await expect((await resultAgent()).grouping()).resolves.toEqual(resultGroups);
+});
+
 test("grouping consumes validated structured model output and rejects incomplete coverage", async () => {
   const groups = {
     groups: [
