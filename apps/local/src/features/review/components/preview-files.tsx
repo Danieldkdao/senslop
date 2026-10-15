@@ -1,34 +1,28 @@
 "use client";
 
-import { useState } from "react";
-import { FolderOpen, Search, Sprout, LoaderCircle, Check } from "lucide-react";
-import { Input } from "@/components/ui/input";
-import { FileIcon } from "@/components/file-icon";
-import { cn } from "@/lib/utils";
+import { Skeleton } from "@/components/ui/skeleton";
+import { FolderOpen, Sprout } from "lucide-react";
+import { PreviewFileItem } from "./preview-file-item";
+import { GroupedFiles } from "../../agents/components/grouped-files";
+import type { GroupingSchema } from "../../agents/schemas";
 import type { LivePreview } from "../types";
-import {
-  formatFileStatus,
-  formatFileReviewLabel,
-  formatPreviewProgress,
-  formatPreviewSource,
-} from "../lib/formatters";
 
 type PreviewFilesProps = {
   preview: LivePreview | null;
+  grouping?: GroupingSchema | null;
+  preparing?: boolean;
   selectedPath?: string;
   onSelect(path: string): void;
 };
 
 export const PreviewFiles = ({
   preview,
+  grouping,
+  preparing = false,
   selectedPath,
   onSelect,
 }: PreviewFilesProps) => {
-  const [search, setSearch] = useState("");
-  const files =
-    preview?.files.filter((file) =>
-      file.path.toLocaleLowerCase().includes(search.toLocaleLowerCase()),
-    ) ?? [];
+  const files = preview?.files ?? [];
   return (
     <aside
       aria-label="Review files"
@@ -38,8 +32,21 @@ export const PreviewFiles = ({
         <Sprout aria-hidden="true" className="size-5 text-primary" />
         Senslop
       </div>
-      {!preview ? (
-        <div className="space-y-3 p-5 py-8">
+      {preparing ? (
+        <div
+          role="status"
+          aria-label="Waiting for grouped files"
+          className="flex flex-col gap-4 p-4"
+        >
+          <p className="text-muted-foreground">Waiting for grouped files…</p>
+          <div aria-hidden="true" className="flex flex-col gap-3">
+            <Skeleton className="h-12 w-full" />
+            <Skeleton className="h-12 w-full" />
+            <Skeleton className="h-12 w-full" />
+          </div>
+        </div>
+      ) : !preview ? (
+        <div className="flex flex-col gap-3 p-5 py-8">
           <h2 className="flex items-center gap-2 font-sans text-base font-medium">
             <FolderOpen
               aria-hidden="true"
@@ -53,98 +60,35 @@ export const PreviewFiles = ({
           </p>
         </div>
       ) : (
-        <>
-          <div className="space-y-4 border-b p-4">
-            <div className="flex flex-col gap-1">
-              <p className="font-medium">
-                {formatPreviewSource(preview.source.kind)}
-              </p>
-              <p
-                role="status"
-                className="flex items-center gap-2 text-muted-foreground"
-              >
-                {preview.status === "receiving" && (
-                  <LoaderCircle
-                    aria-hidden="true"
-                    className="size-4 animate-spin motion-reduce:animate-none"
-                  />
-                )}
-                {formatPreviewProgress(preview)}
-              </p>
-            </div>
-            <div className="relative">
-              <Search
-                aria-hidden="true"
-                className="pointer-events-none absolute left-3 top-2.5 size-4 text-muted-foreground"
-              />
-              <Input
-                aria-label="Search changed files"
-                placeholder="Find a file…"
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                className="pl-9 md:text-base"
-              />
-            </div>
-          </div>
-          <nav
-            aria-label="Changed files"
-            className="min-h-0 flex-1 flex flex-col gap-1 overflow-auto p-2"
-          >
-            {files.map((file) => (
-              <button
+        <nav
+          aria-label="Changed files"
+          className="min-h-0 flex-1 flex flex-col gap-1 overflow-auto p-2"
+        >
+          {grouping ? (
+            <GroupedFiles
+              grouping={grouping}
+              preview={preview}
+              search=""
+              selectedPath={selectedPath}
+              onSelect={onSelect}
+            />
+          ) : (
+            files.map((file) => (
+              <PreviewFileItem
                 key={file.path}
-                type="button"
-                aria-label={formatFileReviewLabel(
-                  file.path,
-                  !!preview.completedPaths?.includes(file.path),
-                )}
-                aria-current={file.path === selectedPath ? "true" : undefined}
-                onClick={() => onSelect(file.path)}
-                className={cn(
-                  "preview-file-enter flex w-full shrink-0 border border-transparent items-start gap-3 rounded-lg px-3 py-3 text-left transition-colors hover:bg-sidebar-accent focus-visible:outline-2 focus-visible:outline-ring",
-                  file.path === selectedPath && "bg-sidebar-accent",
-                  preview.completedPaths?.includes(file.path) &&
-                    "border-primary/40 bg-primary/10 hover:bg-primary/15",
-                )}
-              >
-                <span className="mt-0.5 shrink-0">
-                  <FileIcon fileName={file.path} />
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block break-all font-medium">
-                    {file.path}
-                  </span>
-                  {preview.completedPaths?.includes(file.path) && (
-                    <span className="flex items-center gap-1 text-primary">
-                      <Check aria-hidden="true" className="size-4" />
-                      Completed
-                    </span>
-                  )}
-                  <span className="mt-1 flex flex-wrap gap-x-3 text-muted-foreground">
-                    <span>{formatFileStatus(file.status)}</span>
-                    {file.binary ? (
-                      <span>Binary</span>
-                    ) : (
-                      <>
-                        <span className="text-primary">+{file.added}</span>
-                        <span className="text-destructive">
-                          −{file.deleted}
-                        </span>
-                      </>
-                    )}
-                  </span>
-                </span>
-              </button>
-            ))}
-            {!files.length && (
-              <p className="p-3 text-muted-foreground">
-                {preview.files.length
-                  ? "No files match your search."
-                  : "Waiting for the first file…"}
-              </p>
-            )}
-          </nav>
-        </>
+                file={file}
+                completed={!!preview.completedPaths?.includes(file.path)}
+                selected={file.path === selectedPath}
+                onSelect={onSelect}
+              />
+            ))
+          )}
+          {!files.length && (
+            <p className="p-3 text-muted-foreground">
+              Waiting for the first file…
+            </p>
+          )}
+        </nav>
       )}
     </aside>
   );
