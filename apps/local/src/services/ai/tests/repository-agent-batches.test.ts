@@ -517,9 +517,219 @@ test("cancellation during grouping correction prevents another provider request"
   ).rejects.toThrow();
   expect(requests).toHaveLength(1);
 });
+
+test.each(["completion", "partial-json"])(
+  "a truncated %s response splits only the failed batch and discards partial output",
+  async (failure) => {
+    const log = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const selected = files
+      .slice(0, 2)
+      .map((file) => ({ ...file, diff: "small patch" }));
+    state.model = new MockLanguageModelV4({
+      doGenerate: async (options) => {
+        requests.push(options);
+        if (text(options).includes("Order these prepared files"))
+          return response({
+            groups: [{ title: "Flow", rationale: "Change", files: [0, 1] }],
+          });
+        const input = batch(options);
+        if (input.changes.length > 1) {
+          return {
+            ...response({}),
+            content: [
+              {
+                type: "text",
+                text:
+                  failure === "partial-json"
+                    ? '{"groups":'
+                    : "TEST_PRIVATE_PARTIAL_OUTPUT",
+              },
+            ],
+            finishReason: { unified: "length", raw: "length" },
+          };
+        }
+        return response({
+          groups: [
+            {
+              title: "Flow",
+              rationale: "Change",
+              files: input.changes.map((file) => ({
+                path: file.path,
+                summary: "Complete summary",
+                related: [],
+              })),
+            },
+          ],
+        });
+      },
+    });
+    const grouped = await (await agent(selected)).grouping();
+    expect(
+      grouped.groups.flatMap((group) => group.files.map((file) => file.path)),
+    ).toEqual(selected.map((file) => file.path));
+    expect(requests).toHaveLength(4);
+    expect(JSON.stringify(log.mock.calls)).not.toContain(
+      failure === "partial-json" ? '{"groups":' : "TEST_PRIVATE_PARTIAL_OUTPUT",
+    );
+  },
+);
+
+test("a truncated single-file fragment is split with absolute offsets and complete diff coverage", async () => {
+  const selected = {
+    ...files[0]!,
+    diff: "line of changed code\n".repeat(12000),
+  };
+  const successful: {
+    path: string;
+    diff: string;
+    offset?: number;
+    total?: number;
+  }[] = [];
+  state.model = new MockLanguageModelV4({
+    doGenerate: async (options) => {
+      requests.push(options);
+      const input = batch(options);
+      if (input.changes.some((file) => file.diff.length > 20000))
+        return {
+          ...response({}),
+          finishReason: { unified: "length", raw: "length" },
+        };
+      successful.push(...input.changes);
+      return response({
+        groups: [
+          {
+            title: "Flow",
+            rationale: "Change",
+            files: [
+              { path: selected.path, summary: "Combined changes", related: [] },
+            ],
+          },
+        ],
+      });
+    },
+  });
+  await expect((await agent([selected])).grouping()).resolves.toMatchObject({
+    groups: [{ files: [{ path: selected.path, summary: "Combined changes" }] }],
+  });
+  expect(successful.map((file) => file.diff).join("")).toBe(selected.diff);
+  let offset = 0;
+  for (const file of successful) {
+    expect(file.offset).toBe(offset);
+    expect(file.total).toBe(selected.diff.length);
+    offset += file.diff.length;
+  }
+});
+
+test("persistent truncation stops after bounded splitting instead of looping or publishing partial results", async () => {
+  state.model = new MockLanguageModelV4({
+    doGenerate: async (options) => {
+      requests.push(options);
+      return {
+        ...response({}),
+        finishReason: { unified: "length", raw: "length" },
+      };
+    },
+  });
+  await expect(
+    (await agent([{ ...files[0]!, diff: "tiny" }])).grouping(),
+  ).rejects.toThrow(/completion budget/);
+  expect(requests.length).toBeGreaterThan(1);
+  expect(requests.length).toBeLessThanOrEqual(4);
+});
 beforeEach(() => {
   requests.splice(0);
   state.contextWindow = 64000;
   vi.spyOn(console, "info").mockImplementation(() => {});
   vi.spyOn(console, "warn").mockImplementation(() => {});
+});
+
+test("large grouping uses bounded source batches and a global ordering pass with complete coverage", async () => {
+  state.model = new MockLanguageModelV4({
+    doGenerate: async (options) => {
+      requests.push(options);
+      if (text(options).includes("Order these prepared files"))
+        return response({
+          groups: [
+            {
+              title: "Flow",
+              rationale: "Definitions first",
+              files: files.map((_, index) => index),
+            },
+          ],
+        });
+      const input = batch(options);
+      return response({
+        groups: [
+          {
+            title: "Flow",
+            rationale: "Change",
+            files: input.changes.map((file) => ({
+              path: file.path,
+              summary: "Changes value",
+              related: file.path === "0.ts" ? ["1.ts"] : [],
+            })),
+          },
+        ],
+      });
+    },
+  });
+  const result = await (await agent()).grouping();
+  expect(requests.length).toBeGreaterThan(2);
+  expect(
+    result.groups.flatMap((group) => group.files.map((file) => file.path)),
+  ).toEqual(files.map((file) => file.path));
+  expect(result.groups[0]!.files[0]!.related).toEqual(["1.ts"]);
+  for (const request of requests.slice(0, -1)) {
+    const prompt = text(request);
+    expect(prompt).toContain("snapshot");
+    if (
+      batch(request).changes.some(
+        (file) => file.path === "0.ts" || file.path === "1.ts",
+      )
+    )
+      expect(prompt).toContain("compiler-resolved");
+    expect(Buffer.byteLength(prompt)).toBeLessThan(100000);
+  }
+  const chunks = requests
+    .slice(0, -1)
+    .flatMap((request) => batch(request).changes);
+  for (const file of files)
+    expect(
+      chunks
+        .filter((chunk) => chunk.path === file.path)
+        .map((chunk) => chunk.diff)
+        .join(""),
+    ).toBe(file.diff);
+});
+
+test("one oversized file is split without losing diff text and carries its earlier summary", async () => {
+  const huge = { ...files[0]!, diff: files[0]!.diff.repeat(5) };
+  state.model = new MockLanguageModelV4({
+    doGenerate: async (options) => {
+      requests.push(options);
+      const input = batch(options);
+      if (requests.length > 1)
+        expect(input.previousSummaries?.[0]?.summary).toBe("Summary so far");
+      return response({
+        groups: [
+          {
+            title: "Flow",
+            rationale: "Change",
+            files: [
+              { path: huge.path, summary: "Summary so far", related: [] },
+            ],
+          },
+        ],
+      });
+    },
+  });
+  const result = await (await agent([huge])).grouping();
+  expect(requests.length).toBeGreaterThan(1);
+  expect(
+    requests
+      .flatMap((request) => batch(request).changes)
+      .map((change) => change.diff)
+      .join(""),
+  ).toBe(huge.diff);
+  expect(result.groups.flatMap((group) => group.files)).toHaveLength(1);
 });
