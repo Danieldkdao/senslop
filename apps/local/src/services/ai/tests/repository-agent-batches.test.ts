@@ -113,6 +113,97 @@ const agent = (
     groupingSeed,
   });
 
+test.each(["active", "stalled", "silent", "endless"] as const)(
+  "chat stream timeout policy preserves %s response behavior",
+  async (mode) => {
+    vi.useFakeTimers();
+    const timeout = vi
+      .spyOn(AbortSignal, "timeout")
+      .mockImplementation((milliseconds) => {
+        const controller = new AbortController();
+        setTimeout(
+          () => controller.abort(new DOMException("Timed out", "TimeoutError")),
+          milliseconds,
+        );
+        return controller.signal;
+      });
+    const abort = new AbortController();
+    state.model = new MockLanguageModelV4({
+      doStream: async (options) => {
+        requests.push(options);
+        let timer: ReturnType<typeof setInterval> | undefined;
+        return {
+          stream: new ReadableStream({
+            start(controller) {
+              if (mode === "silent") return;
+              controller.enqueue({ type: "text-start", id: "text" });
+              controller.enqueue({
+                type: "text-delta",
+                id: "text",
+                delta: "Started. ",
+              });
+              if (mode === "stalled") return;
+              let chunks = 0;
+              timer = setInterval(() => {
+                controller.enqueue({
+                  type: "text-delta",
+                  id: "text",
+                  delta: `Part ${++chunks}. `,
+                });
+                if (mode === "endless" || chunks !== 6) return;
+                clearInterval(timer);
+                controller.enqueue({ type: "text-end", id: "text" });
+                controller.enqueue({
+                  type: "finish",
+                  finishReason: { unified: "stop", raw: "stop" },
+                  usage,
+                });
+                controller.close();
+              }, 30000);
+            },
+            cancel() {
+              clearInterval(timer);
+            },
+          }),
+        };
+      },
+    });
+    const reviewer = await agent(files, undefined, undefined, abort.signal);
+    const generation = reviewer.stream([
+      { role: "user", content: "Explain the changes" },
+    ]);
+    const parts: { type: string; reason?: string }[] = [];
+    const drained = (async () => {
+      for await (const part of generation.stream) parts.push(part);
+    })();
+    try {
+      await vi.waitFor(() => expect(requests).toHaveLength(1));
+      await vi.advanceTimersByTimeAsync(
+        mode === "endless" ? 16 * 60 * 1000 : 240100,
+      );
+      expect(parts.some((part) => part.type === "abort")).toBe(
+        mode !== "active",
+      );
+      if (mode === "active")
+        expect(parts).toContainEqual(
+          expect.objectContaining({ type: "finish", finishReason: "stop" }),
+        );
+      else
+        expect(parts).toContainEqual(
+          expect.objectContaining({
+            type: "abort",
+            reason: expect.stringMatching(/timeout/i),
+          }),
+        );
+    } finally {
+      abort.abort();
+      await drained;
+      timeout.mockRestore();
+      vi.useRealTimers();
+    }
+  },
+);
+
 test("larger independent batches reduce request count and overlap without changing coverage", async () => {
   vi.useFakeTimers();
   const selected = Array.from({ length: 24 }, (_, id) => ({
@@ -942,6 +1033,50 @@ test("a persistently missing single-file assessment fails clearly without claimi
   expect(requests).toHaveLength(3);
 });
 
+test("chat on a large snapshot sends a compact manifest and can page frozen diffs", async () => {
+  state.model = new MockLanguageModelV4({
+    doStream: async (options) => {
+      requests.push(options);
+      return {
+        stream: new ReadableStream({
+          start(controller) {
+            controller.enqueue({ type: "text-start", id: "text" });
+            controller.enqueue({
+              type: "text-delta",
+              id: "text",
+              delta: "Explanation",
+            });
+            controller.enqueue({ type: "text-end", id: "text" });
+            controller.enqueue({
+              type: "finish",
+              finishReason: { unified: "stop", raw: "stop" },
+              usage,
+            });
+            controller.close();
+          },
+        }),
+      };
+    },
+  });
+  const reviewer = await agent();
+  const result = reviewer.stream([{ role: "user", content: "Explain 0.ts" }]);
+  let explanation = "";
+  for await (const part of result.stream)
+    if (part.type === "text-delta") explanation += part.text;
+  expect(explanation).toBe("Explanation");
+  expect(Buffer.byteLength(text(requests[0]!))).toBeLessThan(10000);
+  const page = await reviewer.tools.readDiff.execute!(
+    { path: "0.ts", offset: 0 },
+    { toolCallId: "diff", messages: [], context: {} },
+  );
+  expect(page).toEqual({
+    path: "0.ts",
+    offset: 0,
+    diff: files[0]!.diff.slice(0, 12000),
+    nextOffset: 12000,
+  });
+});
+
 test("an incomplete analysis batch stops after bounded correction instead of publishing partial coverage", async () => {
   state.model = new MockLanguageModelV4({
     doGenerate: async (options) => {
@@ -1427,6 +1562,103 @@ test("canceling final ordering prevents the fallback from publishing prepared gr
   await expect(
     (await agent(files, undefined, undefined, abort.signal)).grouping(),
   ).rejects.toThrow(/Canceled/);
+});
+
+test("cumulative grouping sends only changed files with existing group context and preserves accepted summaries", async () => {
+  const selected = files
+    .slice(0, 2)
+    .map((file) => ({ ...file, diff: "small patch" }));
+  state.model = new MockLanguageModelV4({
+    doGenerate: async (options) => {
+      requests.push(options);
+      const input = batch(options);
+      expect(input.changes.map((change) => change.path)).toEqual(["0.ts"]);
+      return response({
+        groups: [
+          {
+            title: "Existing flow",
+            rationale: "Placement",
+            files: [{ path: "0.ts", summary: "Updated", related: [] }],
+          },
+        ],
+      });
+    },
+  });
+  const retained = {
+    groups: [
+      {
+        title: "Existing flow",
+        rationale: "Keep order",
+        files: [{ path: "1.ts", summary: "KEEP", related: [] }],
+      },
+    ],
+  };
+  const result = await (
+    await agent(
+      selected,
+      "Keep flows",
+      undefined,
+      undefined,
+      undefined,
+      { groupingInputTokens: 12000, groupingMaxFiles: 8, batchConcurrency: 2 },
+      { context: retained, retained },
+    )
+  ).grouping();
+  expect(result.groups).toHaveLength(1);
+  expect(result.groups[0]!.files).toEqual([
+    { path: "1.ts", summary: "KEEP", related: [] },
+    { path: "0.ts", summary: "Updated", related: [] },
+  ]);
+  expect(JSON.stringify(requests.at(-1)?.prompt)).toContain("Existing flow");
+});
+
+test("chat reserves its final step for an answer after seven tool steps", async () => {
+  state.model = new MockLanguageModelV4({
+    doStream: async (options) => {
+      requests.push(options);
+      const final = options.toolChoice?.type === "none";
+      return {
+        stream: new ReadableStream({
+          start(controller) {
+            controller.enqueue({ type: "text-start", id: "text" });
+            controller.enqueue({
+              type: "text-delta",
+              id: "text",
+              delta: final
+                ? "Here is the final answer."
+                : "Let me check more source.",
+            });
+            controller.enqueue({ type: "text-end", id: "text" });
+            if (!final)
+              controller.enqueue({
+                type: "tool-call",
+                toolCallId: `read-${requests.length}`,
+                toolName: "readSource",
+                input: JSON.stringify({ path: "0.ts" }),
+              });
+            controller.enqueue({
+              type: "finish",
+              finishReason: {
+                unified: final ? "stop" : "tool-calls",
+                raw: undefined,
+              },
+              usage,
+            });
+            controller.close();
+          },
+        }),
+      };
+    },
+  });
+  const reviewer = await agent();
+  let answer = "";
+  for await (const part of reviewer.stream([
+    { role: "user", content: "Catch me up" },
+  ]).stream)
+    if (part.type === "text-delta") answer += part.text;
+  expect(requests).toHaveLength(8);
+  expect(requests.at(-1)?.toolChoice).toEqual({ type: "none" });
+  expect(answer).toContain("Here is the final answer.");
 });
 
 test("group ordering cannot discard already validated summaries when both placement repairs omit files", async () => {
