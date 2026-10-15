@@ -18,12 +18,15 @@ import {
   formatJobStatusAppearance,
 } from "../lib/formatters";
 import { useWorkspaceMetadata } from "../../workspace/hooks/use-workspace-metadata";
+import type { LivePreview } from "../../review/types";
+import { formatResyncUnavailableReason } from "../../workspace/lib/formatters";
 import { AgentChat } from "./agent-chat";
 import { ReviewResults } from "./review-results";
 import { AgentReviewHistory } from "./agent-review-history";
 
 export const AgentPanel = ({
   snapshotId,
+  snapshot,
   agents,
   onEvidence,
   preparing = false,
@@ -32,6 +35,7 @@ export const AgentPanel = ({
   hasChanges = true,
 }: {
   snapshotId?: string;
+  snapshot?: LivePreview | null;
   snapshotFingerprint?: string | null;
   requireFreshSnapshot?: boolean;
   hasChanges?: boolean;
@@ -50,6 +54,14 @@ export const AgentPanel = ({
   const freshnessUnknown =
     (requireFreshSnapshot || !!snapshotFingerprint) &&
     (!snapshotFingerprint || !currentFingerprint || !!repository.error);
+  const resyncUnavailableReason = formatResyncUnavailableReason({
+    preview: snapshot ?? null,
+    repository: repository.data?.repository,
+    preparing,
+    busy: false,
+    loading: repository.isPending,
+    failed: repository.isError,
+  });
   const { settings } = useAiSettings();
   const configured = !!assignedModel(settings.data, "review");
   const [selectedRun, setSelectedRun] = useState<JobSchema | null>(null);
@@ -186,7 +198,9 @@ export const AgentPanel = ({
               {(stale || freshnessUnknown) && (
                 <p role="status" className="text-muted-foreground">
                   {stale
-                    ? "Re-sync your changes before running a review. The repository has changed since this snapshot."
+                    ? resyncUnavailableReason
+                      ? "This snapshot is outdated and cannot be re-synced. Start a new review to capture the current changes before running a review."
+                      : "Re-sync your changes before running a review. The repository has changed since this snapshot."
                     : !snapshotFingerprint
                       ? "Start a new review to capture repository freshness before running a review."
                       : "Checking repository freshness. Refresh the repository if this persists."}

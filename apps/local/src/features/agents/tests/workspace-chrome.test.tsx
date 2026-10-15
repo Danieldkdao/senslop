@@ -14,7 +14,13 @@ import userEvent from "@testing-library/user-event";
 const models = vi.hoisted(() => ({ review: false, fingerprint: "current" }));
 vi.mock("../../workspace/hooks/use-workspace-metadata", () => ({
   useWorkspaceMetadata: () => ({
-    data: { repository: { fingerprint: models.fingerprint } },
+    data: {
+      repository: {
+        fingerprint: models.fingerprint,
+        branch: "feature",
+        head: "head",
+      },
+    },
   }),
 }));
 vi.mock("../hooks/use-ai-settings", () => ({
@@ -192,6 +198,14 @@ test("stale snapshots cannot start reviews and explain how to resume", async () 
     <AgentPanel
       snapshotId="snapshot"
       snapshotFingerprint="old"
+      snapshot={
+        {
+          status: "ready",
+          fingerprint: "old",
+          source: { kind: "working-tree", base: "head" },
+          repositoryState: { branch: "feature", head: "head" },
+        } as never
+      }
       agents={{ state: { data: { jobs: [] } }, act: vi.fn() } as never}
       onEvidence={vi.fn()}
     />,
@@ -305,3 +319,39 @@ test("completed review metadata is compact and review history has a tooltip", as
     ).toBe("Saved reviews"),
   );
 });
+
+test.each(["commit", "branch", "working-tree"] as const)(
+  "outdated %s snapshots without a viable re-sync recommend a new review",
+  async (kind) => {
+    render(
+      <AgentPanel
+        snapshotId="snapshot"
+        snapshotFingerprint="old"
+        snapshot={
+          {
+            status: "ready",
+            fingerprint: "old",
+            source: { kind, base: "previous-head" },
+            repositoryState: { branch: "feature", head: "previous-head" },
+          } as never
+        }
+        agents={{ state: { data: { jobs: [] } }, act: vi.fn() } as never}
+        onEvidence={vi.fn()}
+      />,
+    );
+    await userEvent.setup().click(screen.getByRole("tab", { name: "Review" }));
+    expect(
+      screen.getByText(
+        /This snapshot is outdated and cannot be re-synced.*Start a new review/,
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.queryByText(/Re-sync your changes before running/),
+    ).toBeNull();
+    expect(
+      screen
+        .getByRole("button", { name: "Run review" })
+        .hasAttribute("disabled"),
+    ).toBe(true);
+  },
+);

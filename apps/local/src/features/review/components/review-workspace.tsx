@@ -249,6 +249,7 @@ export const ReviewWorkspace = ({ children }: ReviewWorkspaceProps) => {
   };
   const agentPanel = (
     <AgentPanel
+      snapshot={preview}
       key={preview?.id ?? "empty"}
       snapshotId={preview?.id}
       snapshotFingerprint={
