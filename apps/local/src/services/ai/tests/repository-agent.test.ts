@@ -592,6 +592,95 @@ test("a reasoning allowance fits a small configured window without hiding its re
   await expect((await resultAgent()).grouping()).resolves.toEqual(resultGroups);
 });
 
+test("Ollama provider settings preserve the requested analysis output allowance", async () => {
+  state.provider = "ollama";
+  state.resolved = {
+    model: new MockLanguageModelV4({
+      doGenerate: async (options) => {
+        expect(
+          (options.providerOptions?.ollama?.options as { num_predict: number })
+            .num_predict,
+        ).toBe(options.maxOutputTokens);
+        return {
+          content: [{ type: "text", text: JSON.stringify(resultGroups) }],
+          finishReason: { unified: "stop", raw: "stop" },
+          usage: resultUsage,
+          warnings: [],
+        };
+      },
+    }),
+    providerOptions: {
+      ollama: { options: { num_ctx: 16000, num_predict: 2048 } },
+    },
+  };
+  await expect((await resultAgent()).grouping()).resolves.toEqual(resultGroups);
+});
+
+test.each([
+  [1000000, 80000],
+  [1000000, 170000],
+  [64000, 80000],
+])(
+  "a configured %i-token model can group a %i-byte change without a false context-budget failure",
+  async (window, bytes) => {
+    state.contextWindow = window;
+    const groups = {
+      groups: [
+        {
+          title: "Flow",
+          rationale: "Change",
+          files: [{ path: "a.ts", summary: "Adds code", related: [] }],
+        },
+      ],
+    };
+    const generate = vi.fn(async () => ({
+      content: [{ type: "text" as const, text: JSON.stringify(groups) }],
+      finishReason: { unified: "stop" as const, raw: "stop" },
+      usage: {
+        inputTokens: {
+          total: 100,
+          noCache: 100,
+          cacheRead: undefined,
+          cacheWrite: undefined,
+        },
+        outputTokens: { total: 100, text: 100, reasoning: undefined },
+      },
+      warnings: [],
+    }));
+    state.resolved = {
+      model: new MockLanguageModelV4({ doGenerate: generate }),
+    };
+    const agent = await createRepositoryAgent({
+      local: {} as never,
+      snapshot: {
+        id: "snapshot",
+        source: {},
+        files: [{ path: "a.ts", diff: "@@ -0,0 +1 @@\n+" + "a".repeat(bytes) }],
+      } as never,
+      settings: { ...defaultAiSettings, prompt: "Group changed files." },
+      selection: {
+        connectionId: "connection",
+        modelId: "model",
+        name: "Model",
+      },
+      context: {
+        sources: {},
+        analysis: {
+          edges: [],
+          symbols: [],
+          diagnostics: [],
+          cycles: [],
+          limitations: [],
+        },
+        limitations: [],
+      },
+      signal: new AbortController().signal,
+    });
+    await expect(agent.grouping()).resolves.toEqual(groups);
+    expect(generate).toHaveBeenCalled();
+  },
+);
+
 test("grouping consumes validated structured model output and rejects incomplete coverage", async () => {
   const groups = {
     groups: [
