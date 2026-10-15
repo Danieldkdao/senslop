@@ -6,9 +6,9 @@ import {
   sourceSelectionSchema,
   type SourceSelectionSchema,
 } from "@senslop/contracts";
-import { collectSnapshot, secretReason } from "./snapshot";
+import { collectSnapshot, secretReason, blob, localBytes } from "./snapshot";
 
-export { collectSnapshot, SNAPSHOT_LIMITS } from "./snapshot";
+export { collectSnapshot, resyncSnapshot, SNAPSHOT_LIMITS } from "./snapshot";
 export type { FrozenSnapshot, GitSource, SnapshotFile } from "./snapshot";
 
 export const resolveRepository = async (cwd: string) =>
@@ -111,5 +111,52 @@ export const inspectRepository = async (
     throw new Error(
       "No changed files to inspect. Choose another Git selection.",
     );
-  return { snapshot, selection: source, fingerprint: after.fingerprint };
+  return {
+    snapshot,
+    selection: source,
+    fingerprint: after.fingerprint,
+    repository: after,
+  };
+};
+
+export const listSourcePaths = async (root: string, ref: string | null) => {
+  const git = simpleGit({ baseDir: root, trimmed: false });
+  const output = ref
+    ? await git.raw(["ls-tree", "-r", "--name-only", "-z", ref])
+    : await git.raw([
+        "ls-files",
+        "-z",
+        "--cached",
+        "--others",
+        "--exclude-standard",
+      ]);
+  return [...new Set(output.split("\0").filter(Boolean))]
+    .filter(
+      (path) =>
+        !secretReason(path) &&
+        !/(^|\/)(node_modules|\.git|\.next|dist|build|coverage)(\/|$)/.test(
+          path,
+        ),
+    )
+    .sort();
+};
+
+export const readSourceText = async (
+  root: string,
+  path: string,
+  ref: string | null,
+) => {
+  if (
+    secretReason(path) ||
+    path.startsWith("/") ||
+    path.includes("\\") ||
+    path.split("/").includes("..")
+  )
+    throw new Error("Invalid source path.");
+  const result = ref
+    ? await blob(root, ref, path)
+    : await localBytes(root, path);
+  return result.bytes && !result.bytes.includes(0)
+    ? result.bytes.toString("utf8")
+    : null;
 };
