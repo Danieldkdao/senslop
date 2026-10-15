@@ -55,6 +55,7 @@ export const previewUploadSchema = z.object({
 export type PreviewUploadSchema = z.infer<typeof previewUploadSchema>;
 
 export const localPreviewSchema = previewUploadSchema.extend({
+  files: z.array(previewFileSchema).max(2000),
   id: z.uuid(),
   repositoryFingerprint: z
     .string()

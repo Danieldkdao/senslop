@@ -1,13 +1,22 @@
 import { z } from "zod";
-import { localPreviewSchema } from "./preview";
+import { previewFileSchema, localPreviewSchema } from "./preview";
 
 export const reviewLineSides = ["additions", "deletions"] as const;
 export type ReviewLineSide = (typeof reviewLineSides)[number];
-export const reviewLineSchema = z.object({
-  side: z.enum(reviewLineSides),
-  lineNumber: z.number().int().positive(),
-  code: z.string().max(1024 * 1024),
-});
+export const reviewLineSchema = z
+  .object({
+    side: z.enum(reviewLineSides),
+    lineNumber: z.number().int().positive(),
+    endLineNumber: z.number().int().positive().optional(),
+    code: z.string().max(1024 * 1024),
+  })
+  .refine(
+    (line) => (line.endLineNumber ?? line.lineNumber) >= line.lineNumber,
+    {
+      message: "The end line must follow the start line.",
+      path: ["endLineNumber"],
+    },
+  );
 export type ReviewLineSchema = z.infer<typeof reviewLineSchema>;
 
 export const localNoteSchema = z.object({
@@ -19,7 +28,26 @@ export const localNoteSchema = z.object({
 });
 export type LocalNoteSchema = z.infer<typeof localNoteSchema>;
 
+export const resyncModes = ["new", "keep"] as const;
+export type ResyncMode = (typeof resyncModes)[number];
+
 export const savedReviewSchema = localPreviewSchema.extend({
+  repositoryState: z
+    .object({
+      branch: z.string().min(1),
+      head: z.string().regex(/^[a-f0-9]{40,64}$/),
+    })
+    .optional(),
+  syncBaseline: z.array(previewFileSchema).max(2000).optional(),
+  previousReviewId: z.uuid().optional(),
+  resyncMode: z.enum(resyncModes).optional(),
+  round: z.number().int().positive().default(1),
+  groupingEnabled: z
+    .boolean()
+    .optional()
+    .describe(
+      "Whether this snapshot requires grouped files and summaries; legacy snapshots use the default enabled behavior.",
+    ),
   title: z.string().trim().min(1).max(200),
   hash: z.string().regex(/^[a-f0-9]{64}$/),
   fingerprint: z
