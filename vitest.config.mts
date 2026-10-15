@@ -1,8 +1,36 @@
 import { defineConfig } from "vitest/config";
 import { fileURLToPath } from "node:url";
+import { createRequire } from "node:module";
+
+const localRequire = createRequire(
+  new URL("./apps/local/package.json", import.meta.url),
+);
+const babel = localRequire("next/dist/compiled/babel/core") as {
+  transformSync: (
+    code: string,
+    options: Record<string, unknown>,
+  ) => { code?: string } | null;
+};
 
 export default defineConfig({
   root: fileURLToPath(new URL(".", import.meta.url)),
+  plugins: [
+    {
+      name: "chat-composer-react-compiler",
+      enforce: "pre",
+      transform(code, id) {
+        // Plain JSX tests missed the stale field binding caused by production memoization.
+        if (!id.endsWith("/features/agents/components/agent-form.tsx")) return;
+        return babel.transformSync(code, {
+          filename: id,
+          parserOpts: { plugins: ["typescript", "jsx"] },
+          plugins: [localRequire("babel-plugin-react-compiler")],
+          configFile: false,
+          babelrc: false,
+        })?.code;
+      },
+    },
+  ],
   resolve: {
     alias: [
       {
@@ -15,6 +43,12 @@ export default defineConfig({
         find: "@/hooks/use-mobile",
         replacement: fileURLToPath(
           new URL("./packages/ui/src/hooks/use-mobile.ts", import.meta.url),
+        ),
+      },
+      {
+        find: "@/hooks/use-confirm",
+        replacement: fileURLToPath(
+          new URL("./packages/ui/src/hooks/use-confirm.tsx", import.meta.url),
         ),
       },
       {
