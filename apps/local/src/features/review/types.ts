@@ -5,6 +5,13 @@ import type {
   SavedReviewSchema,
 } from "@senslop/contracts";
 import type { ReviewLineSide } from "./schemas";
+import type {
+  diffThemeValues,
+  diffViews,
+  diffIndicators,
+  inlineChangeStyles,
+  diffFonts,
+} from "./constants";
 
 export type LivePreview = Partial<SavedReviewSchema> & {
   id: string;
@@ -21,11 +28,19 @@ export type ReviewOperation = {
   mode: "inspect" | "new" | "keep";
 };
 
-export type DiffView = "split" | "unified";
+export type DiffView = (typeof diffViews)[number];
+export type DiffTheme = (typeof diffThemeValues)[number];
+export type DiffFont = (typeof diffFonts)[number];
+export type DiffIndicator = (typeof diffIndicators)[number];
+export type InlineChangeStyle = (typeof inlineChangeStyles)[number];
 
 export type DiffSettingsState = {
-  indicators: "bars" | "classic" | "none";
-  inlineChanges: "word-alt" | "word-line" | "word" | "char" | "none";
+  theme: DiffTheme;
+  font: DiffFont;
+  fontSize: number;
+  lineHeight: number;
+  indicators: DiffIndicator;
+  inlineChanges: InlineChangeStyle;
   backgrounds: boolean;
   wrapping: boolean;
   lineNumbers: boolean;

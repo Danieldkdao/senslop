@@ -230,6 +230,9 @@
   --diffs-header-font-family: var(--font-sans), sans-serif;
   --diffs-font-size: 16px;
   --diffs-line-height: 1.6;
+}
+
+.preview-diff-default {
   --diffs-addition-color-override: var(--primary);
   --diffs-deletion-color-override: var(--destructive);
   --diffs-modified-color-override: var(--primary);

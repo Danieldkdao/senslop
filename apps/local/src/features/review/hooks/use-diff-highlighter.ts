@@ -6,12 +6,15 @@ import {
   preloadHighlighter,
   type SupportedLanguages,
 } from "@pierre/diffs";
-import { diffThemes } from "../constants";
+import { diffThemes, lightDiffThemes, darkDiffThemes } from "../constants";
+import type { DiffTheme } from "../types";
 
 export const useDiffHighlighter = (
   name: string | null,
   previousName?: string,
   language?: SupportedLanguages,
+  theme: DiffTheme = "default",
+  preloadAllThemes = false,
 ) => {
   const currentLanguage =
     name === null ? null : (language ?? getFiletypeFromFileName(name));
@@ -19,7 +22,8 @@ export const useDiffHighlighter = (
     name === null
       ? null
       : (language ?? getFiletypeFromFileName(previousName ?? name));
-  const key = JSON.stringify([currentLanguage, previousLanguage]);
+  const themeKey = preloadAllThemes ? "all" : theme;
+  const key = JSON.stringify([currentLanguage, previousLanguage, themeKey]);
   const [attempt, setAttempt] = useState(0);
   const [state, setState] = useState<{
     key: string;
@@ -31,7 +35,17 @@ export const useDiffHighlighter = (
     let active = true;
     // Cold async markup can be mistaken for hydrated content during Strict Mode remounts.
     void preloadHighlighter({
-      themes: [diffThemes.dark, diffThemes.light],
+      themes:
+        themeKey === "all"
+          ? [
+              diffThemes.dark,
+              diffThemes.light,
+              ...lightDiffThemes,
+              ...darkDiffThemes,
+            ]
+          : themeKey === "default"
+            ? [diffThemes.dark, diffThemes.light]
+            : [themeKey],
       langs: [...new Set([currentLanguage, previousLanguage])],
     })
       .then(() => {
@@ -43,7 +57,7 @@ export const useDiffHighlighter = (
     return () => {
       active = false;
     };
-  }, [currentLanguage, previousLanguage, key, attempt]);
+  }, [currentLanguage, previousLanguage, themeKey, key, attempt]);
   return {
     ready: name === null || (state?.key === key && state.ready),
     error: state?.key === key && state.error,

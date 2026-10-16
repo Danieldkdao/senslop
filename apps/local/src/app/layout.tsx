@@ -1,7 +1,15 @@
 import { Providers } from "@/components/providers";
 import { cn } from "@/lib/utils";
 import type { Metadata } from "next";
-import { Fraunces, JetBrains_Mono, Outfit } from "next/font/google";
+import {
+  Fira_Code,
+  Fraunces,
+  Geist_Mono,
+  IBM_Plex_Mono,
+  JetBrains_Mono,
+  Outfit,
+} from "next/font/google";
+import localFont from "next/font/local";
 import "../global.css";
 
 const headings = Fraunces({
@@ -19,6 +27,28 @@ const codeFont = JetBrains_Mono({
   subsets: ["latin"],
 });
 
+const geistMono = Geist_Mono({
+  variable: "--font-geist-mono",
+  subsets: ["latin"],
+});
+const firaCode = Fira_Code({
+  variable: "--font-fira-code",
+  subsets: ["latin"],
+});
+const ibmPlexMono = IBM_Plex_Mono({
+  variable: "--font-ibm-plex-mono",
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
+});
+const cascadiaCode = localFont({
+  src: "./fonts/cascadia-code.woff2",
+  variable: "--font-cascadia-code",
+  weight: "200 700",
+  display: "swap",
+  // Local loading bypasses Google's missing Cascadia fallback metrics.
+  adjustFontFallback: false,
+});
+
 export const metadata: Metadata = {
   title: "Senslop",
   description:
@@ -34,6 +64,10 @@ const RootLayout = ({ children }: { children: React.ReactNode }) => {
         headings.variable,
         interfaceFont.variable,
         codeFont.variable,
+        geistMono.variable,
+        firaCode.variable,
+        ibmPlexMono.variable,
+        cascadiaCode.variable,
       )}
     >
       <body>

@@ -1,6 +1,16 @@
 import type { BaseDiffOptions } from "@pierre/diffs";
+import type { CSSProperties } from "react";
 import type { DiffSettingsState, DiffView } from "../types";
-import { diffThemes } from "../constants";
+import { diffThemes, lightDiffThemes } from "../constants";
+import { formatDiffFont } from "./formatters";
+
+export const getDiffStyle = (
+  settings: DiffSettingsState,
+): CSSProperties & Record<`--diffs-${string}`, string> => ({
+  "--diffs-font-family": formatDiffFont(settings.font).fontFamily,
+  "--diffs-font-size": `${settings.fontSize}px`,
+  "--diffs-line-height": `${settings.lineHeight}px`,
+});
 
 export const getDiffOptions = (
   settings: DiffSettingsState,
@@ -8,9 +18,15 @@ export const getDiffOptions = (
   resolvedTheme: string | undefined,
 ) =>
   ({
-    // Pierre supplies syntax token colors; change markers use Senslop's semantic colors.
-    theme: diffThemes,
-    themeType: resolvedTheme === "dark" ? "dark" : "light",
+    theme: settings.theme === "default" ? diffThemes : settings.theme,
+    themeType:
+      settings.theme === "default"
+        ? resolvedTheme === "dark"
+          ? "dark"
+          : "light"
+        : lightDiffThemes.some((theme) => theme === settings.theme)
+          ? "light"
+          : "dark",
     diffStyle: view,
     disableFileHeader: true,
     hunkSeparators: "line-info",

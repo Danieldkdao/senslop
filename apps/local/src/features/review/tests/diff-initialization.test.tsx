@@ -92,6 +92,41 @@ const codeText = (container: HTMLElement) =>
     .map((code) => code.textContent)
     .join("");
 
+test("theme and typography changes render in the sample without changing application appearance", async () => {
+  state.theme = "light";
+  const view = render(
+    <EditorDiffPreview settings={defaultDiffSettings} view="split" />,
+  );
+  await waitFor(() =>
+    expect(codeText(view.container)).toContain("welcomeMember"),
+  );
+  view.rerender(
+    <EditorDiffPreview
+      settings={{
+        ...defaultDiffSettings,
+        theme: "dracula",
+        font: "geist-mono",
+        fontSize: 20,
+        lineHeight: 28,
+      }}
+      view="split"
+    />,
+  );
+  await waitFor(() => {
+    const host = view.container.querySelector<HTMLElement>("diffs-container")!;
+    expect(host.style.getPropertyValue("--diffs-font-size")).toBe("20px");
+    expect(host.style.getPropertyValue("--diffs-line-height")).toBe("28px");
+    expect(host.style.getPropertyValue("--diffs-font-family")).toContain(
+      "--font-geist-mono",
+    );
+    expect(host.classList.contains("preview-diff-default")).toBe(false);
+    expect(
+      host.shadowRoot!.querySelector("[data-theme-css]")?.textContent,
+    ).toContain("#282A36");
+  });
+  expect(state.theme).toBe("light");
+});
+
 const file: PreviewFileSchema = {
   path: "example.ts",
   oldPath: null,

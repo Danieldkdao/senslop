@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useTheme } from "next-themes";
 import { Button } from "@/components/ui/button";
 import {
@@ -41,10 +42,15 @@ export const ReviewSettings = ({
   onViewChange,
 }: ReviewSettingsProps) => {
   const { theme, setTheme } = useTheme();
+  const [previewSettings, setPreviewSettings] =
+    useState<Partial<DiffSettingsState> | null>(null);
   return (
     <SettingsDialog
       open={open}
-      onOpenChange={onOpenChange}
+      onOpenChange={(value) => {
+        if (!value) setPreviewSettings(null);
+        onOpenChange?.(value);
+      }}
       initialSection={initialSection}
     >
       {(navigation, search) => {
@@ -100,7 +106,7 @@ export const ReviewSettings = ({
             id: "editor",
             label: "Editor",
             keywords:
-              "editor review diff preview split unified indicators inline changes wrapping backgrounds line numbers",
+              "editor review diff preview theme font size line height split unified indicators inline changes wrapping backgrounds line numbers",
             content: (
               <>
                 <div className="flex flex-col gap-2">
@@ -126,8 +132,15 @@ export const ReviewSettings = ({
                     </Button>
                   </div>
                 </div>
-                <DiffSettings settings={settings} onChange={onChange} />
-                <EditorDiffPreview settings={settings} view={view} />
+                <EditorDiffPreview
+                  settings={{ ...settings, ...previewSettings }}
+                  view={view}
+                />
+                <DiffSettings
+                  settings={settings}
+                  onChange={onChange}
+                  onPreviewChange={setPreviewSettings}
+                />
               </>
             ),
           },

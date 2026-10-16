@@ -18,6 +18,7 @@ const nextConfig: NextConfig = {
     },
   },
   outputFileTracingIncludes: {
+    "/*": ["./src/app/fonts/cascadia-code-license.txt"],
     "/file-icons/*": [
       "./node_modules/material-icon-theme/package.json",
       "./node_modules/material-icon-theme/icons/*.svg",

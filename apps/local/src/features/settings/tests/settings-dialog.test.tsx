@@ -31,7 +31,11 @@ vi.mock("../../agents/hooks/use-ai-settings", async () => {
     }),
   };
 });
-const preview = vi.hoisted(() => ({ render: vi.fn(), theme: "dark" }));
+const preview = vi.hoisted(() => ({
+  render: vi.fn(),
+  theme: "dark",
+  setTheme: vi.fn(),
+}));
 vi.mock("../../review/hooks/use-diff-highlighter", () => ({
   useDiffHighlighter: () => ({ ready: true, error: false, retry: vi.fn() }),
 }));
@@ -47,7 +51,7 @@ vi.mock("next-themes", () => ({
   useTheme: () => ({
     theme: preview.theme,
     resolvedTheme: preview.theme,
-    setTheme: vi.fn(),
+    setTheme: preview.setTheme,
   }),
 }));
 vi.mock("@pierre/diffs/react", () => ({
@@ -68,6 +72,109 @@ afterEach(() => {
   vi.unstubAllGlobals();
   preview.render.mockClear();
   preview.theme = "dark";
+  preview.setTheme.mockClear();
+});
+
+test("theme and font hover preview is temporary, selection commits, and application theme stays independent", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        connections: [],
+        defaultId: null,
+        cleanupPending: false,
+      }),
+    }),
+  );
+  const changed = vi.fn();
+  const Harness = () => {
+    const [settings, setSettings] = useState(defaultDiffSettings);
+    return (
+      <ReviewSettings
+        settings={settings}
+        onChange={(next) => {
+          changed(next);
+          setSettings(next);
+        }}
+        view="split"
+        onViewChange={vi.fn()}
+      />
+    );
+  };
+  render(<Harness />);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Settings" }));
+  const props = () =>
+    preview.render.mock.lastCall![0] as MultiFileDiffProps<
+      undefined,
+      undefined
+    >;
+  await user.click(screen.getByRole("combobox", { name: "Editor theme" }));
+  expect(screen.getAllByRole("option")).toHaveLength(21);
+  expect(screen.getAllByRole("option")[0].textContent).toContain("Default");
+  expect(
+    within(screen.getByRole("group", { name: "Light themes" })).getAllByRole(
+      "option",
+    ),
+  ).toHaveLength(10);
+  expect(
+    within(screen.getByRole("group", { name: "Dark themes" })).getAllByRole(
+      "option",
+    ),
+  ).toHaveLength(10);
+  await user.hover(screen.getByRole("option", { name: "GitHub Light" }));
+  expect(props().options).toMatchObject({
+    theme: "github-light",
+    themeType: "light",
+  });
+  expect(changed).not.toHaveBeenCalled();
+  await user.unhover(screen.getByRole("option", { name: "GitHub Light" }));
+  expect(props().options?.theme).toEqual({
+    light: "pierre-light",
+    dark: "pierre-dark",
+  });
+  await user.keyboard("{Escape}");
+  expect(props().options?.theme).toEqual({
+    light: "pierre-light",
+    dark: "pierre-dark",
+  });
+  await user.click(screen.getByRole("combobox", { name: "Editor theme" }));
+  await user.click(await screen.findByRole("option", { name: "Dracula" }));
+  expect(changed).toHaveBeenLastCalledWith(
+    expect.objectContaining({ theme: "dracula" }),
+  );
+  expect(props().options?.theme).toBe("dracula");
+  await user.click(screen.getByRole("combobox", { name: "Editor font" }));
+  expect(await screen.findAllByRole("option")).toHaveLength(5);
+  expect(screen.queryByRole("option", { name: "Berkeley Mono" })).toBeNull();
+  await user.hover(screen.getByRole("option", { name: "Fira Code" }));
+  expect(
+    props().style?.["--diffs-font-family" as keyof React.CSSProperties],
+  ).toContain("--font-fira-code");
+  await user.keyboard("{Escape}");
+  expect(
+    props().style?.["--diffs-font-family" as keyof React.CSSProperties],
+  ).toContain("--font-mono");
+  await user.click(screen.getByRole("combobox", { name: "Editor font" }));
+  await screen.findByRole("option", { name: "Geist Mono" });
+  await user.keyboard("{ArrowDown}");
+  expect(
+    props().style?.["--diffs-font-family" as keyof React.CSSProperties],
+  ).toContain("--font-geist-mono");
+  await user.keyboard("{Enter}");
+  expect(changed).toHaveBeenLastCalledWith(
+    expect.objectContaining({ font: "geist-mono" }),
+  );
+  await user.click(screen.getByRole("button", { name: "Increase Font size" }));
+  await user.click(
+    screen.getByRole("button", { name: "Decrease Line height" }),
+  );
+  expect(props().style).toMatchObject({
+    "--diffs-font-size": "17px",
+    "--diffs-line-height": "25px",
+  });
+  expect(preview.setTheme).not.toHaveBeenCalled();
 });
 
 test.each([

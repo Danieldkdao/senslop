@@ -3,7 +3,8 @@
 import { useId, useMemo } from "react";
 import { useTheme } from "next-themes";
 import { MultiFileDiff, type FileContents } from "@pierre/diffs/react";
-import { getDiffOptions } from "../../review/lib/diff-options";
+import { getDiffOptions, getDiffStyle } from "../../review/lib/diff-options";
+import { cn } from "@/lib/utils";
 import type { DiffSettingsState, DiffView } from "../../review/types";
 import { useDiffHighlighter } from "../../review/hooks/use-diff-highlighter";
 import { DiffRenderState } from "../../review/components/diff-render-state";
@@ -75,7 +76,13 @@ export const EditorDiffPreview = ({
 }: EditorDiffPreviewProps) => {
   const id = useId();
   const { resolvedTheme } = useTheme();
-  const highlighter = useDiffHighlighter(newFile.name, oldFile.name);
+  const highlighter = useDiffHighlighter(
+    newFile.name,
+    oldFile.name,
+    undefined,
+    settings.theme,
+    true,
+  );
   const options = useMemo(
     () => getDiffOptions(settings, view, resolvedTheme),
     [settings, view, resolvedTheme],
@@ -83,7 +90,7 @@ export const EditorDiffPreview = ({
   return (
     <section
       aria-labelledby={id}
-      className="min-w-0 flex flex-col gap-3 text-base"
+      className="sticky top-0 z-10 min-w-0 flex flex-col gap-3 bg-background pb-3 text-base"
     >
       <div className="flex flex-col gap-1">
         <h3 id={id} className="font-medium">
@@ -95,13 +102,17 @@ export const EditorDiffPreview = ({
       </div>
       <div className="min-w-0 max-w-full overflow-hidden rounded-xl border">
         <p className="border-b bg-muted px-4 py-2 font-mono">welcome.ts</p>
-        <div className="max-h-[28rem] overflow-auto">
+        <div className="max-h-56 overflow-auto">
           {highlighter.ready ? (
             <MultiFileDiff
               oldFile={oldFile}
               newFile={newFile}
               options={options}
-              className="preview-diff"
+              className={cn(
+                "preview-diff",
+                settings.theme === "default" && "preview-diff-default",
+              )}
+              style={getDiffStyle(settings)}
             />
           ) : (
             <DiffRenderState
