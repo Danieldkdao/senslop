@@ -53,7 +53,7 @@ export function PasswordInput({
 
   return (
     <PasswordInputContext value={{ password: currentValue.toString() }}>
-      <div className="space-y-3">
+      <div className="flex flex-col gap-3">
         <InputGroup className="h-10 bg-muted/40 dark:bg-muted/40">
           <InputGroupInput
             {...props}
@@ -131,7 +131,7 @@ export function PasswordInputStrengthChecker() {
   const label = getLabel();
 
   return (
-    <div className="space-y-0.5">
+    <div className="flex flex-col gap-0.5">
       <div
         role="progressbar"
         aria-label="Password Strength"

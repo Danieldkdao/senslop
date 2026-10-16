@@ -237,9 +237,10 @@ export class ProviderService {
           .run();
     });
 
-  probe = async (id: string, operation: "test" | "models") => {
+  resolve = async (id: string) => {
     const existingConnection = this.stored(id);
-    if (!existingConnection) throw new Error("Connection not found.");
+    if (!existingConnection)
+      throw new Error("Connection not found. Refresh settings and retry.");
     let secret: string | null = null;
     if (existingConnection.credentialRef) {
       try {
@@ -249,6 +250,13 @@ export class ProviderService {
       }
       if (!secret) throw new Error("Saved API key is missing. Enter it again.");
     }
-    return probeConnection(existingConnection, secret, operation);
+    if (formatProvider(existingConnection.provider).keyRequired && !secret)
+      throw new Error("This provider requires an API key.");
+    return { connection: existingConnection, secret };
+  };
+
+  probe = async (id: string, operation: "test" | "models") => {
+    const { connection, secret } = await this.resolve(id);
+    return probeConnection(connection, secret, operation);
   };
 }

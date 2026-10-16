@@ -14,7 +14,7 @@ export const formatProvider = (provider: ProviderId) => {
       };
     case "chatgpt":
       return {
-        label: "ChatGPT",
+        label: "OpenAI",
         icon: "OpenAI" as const,
         baseURL: "https://api.openai.com/v1",
         keyRequired: true,
@@ -42,18 +42,18 @@ export const formatProvider = (provider: ProviderId) => {
       };
     case "grok":
       return {
-        label: "Grok",
+        label: "xAI",
         icon: "XAI" as const,
         baseURL: "https://api.x.ai/v1",
         keyRequired: true,
         contextWindow: false,
-        description: "Connect to xAI's Grok API.",
+        description: "Connect using an xAI API key.",
       };
     case "llama-cpp":
       return {
         label: "llama.cpp",
         icon: "Meta" as const,
-        baseURL: "http://localhost:8080/v1",
+        baseURL: "http://localhost:9931/v1",
         keyRequired: false,
         contextWindow: true,
         description:
@@ -122,3 +122,62 @@ export const formatEndpointLocation = (endpoint: string) =>
   isLocalEndpoint(endpoint)
     ? "Local endpoint, inference server on this computer"
     : "Remote endpoint, compatible does not mean local";
+
+export const formatConnectionLabel = (connection: {
+  provider: ProviderId;
+  name: string;
+}) => {
+  const label = formatProvider(connection.provider).label;
+  switch (connection.name) {
+    case "ChatGPT":
+      if (label === "OpenAI") return label;
+      break;
+    case "Grok":
+    case "X.AI":
+      if (label === "xAI") return label;
+      break;
+  }
+  return connection.name === label ? label : `${label}: ${connection.name}`;
+};
+
+export const formatModelName = (id: string) => {
+  const model = id.replace(/^models\//, "");
+  const name = model.split("/").at(-1) ?? model;
+  return name
+    .replace(/(\d)-(\d)(?=-|$)/g, "$1.$2")
+    .split("-")
+    .map((part) => {
+      switch (part.toLowerCase()) {
+        case "gpt":
+          return "GPT";
+        case "glm":
+          return "GLM";
+        case "deepseek":
+          return "DeepSeek";
+        case "minimax":
+          return "MiniMax";
+        case "qwen":
+          return "Qwen";
+        default:
+          return part ? part[0].toUpperCase() + part.slice(1) : part;
+      }
+    })
+    .join(" ");
+};
+
+export const formatCatalogModelName = (
+  name: string,
+  id: string,
+  ambiguous: boolean,
+) => {
+  if (!ambiguous) return name;
+  const label = `${name} (${id})`;
+  return label.length <= 200 ? label : id;
+};
+
+export const formatModelOptionName = (
+  name: string,
+  connectionName: string,
+  connectionNumber?: number,
+) =>
+  `${name} (${connectionName}${connectionNumber ? ` ${connectionNumber}` : ""})`;

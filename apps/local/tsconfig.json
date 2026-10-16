@@ -35,7 +35,8 @@
       "@/components/file-icon": [
         "../../packages/ui/src/components/file-icon.tsx"
       ],
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@/hooks/use-confirm": ["../../packages/ui/src/hooks/use-confirm.tsx"]
     }
   },
   "include": [

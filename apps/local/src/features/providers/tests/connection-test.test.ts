@@ -8,6 +8,31 @@ const connection = {
   model: "manual",
   contextWindow: null,
 };
+
+test.each(["test", "models"] as const)(
+  "xAI %s explains a credit restriction without leaking account details",
+  async (operation) => {
+    const fetcher: typeof fetch = async () =>
+      Response.json(
+        {
+          error:
+            "Your newly created team doesn't have any credits or licenses yet. private-key https://console.x.ai/team/private-team",
+        },
+        { status: 403 },
+      );
+    await expect(
+      probeConnection(
+        { ...connection, provider: "grok", baseURL: "https://api.x.ai/v1" },
+        "private-key",
+        operation,
+        fetcher,
+      ),
+    ).rejects.toThrow(
+      "xAI blocked model access because this team has no credits or licenses. Set up billing in the xAI Console, then retry.",
+    );
+  },
+);
+
 test("connection tests request metadata only, credentials stay in headers, redirects are refused", async () => {
   const fetcher = vi
     .fn()

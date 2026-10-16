@@ -1,6 +1,12 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ReviewHistory } from "../components/review-history";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -106,6 +112,8 @@ test("rename and delete icon actions do not reopen; rename is inline and deletio
     expect(action).toHaveBeenCalledWith({
       action: "change",
       id: review.id,
+      expectedHash: review.hash,
+      expectedRound: 1,
       change: { action: "rename", title: "New title" },
     }),
   );
@@ -123,7 +131,17 @@ test("rename and delete icon actions do not reopen; rename is inline and deletio
   expect(action.mock.calls.some(([body]) => body.action === "delete")).toBe(
     false,
   );
-  await user.click(screen.getByRole("button", { name: "Confirm deletion" }));
+  const confirmation = await screen.findByRole("dialog", {
+    name: "Delete this review?",
+  });
+  await user.click(
+    within(confirmation).getByRole("button", { name: "Cancel" }),
+  );
+  expect(action.mock.calls.some(([body]) => body.action === "delete")).toBe(
+    false,
+  );
+  await user.click(screen.getByRole("button", { name: "Delete Fix API" }));
+  await user.click(screen.getByRole("button", { name: "Confirm" }));
   await waitFor(() =>
     expect(action).toHaveBeenCalledWith({ action: "delete", id: review.id }),
   );

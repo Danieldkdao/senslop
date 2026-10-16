@@ -6,9 +6,15 @@ import {
   sourceSelectionSchema,
   type SourceSelectionSchema,
 } from "@senslop/contracts";
-import { collectSnapshot, secretReason } from "./snapshot";
+import {
+  collectSnapshot,
+  secretReason,
+  blob,
+  localBytes,
+  readBlobBatch,
+} from "./snapshot";
 
-export { collectSnapshot, SNAPSHOT_LIMITS } from "./snapshot";
+export { collectSnapshot, resyncSnapshot, SNAPSHOT_LIMITS } from "./snapshot";
 export type { FrozenSnapshot, GitSource, SnapshotFile } from "./snapshot";
 
 export const resolveRepository = async (cwd: string) =>
@@ -111,5 +117,88 @@ export const inspectRepository = async (
     throw new Error(
       "No changed files to inspect. Choose another Git selection.",
     );
-  return { snapshot, selection: source, fingerprint: after.fingerprint };
+  return {
+    snapshot,
+    selection: source,
+    fingerprint: after.fingerprint,
+    repository: after,
+  };
+};
+
+export const listSourcePaths = async (root: string, ref: string | null) => {
+  const git = simpleGit({ baseDir: root, trimmed: false });
+  const output = ref
+    ? await git.raw(["ls-tree", "-r", "--name-only", "-z", ref])
+    : await git.raw([
+        "ls-files",
+        "-z",
+        "--cached",
+        "--others",
+        "--exclude-standard",
+      ]);
+  return [...new Set(output.split("\0").filter(Boolean))]
+    .filter(
+      (path) =>
+        !secretReason(path) &&
+        !/(^|\/)(node_modules|\.git|\.next|dist|build|coverage)(\/|$)/.test(
+          path,
+        ),
+    )
+    .sort();
+};
+
+const validateSourcePath = (path: string) => {
+  if (
+    secretReason(path) ||
+    path.startsWith("/") ||
+    path.includes("\\") ||
+    path.split("/").includes("..")
+  )
+    throw new Error("Invalid source path.");
+};
+
+export const readSourceText = async (
+  root: string,
+  path: string,
+  ref: string | null,
+) => {
+  validateSourcePath(path);
+  const result = ref
+    ? await blob(root, ref, path)
+    : await localBytes(root, path);
+  return result.bytes && !result.bytes.includes(0)
+    ? result.bytes.toString("utf8")
+    : null;
+};
+
+export const readSourceTexts = async (
+  root: string,
+  paths: string[],
+  ref: string | null,
+  byteLimit: number,
+) => {
+  paths.forEach(validateSourcePath);
+  if (ref) return readBlobBatch(root, ref, paths, byteLimit);
+  const sources: Record<string, string> = {};
+  const unavailable: string[] = [];
+  let bytes = 0;
+  for (let index = 0; index < paths.length; index += 16) {
+    const batch = paths.slice(index, index + 16);
+    const results = await Promise.allSettled(
+      batch.map((path) => readSourceText(root, path, null)),
+    );
+    for (let offset = 0; offset < results.length; offset++) {
+      const path = batch[offset]!;
+      const result = results[offset]!;
+      if (result.status === "rejected") {
+        unavailable.push(path);
+        continue;
+      }
+      if (result.value === null) continue;
+      bytes += Buffer.byteLength(result.value);
+      if (bytes > byteLimit) return { sources, unavailable, limited: true };
+      sources[path] = result.value;
+    }
+  }
+  return { sources, unavailable, limited: false };
 };

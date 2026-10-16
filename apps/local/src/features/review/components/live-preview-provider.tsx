@@ -5,6 +5,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
@@ -12,17 +13,24 @@ import {
 import {
   localPreviewSchema,
   savedReviewSchema,
+  reviewStateSchema,
   type ReviewChangeSchema,
 } from "@senslop/contracts";
-import type { LivePreview } from "../types";
+import type { LivePreview, ReviewOperation } from "../types";
 import { toast } from "@/components/ui/toast";
+import { createReviewChangeQueue } from "../lib/review-change-queue";
 
 class LocalPreviewRequestError extends Error {}
 
+const localRequestTimeoutMs = 15000;
+
 type PreviewContext = {
   preview: LivePreview | null;
+  reviewOperation: ReviewOperation | null;
+  trackReviewOperation: (operation: ReviewOperation | null) => void;
   error: string | null;
   refresh: () => Promise<void>;
+  discardReview: () => Promise<void>;
   changeReview: (change: ReviewChangeSchema) => Promise<void>;
 };
 const LivePreviewContext = createContext<PreviewContext | null>(null);
@@ -32,6 +40,8 @@ export const LivePreviewProvider = ({ children }: { children: ReactNode }) => {
     preview: LivePreview | null;
     error: string | null;
   }>({ preview: null, error: null });
+  const [reviewOperation, trackReviewOperation] =
+    useState<ReviewOperation | null>(null);
   const etag = useRef<string | null>(null);
   const epoch = useRef(0);
   const stateRef = useRef(state);
@@ -57,6 +67,11 @@ export const LivePreviewProvider = ({ children }: { children: ReactNode }) => {
       return {
         preview: {
           ...preview,
+          ...(durable.success &&
+          current.preview?.id === preview.id &&
+          current.preview.hash === durable.data.hash
+            ? { files: current.preview.files }
+            : {}),
           expectedFiles: preview.files.length,
           status: "ready",
           error: null,
@@ -70,10 +85,17 @@ export const LivePreviewProvider = ({ children }: { children: ReactNode }) => {
       const started = epoch.current;
       const response = await fetch("/api/preview", {
         cache: "no-store",
-        signal,
+        signal: AbortSignal.any([
+          ...(signal ? [signal] : []),
+          AbortSignal.timeout(localRequestTimeoutMs),
+        ]),
         headers:
           !force && etag.current ? { "If-None-Match": etag.current } : {},
       });
+      if (signal?.aborted || started !== epoch.current) {
+        await response.body?.cancel().catch(() => {});
+        return;
+      }
       if (!response.ok && response.status !== 304) {
         const failure = (await response.json().catch(() => null)) as {
           message?: string;
@@ -83,15 +105,11 @@ export const LivePreviewProvider = ({ children }: { children: ReactNode }) => {
             "The local app is unavailable. Keep your CLI running or restart it. Check application-data permissions and retry.",
         );
       }
-      if (signal?.aborted || started !== epoch.current) return;
+
       if (response.status !== 304) {
         const data: unknown = await response.json();
         if (signal?.aborted || started !== epoch.current) return;
-        const newId =
-          data && typeof data === "object" && "id" in data ? data.id : null;
         apply(data);
-        if (newId && newId !== stateRef.current.preview?.id)
-          toast.success("Your changes are ready to explore.");
         etag.current = response.headers?.get("etag") ?? null;
       }
       setState((current) =>
@@ -105,33 +123,118 @@ export const LivePreviewProvider = ({ children }: { children: ReactNode }) => {
     etag.current = null;
     await poll(undefined, true);
   }, [poll]);
-  const changeReview = useCallback(
-    async (change: ReviewChangeSchema) => {
-      const id = stateRef.current.preview?.id;
-      if (!id) throw new Error("Select a saved review first.");
+  const requestReview = useCallback(
+    async (body: object, signal?: AbortSignal) => {
       epoch.current++;
       try {
         const response = await fetch("/api/workspace", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "change", id, change }),
+          body: JSON.stringify(body),
+          signal: AbortSignal.any([
+            ...(signal ? [signal] : []),
+            AbortSignal.timeout(localRequestTimeoutMs),
+          ]),
         });
         const data: unknown = await response.json();
         if (!response.ok)
           throw new Error(
-            (data as { message?: string }).message ??
+            (data as { message?: string })?.message ??
               "Local save failed. Retry.",
           );
-        const saved = savedReviewSchema.parse(data);
-        if (stateRef.current.preview?.id === id) apply(saved);
-        etag.current = null;
+        etag.current = response.headers?.get("etag") ?? null;
+        return data;
       } catch (error) {
-        toast.error((error as Error).message);
+        if ((error as Error).name !== "AbortError")
+          toast.error(
+            (error as Error).name === "TimeoutError"
+              ? "Local save timed out. Retry when ready."
+              : (error as Error).message,
+          );
         throw error;
       }
     },
-    [apply],
+    [],
   );
+  const changes = useMemo(() => createReviewChangeQueue(), []);
+  const saveChange = useCallback(
+    async (
+      id: string,
+      change: ReviewChangeSchema,
+      signal: AbortSignal,
+      expected: { hash?: string; round?: number },
+    ) => {
+      if (
+        stateRef.current.preview?.id !== id ||
+        stateRef.current.preview.hash !== expected.hash ||
+        stateRef.current.preview.round !== expected.round
+      )
+        throw new DOMException("Review changed.", "AbortError");
+      const data = await requestReview(
+        {
+          action: "change",
+          id,
+          change,
+          expectedHash: expected.hash,
+          expectedRound: expected.round,
+          response: "state",
+        },
+        signal,
+      );
+      if (signal.aborted)
+        throw new DOMException("Review closed.", "AbortError");
+      const metadata = reviewStateSchema.safeParse(data);
+      if (metadata.success) {
+        setState((current) => {
+          if (
+            current.preview?.id !== id ||
+            current.preview.hash !== metadata.data.hash ||
+            current.preview.round !== metadata.data.round ||
+            (current.preview.revision ?? 0) > metadata.data.revision
+          )
+            return current;
+          return {
+            ...current,
+            preview: { ...current.preview, ...metadata.data },
+          };
+        });
+        return;
+      }
+      const saved = savedReviewSchema.safeParse(data);
+      if (!saved.success) {
+        toast.error("The saved review response could not be read. Retry.");
+        throw saved.error;
+      }
+      if (stateRef.current.preview?.id === id) apply(saved.data);
+    },
+    [apply, requestReview],
+  );
+  useEffect(
+    () => () => changes.cancel(),
+    [changes, state.preview?.id, state.preview?.hash, state.preview?.round],
+  );
+  const changeReview = useCallback(
+    (change: ReviewChangeSchema) => {
+      const preview = stateRef.current.preview;
+      if (!preview)
+        return Promise.reject(new Error("Select a saved review first."));
+      const expected = { hash: preview.hash, round: preview.round };
+      return changes.enqueue(preview.id, change, (id, queuedChange, signal) =>
+        saveChange(id, queuedChange, signal, expected),
+      );
+    },
+    [changes, saveChange],
+  );
+  const discardReview = useCallback(async () => {
+    const id = stateRef.current.preview?.id;
+    if (!id) return;
+    await requestReview({ action: "delete", id });
+    if (stateRef.current.preview?.id === id) {
+      trackReviewOperation(null);
+      apply(null);
+    }
+    await refresh();
+  }, [apply, requestReview, refresh]);
   useEffect(() => {
     const abort = new AbortController();
     let timer: ReturnType<typeof setTimeout>;
@@ -160,7 +263,16 @@ export const LivePreviewProvider = ({ children }: { children: ReactNode }) => {
     };
   }, [poll]);
   return (
-    <LivePreviewContext value={{ ...state, refresh, changeReview }}>
+    <LivePreviewContext
+      value={{
+        ...state,
+        reviewOperation,
+        trackReviewOperation,
+        refresh,
+        changeReview,
+        discardReview,
+      }}
+    >
       {children}
     </LivePreviewContext>
   );

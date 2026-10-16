@@ -2,130 +2,128 @@
 
 import { useState } from "react";
 import { MessageSquare, Trash2, Pencil } from "lucide-react";
-import { Buddy } from "@/components/buddy";
+import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
 import { ReviewNoteForm } from "./review-note-form";
 import { formatReviewLine } from "../lib/formatters";
 import type { ReviewNote } from "../types";
 
 type ReviewNotesProps = {
-  drawer?: boolean;
-  reviewId?: string;
-  selectedPath?: string;
   notes: ReviewNote[];
-  onAddNote: (body: string) => void | Promise<void>;
   onDeleteNote: (id: string) => void | Promise<void>;
   onEditNote: (id: string, body: string) => void | Promise<void>;
-  onSelectFile: (path: string) => void;
+  onSelectNote: (note: ReviewNote) => void;
 };
 
 export const ReviewNotes = ({
-  drawer = false,
-  reviewId,
-  selectedPath,
   notes,
-  onAddNote,
   onDeleteNote,
   onEditNote,
-  onSelectFile,
+  onSelectNote,
 }: ReviewNotesProps) => {
+  const [search, setSearch] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<string | null>(null);
+  const query = search.trim().toLowerCase();
+  const matches = notes.filter((note) =>
+    `${note.path}\n${note.body}\n${note.line?.code ?? ""}\n${note.line ? formatReviewLine(note.line) : ""}`
+      .toLowerCase()
+      .includes(query),
+  );
   return (
     <aside
       aria-label="Review notes"
-      className="flex h-full min-w-0 flex-col overflow-auto bg-sidebar text-sidebar-foreground"
+      className="flex h-full min-h-0 min-w-0 flex-col bg-sidebar text-sidebar-foreground text-base"
     >
+      <header className="flex shrink-0 flex-col gap-3 border-b p-4">
+        <h2 className="flex items-center gap-2 font-medium">
+          <MessageSquare aria-hidden="true" className="size-4" />
+          Notes
+        </h2>
+        <Input
+          aria-label="Search notes"
+          placeholder="Search notes…"
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+          className="text-base"
+        />
+      </header>
       <div
-        className={cn("flex flex-1 flex-col gap-8 p-5 py-8", drawer && "pt-14")}
+        className="min-h-0 flex-1 overflow-auto overscroll-contain p-3"
+        aria-label="Saved notes"
       >
-        <Buddy className="mx-auto size-24 shrink-0" />
-        <div className="space-y-4">
-          <h2 className="flex items-center gap-2 font-sans text-base font-medium">
-            <MessageSquare
-              aria-hidden="true"
-              className="size-4 text-muted-foreground"
-            />
-            Notes
-          </h2>
-          {selectedPath ? (
-            <>
-              <p className="break-all text-muted-foreground">
-                Add a note for {selectedPath}. Notes are saved locally with this
-                snapshot.
-              </p>
-              <ReviewNoteForm
-                key={`${reviewId}:${selectedPath}`}
-                onSubmit={({ body }) => onAddNote(body)}
-              />
-            </>
-          ) : (
-            <p className="text-base text-muted-foreground">
-              Select a file to start taking notes.
+        <div className="flex flex-col gap-3">
+          {!matches.length && (
+            <p className="p-1 text-muted-foreground">
+              {query
+                ? "No notes match your search."
+                : "No notes yet. Add a note from the header or select lines in the diff."}
             </p>
           )}
-          <div className="space-y-3" role="log" aria-label="Review feedback">
-            {notes.map((note) => (
-              <article
-                key={note.id}
-                className="space-y-2 rounded-lg border bg-card p-4 text-card-foreground relative group"
-              >
+          {matches.map((note) => (
+            <article
+              key={note.id}
+              className="group flex min-w-0 flex-col gap-2 rounded-lg border bg-card p-3 text-card-foreground"
+            >
+              <div className="flex items-start gap-2">
                 <Button
                   variant="link"
-                  className="h-auto min-w-0 whitespace-normal break-all p-0 text-left text-base font-mono"
-                  onClick={() => onSelectFile(note.path)}
+                  className="h-auto min-w-0 flex-1 whitespace-normal break-all p-0 text-left text-base font-mono justify-start"
+                  onClick={() => onSelectNote(note)}
                 >
                   {note.path}
                 </Button>
-                <Button
-                  variant="destructive"
-                  size="icon"
-                  aria-label="Delete note"
-                  onClick={() =>
-                    void Promise.resolve(onDeleteNote(note.id)).catch(() => {})
-                  }
-                  className="absolute right-4 top-4 z-10 opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
-                >
-                  <Trash2 aria-hidden="true" className="size-4" />
-                </Button>
-                {note.line && (
-                  <>
-                    <p className="text-muted-foreground">
-                      {formatReviewLine(note.line)}
-                    </p>
-                    <pre className="overflow-auto rounded-md bg-muted p-3 font-mono text-base">
-                      {note.line.code}
-                    </pre>
-                  </>
-                )}
-                {editingId === note.id ? (
-                  <ReviewNoteForm
-                    initialBody={note.body}
-                    submitLabel="Save note"
-                    onCancel={() => setEditingId(null)}
-                    onSubmit={async ({ body }) => {
-                      await onEditNote(note.id, body);
-                      setEditingId(null);
+                <div className="flex shrink-0 gap-1 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    aria-label="Edit note"
+                    onClick={() => setEditingId(note.id)}
+                  >
+                    <Pencil aria-hidden="true" className="size-4" />
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    aria-label="Delete note"
+                    className="text-destructive"
+                    disabled={deleting !== null}
+                    onClick={() => {
+                      if (deleting) return;
+                      setDeleting(note.id);
+                      void Promise.resolve(onDeleteNote(note.id))
+                        .catch(() => {})
+                        .finally(() => setDeleting(null));
                     }}
-                  />
-                ) : (
-                  <>
-                    <p className="whitespace-pre-wrap wrap-break-word">
-                      {note.body}
-                    </p>
-                    <Button
-                      variant="ghost"
-                      className="text-base"
-                      onClick={() => setEditingId(note.id)}
-                    >
-                      <Pencil aria-hidden="true" className="size-4" />
-                      Edit note
-                    </Button>
-                  </>
-                )}
-              </article>
-            ))}
-          </div>
+                  >
+                    <Trash2 aria-hidden="true" className="size-4" />
+                  </Button>
+                </div>
+              </div>
+              {note.line && (
+                <p className="text-muted-foreground">
+                  {formatReviewLine(note.line)}
+                </p>
+              )}
+              {editingId === note.id ? (
+                <ReviewNoteForm
+                  initialBody={note.body}
+                  submitLabel="Save note"
+                  onCancel={() => setEditingId(null)}
+                  onSubmit={async ({ body }) => {
+                    await onEditNote(note.id, body);
+                    setEditingId(null);
+                  }}
+                />
+              ) : (
+                <p className="whitespace-pre-wrap wrap-break-word">
+                  {note.body}
+                </p>
+              )}
+            </article>
+          ))}
         </div>
       </div>
     </aside>

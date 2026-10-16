@@ -1,0 +1,1802 @@
+import { beforeEach, expect, test, vi } from "vitest";
+import { MockLanguageModelV4 } from "ai/test";
+import { createRepositoryAgent } from "../repository-agent";
+import { defaultAiSettings } from "../../../features/agents/constants";
+import { correctnessSchema } from "../../../features/agents/schemas";
+import type { AnalysisContext } from "../../analysis/types";
+import type { AnalysisExecutionPolicy } from "../types";
+
+type LanguageModelV4CallOptions = Parameters<
+  MockLanguageModelV4["doGenerate"]
+>[0];
+
+vi.mock("server-only", () => ({}));
+const state = vi.hoisted(() => ({
+  model: {} as object,
+  contextWindow: 64000 as number | null,
+}));
+vi.mock("../../../features/providers/lib/provider-service", () => ({
+  ProviderService: class {
+    resolve = async () => ({
+      connection: { contextWindow: state.contextWindow },
+      secret: null,
+    });
+  },
+}));
+vi.mock("../provider-runtime", async () => ({
+  ...(await vi.importActual<typeof import("../provider-runtime")>(
+    "../provider-runtime",
+  )),
+  resolveLanguageModel: () => ({ model: state.model }),
+}));
+vi.mock("../../credentials/os-credentials", () => ({ osCredentials: {} }));
+
+const usage = {
+  inputTokens: {
+    total: 100,
+    noCache: 100,
+    cacheRead: undefined,
+    cacheWrite: undefined,
+  },
+  outputTokens: { total: 100, text: 100, reasoning: undefined },
+};
+const response = (result: unknown) => ({
+  content: [{ type: "text" as const, text: JSON.stringify(result) }],
+  finishReason: { unified: "stop" as const, raw: "stop" },
+  usage,
+  warnings: [],
+});
+const files = Array.from({ length: 6 }, (_, index) => ({
+  path: `${index}.ts`,
+  oldPath: null,
+  binary: false,
+  status: "M" as const,
+  before: "export const value = 0;",
+  after: "export const value = 1;",
+  diff: `@@ -1 +1 @@\n-export const value = 0;\n+export const value = 1;\n ${"context".repeat(6000)}`,
+}));
+const requests: LanguageModelV4CallOptions[] = [];
+const agent = (
+  changes = files,
+  prompt = "Keep callers after definitions.",
+  analysis?: AnalysisContext["analysis"],
+  signal = new AbortController().signal,
+  checkpoint?: {
+    read: (key: string) => unknown;
+    write: (key: string, value: unknown) => void;
+  },
+  executionPolicy: Partial<AnalysisExecutionPolicy> = {
+    groupingInputTokens: 12000,
+    groupingMaxFiles: 8,
+    groupingOutputTokens: 8000,
+    groupingSteps: 4,
+    batchConcurrency: 1,
+  },
+  groupingSeed?: Parameters<typeof createRepositoryAgent>[0]["groupingSeed"],
+) =>
+  createRepositoryAgent({
+    local: {} as never,
+    snapshot: {
+      id: "snapshot",
+      source: { kind: "working-tree", base: "base" },
+      files: changes,
+    } as never,
+    context: {
+      sources: Object.fromEntries(
+        changes.map((file) => [file.path, file.after]),
+      ),
+      analysis: analysis ?? {
+        edges: [
+          {
+            from: "0.ts",
+            to: "1.ts",
+            specifier: "./1",
+            typeOnly: false,
+            provenance: "compiler-resolved",
+          },
+        ],
+        symbols: [],
+        diagnostics: [],
+        cycles: [],
+        limitations: [],
+      },
+      limitations: [],
+    },
+    settings: {
+      ...defaultAiSettings,
+      prompt,
+    },
+    selection: { connectionId: "connection", modelId: "model", name: "Model" },
+    signal,
+    checkpoint,
+    executionPolicy,
+    groupingSeed,
+  });
+
+test.each(["active", "stalled", "silent", "endless"] as const)(
+  "chat stream timeout policy preserves %s response behavior",
+  async (mode) => {
+    vi.useFakeTimers();
+    const timeout = vi
+      .spyOn(AbortSignal, "timeout")
+      .mockImplementation((milliseconds) => {
+        const controller = new AbortController();
+        setTimeout(
+          () => controller.abort(new DOMException("Timed out", "TimeoutError")),
+          milliseconds,
+        );
+        return controller.signal;
+      });
+    const abort = new AbortController();
+    state.model = new MockLanguageModelV4({
+      doStream: async (options) => {
+        requests.push(options);
+        let timer: ReturnType<typeof setInterval> | undefined;
+        return {
+          stream: new ReadableStream({
+            start(controller) {
+              if (mode === "silent") return;
+              controller.enqueue({ type: "text-start", id: "text" });
+              controller.enqueue({
+                type: "text-delta",
+                id: "text",
+                delta: "Started. ",
+              });
+              if (mode === "stalled") return;
+              let chunks = 0;
+              timer = setInterval(() => {
+                controller.enqueue({
+                  type: "text-delta",
+                  id: "text",
+                  delta: `Part ${++chunks}. `,
+                });
+                if (mode === "endless" || chunks !== 6) return;
+                clearInterval(timer);
+                controller.enqueue({ type: "text-end", id: "text" });
+                controller.enqueue({
+                  type: "finish",
+                  finishReason: { unified: "stop", raw: "stop" },
+                  usage,
+                });
+                controller.close();
+              }, 30000);
+            },
+            cancel() {
+              clearInterval(timer);
+            },
+          }),
+        };
+      },
+    });
+    const reviewer = await agent(files, undefined, undefined, abort.signal);
+    const generation = reviewer.stream([
+      { role: "user", content: "Explain the changes" },
+    ]);
+    const parts: { type: string; reason?: string }[] = [];
+    const drained = (async () => {
+      for await (const part of generation.stream) parts.push(part);
+    })();
+    try {
+      await vi.waitFor(() => expect(requests).toHaveLength(1));
+      await vi.advanceTimersByTimeAsync(
+        mode === "endless" ? 16 * 60 * 1000 : 240100,
+      );
+      expect(parts.some((part) => part.type === "abort")).toBe(
+        mode !== "active",
+      );
+      if (mode === "active")
+        expect(parts).toContainEqual(
+          expect.objectContaining({ type: "finish", finishReason: "stop" }),
+        );
+      else
+        expect(parts).toContainEqual(
+          expect.objectContaining({
+            type: "abort",
+            reason: expect.stringMatching(/timeout/i),
+          }),
+        );
+    } finally {
+      abort.abort();
+      await drained;
+      timeout.mockRestore();
+      vi.useRealTimers();
+    }
+  },
+);
+
+test("larger independent batches reduce request count and overlap without changing coverage", async () => {
+  vi.useFakeTimers();
+  const selected = Array.from({ length: 24 }, (_, id) => ({
+    ...files[0]!,
+    path: `${id}.ts`,
+    diff: "small patch",
+  }));
+  const measure = async (policy: Partial<AnalysisExecutionPolicy>) => {
+    let active = 0;
+    let peak = 0;
+    let sourceRequests = 0;
+    const startedAt = Date.now();
+    state.model = new MockLanguageModelV4({
+      doGenerate: async (options) => {
+        active++;
+        peak = Math.max(peak, active);
+        await new Promise<void>((resolve) => setTimeout(resolve, 20));
+        active--;
+        if (text(options).includes("Order these prepared files"))
+          return response({
+            groups: [
+              {
+                title: "Flow",
+                rationale: "Change",
+                files: selected.map((_, id) => id),
+              },
+            ],
+          });
+        sourceRequests++;
+        return response({
+          groups: [
+            {
+              title: "Flow",
+              rationale: "Change",
+              files: batch(options).changes.map((file) => ({
+                path: file.path,
+                summary: "Change",
+                related: [],
+              })),
+            },
+          ],
+        });
+      },
+    });
+    const result = (
+      await agent(selected, undefined, undefined, undefined, undefined, policy)
+    ).grouping();
+    await vi.runAllTimersAsync();
+    const grouped = await result;
+    expect(
+      grouped.groups.flatMap((group) => group.files.map((file) => file.path)),
+    ).toEqual(selected.map((file) => file.path));
+    return { sourceRequests, peak, duration: Date.now() - startedAt };
+  };
+  try {
+    const serial = await measure({ groupingMaxFiles: 8, batchConcurrency: 1 });
+    const concurrent = await measure({ batchConcurrency: 2 });
+    expect(serial).toMatchObject({ sourceRequests: 3, peak: 1 });
+    expect(concurrent).toMatchObject({ sourceRequests: 2, peak: 2 });
+    expect(concurrent.duration).toBeLessThan(serial.duration);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("a transient failure resumes validated batches instead of calling their models again", async () => {
+  const selected = Array.from({ length: 9 }, (_, index) => ({
+    ...files[0]!,
+    path: `${index}.ts`,
+    diff: "small patch",
+  }));
+  const saved = new Map<string, unknown>();
+  const checkpoint = {
+    read: (key: string) => saved.get(key),
+    write: (key: string, value: unknown) => {
+      saved.set(key, value);
+    },
+  };
+  const analyzed: string[][] = [];
+  let unavailable = true;
+  state.model = new MockLanguageModelV4({
+    doGenerate: async (options) => {
+      if (text(options).includes("Order these prepared files"))
+        return response({
+          groups: [
+            {
+              title: "Flow",
+              rationale: "Change",
+              files: selected.map((_, id) => id),
+            },
+          ],
+        });
+      const input = batch(options);
+      analyzed.push(input.changes.map((file) => file.path));
+      if (input.changes[0]?.path === "8.ts" && unavailable)
+        throw new Error("temporarily unavailable");
+      return response({
+        groups: [
+          {
+            title: "Flow",
+            rationale: "Change",
+            files: input.changes.map((file) => ({
+              path: file.path,
+              summary: "Change",
+              related: [],
+            })),
+          },
+        ],
+      });
+    },
+  });
+  await expect(
+    (
+      await agent(selected, undefined, undefined, undefined, checkpoint)
+    ).grouping(),
+  ).rejects.toThrow("temporarily unavailable");
+  unavailable = false;
+  const result = await (
+    await agent(selected, undefined, undefined, undefined, checkpoint)
+  ).grouping();
+  expect(
+    result.groups.flatMap((group) => group.files.map((file) => file.path)),
+  ).toEqual(selected.map((file) => file.path));
+  expect(analyzed.filter((paths) => paths.includes("0.ts"))).toHaveLength(1);
+  expect(analyzed.filter((paths) => paths.includes("8.ts"))).toHaveLength(2);
+});
+const text = (options: LanguageModelV4CallOptions) =>
+  JSON.stringify(options.prompt);
+const batch = (options: LanguageModelV4CallOptions) => {
+  const prompt = options.prompt
+    .flatMap((message) => (message.role === "user" ? message.content : []))
+    .filter((part) => part.type === "text")
+    .map((part) => part.text)
+    .join("\n");
+  return JSON.parse(
+    prompt.match(/Batch input:\n([^\n]+)/)?.[1] ??
+      prompt.split("\nRepair input:\n").at(-1)!,
+  ) as {
+    changes: { path: string; diff: string; offset?: number }[];
+    previousSummaries?: { path: string; summary: string }[];
+  };
+};
+
+test("grouping constrains each request to its batch and orders with compact file references", async () => {
+  const selected = Array.from({ length: 12 }, (_, index) => ({
+    ...files[0]!,
+    path: `${index}.ts`,
+    diff: "small patch",
+  }));
+  state.model = new MockLanguageModelV4({
+    doGenerate: async (options) => {
+      requests.push(options);
+      if (text(options).includes("Order these prepared files")) {
+        expect(
+          (options.tools ?? [])
+            .filter((tool) => tool.type === "function")
+            .map((tool) => tool.name),
+        ).toEqual([]);
+        return response({
+          groups: [
+            {
+              title: "Flow",
+              rationale: "Definitions first",
+              files: selected.map((_, index) => index),
+            },
+          ],
+        });
+      }
+      const input = batch(options);
+      expect(input.changes.length).toBeLessThanOrEqual(8);
+      const schema = options.responseFormat as unknown as {
+        schema: {
+          properties: {
+            groups: {
+              items: {
+                properties: {
+                  files: {
+                    items: { properties: { path: { enum: string[] } } };
+                  };
+                };
+              };
+            };
+          };
+        };
+      };
+      expect(
+        schema.schema.properties.groups.items.properties.files.items.properties
+          .path.enum,
+      ).toEqual(input.changes.map((file) => file.path));
+      const prompt = options.prompt
+        .flatMap((message) => (message.role === "user" ? message.content : []))
+        .filter((part) => part.type === "text")
+        .map((part) => part.text)
+        .join("\n");
+      const context = JSON.parse(
+        prompt.match(/Snapshot context:\n([^\n]+)/)![1]!,
+      ) as { changes: { path: string }[] };
+      expect(context.changes.map((file) => file.path)).toEqual(
+        input.changes.map((file) => file.path),
+      );
+      return response({
+        groups: [
+          {
+            title: "Flow",
+            rationale: "Change",
+            files: input.changes.map((file) => ({
+              path: file.path,
+              summary: "Changes value",
+              related: [],
+            })),
+          },
+        ],
+      });
+    },
+  });
+  const grouped = await (await agent(selected)).grouping();
+  expect(
+    grouped.groups.flatMap((group) => group.files.map((file) => file.path)),
+  ).toEqual(selected.map((file) => file.path));
+});
+
+test("grouping repairs only duplicated membership in a structured result", async () => {
+  const selected = files
+    .slice(0, 2)
+    .map((file) => ({ ...file, diff: "small patch" }));
+  state.model = new MockLanguageModelV4({
+    doGenerate: async (options) => {
+      requests.push(options);
+      if (text(options).includes("Repair input:")) {
+        expect(batch(options).changes.map((file) => file.path)).toEqual([
+          "0.ts",
+        ]);
+        return response({
+          groups: [],
+          files: [
+            {
+              path: "0.ts",
+              summary: "Corrected",
+              related: [],
+              groupIndex: 0,
+              beforePath: "1.ts",
+            },
+          ],
+        });
+      }
+      const members = batch(options).changes.map((file) => ({
+        path: file.path,
+        summary: "KEEP",
+        related: [],
+      }));
+      return response({
+        groups: [
+          {
+            title: "Definitions",
+            rationale: "Change",
+            files: [...members, members[0]],
+          },
+        ],
+      });
+    },
+  });
+  const grouped = await (await agent(selected)).grouping();
+  expect(grouped.groups[0]!.files.map((file) => file.path)).toEqual([
+    "0.ts",
+    "1.ts",
+  ]);
+  expect(grouped.groups[0]!.files[1]!.summary).toBe("KEEP");
+  expect(requests).toHaveLength(2);
+});
+
+test("persistent duplicate grouping stops after two targeted repairs and logs no source", async () => {
+  const log = vi.spyOn(console, "warn").mockImplementation(() => {});
+  state.model = new MockLanguageModelV4({
+    doGenerate: async (options) => {
+      requests.push(options);
+      return response({
+        groups: [
+          {
+            title: "Private source",
+            rationale: "Private rationale",
+            files: [0, 0].map(() => ({
+              path: "0.ts",
+              summary: "Private summary",
+              related: [],
+            })),
+          },
+        ],
+      });
+    },
+  });
+  await expect(
+    (
+      await agent(
+        files.slice(0, 2).map((file) => ({ ...file, diff: "small patch" })),
+      )
+    ).grouping(),
+  ).rejects.toThrow("unresolved defects");
+  expect(requests).toHaveLength(6);
+  expect(log.mock.calls.length).toBeGreaterThanOrEqual(2);
+  expect(JSON.stringify(log.mock.calls)).not.toContain("Private");
+});
+
+test.each(["duplicate", "missing", "unknown"])(
+  "final ordering repairs %s file IDs without reanalyzing successful batches",
+  async (failure) => {
+    const selected = Array.from({ length: 9 }, (_, index) => ({
+      ...files[0]!,
+      path: `${index}.ts`,
+      diff: "small patch",
+    }));
+    let ordering = 0;
+    state.model = new MockLanguageModelV4({
+      doGenerate: async (options) => {
+        requests.push(options);
+        if (text(options).includes("Repair input:")) {
+          ordering++;
+          return response({
+            groups: [],
+            files: [{ path: "0.ts", groupIndex: 0, beforePath: "1.ts" }],
+          });
+        }
+        if (text(options).includes("Order these prepared files")) {
+          ordering++;
+          const ids = selected.map((_, index) => index);
+          if (ordering === 1) {
+            switch (failure) {
+              case "duplicate":
+                ids.unshift(0);
+                break;
+              case "missing":
+                ids.shift();
+                break;
+              case "unknown":
+                ids[0] = 1999;
+                break;
+            }
+          }
+          return response({
+            groups: [
+              {
+                title: "Flow",
+                rationale: "Change",
+                files: ids,
+              },
+            ],
+          });
+        }
+        return response({
+          groups: [
+            {
+              title: "Flow",
+              rationale: "Change",
+              files: batch(options).changes.map((file) => ({
+                path: file.path,
+                summary: "Changes value",
+                related: [],
+              })),
+            },
+          ],
+        });
+      },
+    });
+    const grouped = await (await agent(selected)).grouping();
+    expect(
+      grouped.groups.flatMap((group) => group.files.map((file) => file.path)),
+    ).toEqual(selected.map((file) => file.path));
+    expect(requests).toHaveLength(4);
+    expect(ordering).toBe(2);
+  },
+);
+
+test("cancellation during grouping correction prevents another provider request", async () => {
+  const abort = new AbortController();
+  state.model = new MockLanguageModelV4({
+    doGenerate: async (options) => {
+      requests.push(options);
+      abort.abort();
+      return response({
+        groups: [
+          {
+            title: "Flow",
+            rationale: "Change",
+            files: [0, 0].map(() => ({
+              path: "0.ts",
+              summary: "Changes value",
+              related: [],
+            })),
+          },
+        ],
+      });
+    },
+  });
+  await expect(
+    (
+      await agent(
+        files.slice(0, 2).map((file) => ({ ...file, diff: "small patch" })),
+        undefined,
+        undefined,
+        abort.signal,
+      )
+    ).grouping(),
+  ).rejects.toThrow();
+  expect(requests).toHaveLength(1);
+});
+
+test.each(["completion", "partial-json"])(
+  "a truncated %s response splits only the failed batch and discards partial output",
+  async (failure) => {
+    const log = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const selected = files
+      .slice(0, 2)
+      .map((file) => ({ ...file, diff: "small patch" }));
+    state.model = new MockLanguageModelV4({
+      doGenerate: async (options) => {
+        requests.push(options);
+        if (text(options).includes("Order these prepared files"))
+          return response({
+            groups: [{ title: "Flow", rationale: "Change", files: [0, 1] }],
+          });
+        const input = batch(options);
+        if (input.changes.length > 1) {
+          return {
+            ...response({}),
+            content: [
+              {
+                type: "text",
+                text:
+                  failure === "partial-json"
+                    ? '{"groups":'
+                    : "TEST_PRIVATE_PARTIAL_OUTPUT",
+              },
+            ],
+            finishReason: { unified: "length", raw: "length" },
+          };
+        }
+        return response({
+          groups: [
+            {
+              title: "Flow",
+              rationale: "Change",
+              files: input.changes.map((file) => ({
+                path: file.path,
+                summary: "Complete summary",
+                related: [],
+              })),
+            },
+          ],
+        });
+      },
+    });
+    const grouped = await (await agent(selected)).grouping();
+    expect(
+      grouped.groups.flatMap((group) => group.files.map((file) => file.path)),
+    ).toEqual(selected.map((file) => file.path));
+    expect(requests).toHaveLength(4);
+    expect(JSON.stringify(log.mock.calls)).not.toContain(
+      failure === "partial-json" ? '{"groups":' : "TEST_PRIVATE_PARTIAL_OUTPUT",
+    );
+  },
+);
+
+test("a truncated single-file fragment is split with absolute offsets and complete diff coverage", async () => {
+  const selected = {
+    ...files[0]!,
+    diff: "line of changed code\n".repeat(12000),
+  };
+  const successful: {
+    path: string;
+    diff: string;
+    offset?: number;
+    total?: number;
+  }[] = [];
+  state.model = new MockLanguageModelV4({
+    doGenerate: async (options) => {
+      requests.push(options);
+      const input = batch(options);
+      if (input.changes.some((file) => file.diff.length > 20000))
+        return {
+          ...response({}),
+          finishReason: { unified: "length", raw: "length" },
+        };
+      successful.push(...input.changes);
+      return response({
+        groups: [
+          {
+            title: "Flow",
+            rationale: "Change",
+            files: [
+              { path: selected.path, summary: "Combined changes", related: [] },
+            ],
+          },
+        ],
+      });
+    },
+  });
+  await expect((await agent([selected])).grouping()).resolves.toMatchObject({
+    groups: [{ files: [{ path: selected.path, summary: "Combined changes" }] }],
+  });
+  expect(successful.map((file) => file.diff).join("")).toBe(selected.diff);
+  let offset = 0;
+  for (const file of successful) {
+    expect(file.offset).toBe(offset);
+    expect(file.total).toBe(selected.diff.length);
+    offset += file.diff.length;
+  }
+});
+
+test("persistent truncation stops after bounded splitting instead of looping or publishing partial results", async () => {
+  state.model = new MockLanguageModelV4({
+    doGenerate: async (options) => {
+      requests.push(options);
+      return {
+        ...response({}),
+        finishReason: { unified: "length", raw: "length" },
+      };
+    },
+  });
+  await expect(
+    (await agent([{ ...files[0]!, diff: "tiny" }])).grouping(),
+  ).rejects.toThrow(/completion budget/);
+  expect(requests.length).toBeGreaterThan(1);
+  expect(requests.length).toBeLessThanOrEqual(4);
+});
+beforeEach(() => {
+  requests.splice(0);
+  state.contextWindow = 64000;
+  vi.spyOn(console, "info").mockImplementation(() => {});
+  vi.spyOn(console, "warn").mockImplementation(() => {});
+});
+
+test("large grouping uses bounded source batches and a global ordering pass with complete coverage", async () => {
+  state.model = new MockLanguageModelV4({
+    doGenerate: async (options) => {
+      requests.push(options);
+      if (text(options).includes("Order these prepared files"))
+        return response({
+          groups: [
+            {
+              title: "Flow",
+              rationale: "Definitions first",
+              files: files.map((_, index) => index),
+            },
+          ],
+        });
+      const input = batch(options);
+      return response({
+        groups: [
+          {
+            title: "Flow",
+            rationale: "Change",
+            files: input.changes.map((file) => ({
+              path: file.path,
+              summary: "Changes value",
+              related: file.path === "0.ts" ? ["1.ts"] : [],
+            })),
+          },
+        ],
+      });
+    },
+  });
+  const result = await (await agent()).grouping();
+  expect(requests.length).toBeGreaterThan(2);
+  expect(
+    result.groups.flatMap((group) => group.files.map((file) => file.path)),
+  ).toEqual(files.map((file) => file.path));
+  expect(result.groups[0]!.files[0]!.related).toEqual(["1.ts"]);
+  for (const request of requests.slice(0, -1)) {
+    const prompt = text(request);
+    expect(prompt).toContain("snapshot");
+    if (
+      batch(request).changes.some(
+        (file) => file.path === "0.ts" || file.path === "1.ts",
+      )
+    )
+      expect(prompt).toContain("compiler-resolved");
+    expect(Buffer.byteLength(prompt)).toBeLessThan(100000);
+  }
+  const chunks = requests
+    .slice(0, -1)
+    .flatMap((request) => batch(request).changes);
+  for (const file of files)
+    expect(
+      chunks
+        .filter((chunk) => chunk.path === file.path)
+        .map((chunk) => chunk.diff)
+        .join(""),
+    ).toBe(file.diff);
+});
+
+test("one oversized file is split without losing diff text and carries its earlier summary", async () => {
+  const huge = { ...files[0]!, diff: files[0]!.diff.repeat(5) };
+  state.model = new MockLanguageModelV4({
+    doGenerate: async (options) => {
+      requests.push(options);
+      const input = batch(options);
+      if (requests.length > 1)
+        expect(input.previousSummaries?.[0]?.summary).toBe("Summary so far");
+      return response({
+        groups: [
+          {
+            title: "Flow",
+            rationale: "Change",
+            files: [
+              { path: huge.path, summary: "Summary so far", related: [] },
+            ],
+          },
+        ],
+      });
+    },
+  });
+  const result = await (await agent([huge])).grouping();
+  expect(requests.length).toBeGreaterThan(1);
+  expect(
+    requests
+      .flatMap((request) => batch(request).changes)
+      .map((change) => change.diff)
+      .join(""),
+  ).toBe(huge.diff);
+  expect(result.groups.flatMap((group) => group.files)).toHaveLength(1);
+});
+
+test("large reviews validate merged evidence and remove duplicate findings across batches", async () => {
+  state.model = new MockLanguageModelV4({
+    doGenerate: async (options) => {
+      requests.push(options);
+      const finding = {
+        severity: "high",
+        title: "Value changed incorrectly",
+        problem: "Caller requires zero",
+        rationale: "Verified",
+        path: "0.ts",
+        side: "after",
+        start: 1,
+        end: 1,
+        code: files[0]!.after,
+        fixPrompt: "Restore zero and test the caller",
+      };
+      return response({
+        files: batch(options).changes.map((file) => ({
+          path: file.path,
+          findings: file.path === finding.path ? [finding] : [],
+        })),
+        limitations: [],
+      });
+    },
+  });
+  const result = await (await agent()).review();
+  expect(requests.length).toBeGreaterThan(1);
+  expect(result.findings).toHaveLength(1);
+  expect(result.findings[0]!.fixPrompt).toContain("Evidence:");
+  expect(result.findings[0]!.fixPrompt).toContain("Restore zero");
+  for (const request of requests)
+    expect(Buffer.byteLength(text(request))).toBeLessThan(100000);
+});
+
+test("reviews preserve all batch and context limitations and can restore them from checkpoints", async () => {
+  const saved = new Map<string, unknown>();
+  const checkpoint = {
+    read: (key: string) => saved.get(key),
+    write: (key: string, value: unknown) => {
+      saved.set(key, value);
+    },
+  };
+  const expected = new Set<string>(["Compiler context unavailable"]);
+  state.model = new MockLanguageModelV4({
+    doGenerate: async (options) => {
+      requests.push(options);
+      const changes = batch(options).changes;
+      const limitations = Array.from(
+        { length: 30 },
+        (_, index) => `${changes[0]!.path}: evidence limitation ${index}`,
+      );
+      limitations.forEach((entry) => expected.add(entry));
+      return response({
+        files: changes.map(({ path }) => ({ path, findings: [] })),
+        limitations,
+      });
+    },
+  });
+  const analysis = {
+    edges: [],
+    symbols: [],
+    diagnostics: [],
+    cycles: [],
+    limitations: ["Compiler context unavailable"],
+  };
+  const first = await (
+    await agent(files, undefined, analysis, undefined, checkpoint)
+  ).review();
+  expect(expected.size).toBeGreaterThan(30);
+  expect(new Set(first.limitations)).toEqual(expected);
+  // Completed results must survive the same validation used by persistence.
+  expect(correctnessSchema.parse(first)).toEqual(first);
+  const calls = requests.length;
+  const restored = await (
+    await agent(files, undefined, analysis, undefined, checkpoint)
+  ).review();
+  expect(restored).toEqual(first);
+  expect(requests).toHaveLength(calls);
+});
+
+test("merged reviews retain more than one response's finding limit and persist source-enriched prompts", async () => {
+  state.model = new MockLanguageModelV4({
+    doGenerate: async (options) =>
+      response({
+        files: batch(options).changes.map(({ path }) => ({
+          path,
+          findings: Array.from({ length: 60 }, (_, index) => ({
+            severity: "high",
+            title: `Verified issue ${index}`,
+            problem: "Caller requires zero",
+            rationale: "Verified",
+            path,
+            side: "after",
+            start: 1,
+            end: 1,
+            code: files[0]!.after,
+            fixPrompt: index
+              ? "Verify the caller before editing."
+              : "x".repeat(10000),
+          })),
+        })),
+        limitations: [],
+      }),
+  });
+  const result = await (await agent()).review();
+  expect(result.findings).toHaveLength(360);
+  expect(
+    result.findings.some((finding) => finding.fixPrompt.length > 10000),
+  ).toBe(true);
+  expect(
+    result.findings.every((finding) => finding.fixPrompt.includes("Evidence:")),
+  ).toBe(true);
+  expect(correctnessSchema.parse(result)).toEqual(result);
+});
+
+test("missing review assessments narrow into smaller requests instead of failing the entire review", async () => {
+  const selected = Array.from({ length: 18 }, (_, index) => ({
+    ...files[0]!,
+    path: `${index}.ts`,
+    diff: "small patch",
+  }));
+  let singleFileCalls = 0;
+  state.model = new MockLanguageModelV4({
+    doGenerate: async (options) => {
+      requests.push(options);
+      if (text(options).includes("Repair input:"))
+        return response({ files: [], findings: [], limitations: [] });
+      const changes = batch(options).changes;
+      if (changes.length === 1) singleFileCalls++;
+      return response({
+        files: changes.slice(0, 1).map(({ path }) => ({ path, findings: [] })),
+        limitations: [],
+      });
+    },
+  });
+  const result = await (await agent(selected)).review();
+  expect(result.findings).toEqual([]);
+  expect(result.limitations).toEqual([]);
+  expect(singleFileCalls).toBeGreaterThan(0);
+  expect(requests.length).toBeLessThan(80);
+});
+
+test("review requests name the exact expected paths and finding repairs accept explicit retractions", async () => {
+  const selected = files
+    .slice(0, 2)
+    .map((file) => ({ ...file, diff: "small patch" }));
+  state.model = new MockLanguageModelV4({
+    doGenerate: async (options) => {
+      requests.push(options);
+      if (text(options).includes("Repair input:")) {
+        expect(text(options)).toContain("never a bare null array entry");
+        expect(text(options)).not.toContain(
+          "Return one files assessment per batch path",
+        );
+        return response({
+          files: [],
+          findings: [{ id: "finding-0", finding: null }],
+          limitations: [],
+        });
+      }
+      const schema = JSON.stringify(options.responseFormat);
+      expect(schema).toContain('"enum":["0.ts","1.ts"]');
+      return response({
+        files: selected.map(({ path }, index) => ({
+          path,
+          findings: index
+            ? []
+            : [
+                {
+                  severity: "high",
+                  title: "Unsupported",
+                  problem: "Unsupported",
+                  rationale: "Unsupported",
+                  path,
+                  side: "after",
+                  start: 1,
+                  end: 1,
+                  code: "invented",
+                  fixPrompt: "Verify",
+                },
+              ],
+        })),
+        limitations: [],
+      });
+    },
+  });
+  const result = await (await agent(selected)).review();
+  expect(result.findings).toEqual([]);
+  expect(result.limitations).toEqual([]);
+  expect(requests).toHaveLength(2);
+});
+
+test("a persistently missing single-file assessment fails clearly without claiming a clean review", async () => {
+  state.model = new MockLanguageModelV4({
+    doGenerate: async (options) => {
+      requests.push(options);
+      return response({ files: [], findings: [], limitations: [] });
+    },
+  });
+  await expect((await agent(files.slice(0, 1))).review()).rejects.toMatchObject(
+    {
+      name: "AiReviewRepairError",
+      message: expect.stringContaining("File assessment is missing"),
+    },
+  );
+  expect(requests).toHaveLength(3);
+});
+
+test("chat on a large snapshot sends a compact manifest and can page frozen diffs", async () => {
+  state.model = new MockLanguageModelV4({
+    doStream: async (options) => {
+      requests.push(options);
+      return {
+        stream: new ReadableStream({
+          start(controller) {
+            controller.enqueue({ type: "text-start", id: "text" });
+            controller.enqueue({
+              type: "text-delta",
+              id: "text",
+              delta: "Explanation",
+            });
+            controller.enqueue({ type: "text-end", id: "text" });
+            controller.enqueue({
+              type: "finish",
+              finishReason: { unified: "stop", raw: "stop" },
+              usage,
+            });
+            controller.close();
+          },
+        }),
+      };
+    },
+  });
+  const reviewer = await agent();
+  const result = reviewer.stream([{ role: "user", content: "Explain 0.ts" }]);
+  let explanation = "";
+  for await (const part of result.stream)
+    if (part.type === "text-delta") explanation += part.text;
+  expect(explanation).toBe("Explanation");
+  expect(Buffer.byteLength(text(requests[0]!))).toBeLessThan(10000);
+  const page = await reviewer.tools.readDiff.execute!(
+    { path: "0.ts", offset: 0 },
+    { toolCallId: "diff", messages: [], context: {} },
+  );
+  expect(page).toEqual({
+    path: "0.ts",
+    offset: 0,
+    diff: files[0]!.diff.slice(0, 12000),
+    nextOffset: 12000,
+  });
+});
+
+test("an incomplete analysis batch stops after bounded correction instead of publishing partial coverage", async () => {
+  state.model = new MockLanguageModelV4({
+    doGenerate: async (options) => {
+      requests.push(options);
+      return response({
+        groups: [
+          {
+            title: "Flow",
+            rationale: "Change",
+            files: [
+              { path: "invented.ts", summary: "Unsupported", related: [] },
+            ],
+          },
+        ],
+      });
+    },
+  });
+  await expect((await agent()).grouping()).rejects.toThrow(
+    /unresolved defects/,
+  );
+  expect(requests).toHaveLength(3);
+});
+
+test("malformed output corrects only the failed batch before global ordering", async () => {
+  const selected = Array.from({ length: 9 }, (_, index) => ({
+    ...files[0]!,
+    path: `${index}.ts`,
+    diff: "small patch",
+  }));
+  const sourceBatches: string[][] = [];
+  let failedBatchCalls = 0;
+  state.model = new MockLanguageModelV4({
+    doGenerate: async (options) => {
+      requests.push(options);
+      if (text(options).includes("Order these prepared files"))
+        return response({
+          groups: [
+            {
+              title: "Flow",
+              rationale: "Change",
+              files: selected.map((_, index) => index),
+            },
+          ],
+        });
+      const input = batch(options);
+      sourceBatches.push(input.changes.map((file) => file.path));
+      if (input.changes[0]?.path === "8.ts" && ++failedBatchCalls === 1)
+        return {
+          ...response({}),
+          content: [{ type: "text", text: "This is the last file's summary." }],
+        };
+      if (failedBatchCalls === 2) expect(options.tools ?? []).toEqual([]);
+      return response({
+        groups: [
+          {
+            title: "Flow",
+            rationale: "Change",
+            files: input.changes.map((file) => ({
+              path: file.path,
+              summary: "Changes value",
+              related: [],
+            })),
+          },
+        ],
+      });
+    },
+  });
+  const grouped = await (await agent(selected)).grouping();
+  expect(
+    grouped.groups.flatMap((group) => group.files.map((file) => file.path)),
+  ).toEqual(selected.map((file) => file.path));
+  expect(sourceBatches).toEqual([
+    selected.slice(0, 8).map((file) => file.path),
+    ["8.ts"],
+    ["8.ts"],
+  ]);
+  expect(requests).toHaveLength(4);
+});
+
+test("a 16K model can use the default grouping instructions with smaller requests", async () => {
+  state.contextWindow = 16000;
+  const selected = files.slice(0, 2);
+  state.model = new MockLanguageModelV4({
+    doGenerate: async (options) => {
+      requests.push(options);
+      if (text(options).includes("Order these prepared files"))
+        return response({
+          groups: [
+            {
+              title: "Flow",
+              rationale: "Change",
+              files: selected.map((_, index) => index),
+            },
+          ],
+        });
+      return response({
+        groups: [
+          {
+            title: "Flow",
+            rationale: "Change",
+            files: batch(options).changes.map((file) => ({
+              path: file.path,
+              summary: "Changes value",
+              related: [],
+            })),
+          },
+        ],
+      });
+    },
+  });
+  const result = await (
+    await agent(selected, defaultAiSettings.prompt)
+  ).grouping();
+  expect(result.groups.flatMap((group) => group.files)).toHaveLength(2);
+  for (const request of requests) {
+    const estimated =
+      Math.ceil(
+        Buffer.byteLength(
+          JSON.stringify({ prompt: request.prompt, tools: request.tools }),
+        ) / 3,
+      ) + request.maxOutputTokens!;
+    expect(estimated).toBeLessThan(16000);
+  }
+});
+
+test("invalid review evidence receives bounded repair and explicit limitations without losing other batches", async () => {
+  state.model = new MockLanguageModelV4({
+    doGenerate: async (options) => {
+      requests.push(options);
+      if (text(options).includes("Repair input:"))
+        return response({ files: [], findings: [], limitations: [] });
+      return response({
+        files: batch(options).changes.map((file) => ({
+          path: file.path,
+          findings: [
+            {
+              severity: "high",
+              title: "Invented issue",
+              problem: "Unsupported",
+              rationale: "Unsupported",
+              path: file.path,
+              side: "after",
+              start: 1,
+              end: 1,
+              code: "invented code",
+              fixPrompt: "Fix it",
+            },
+          ],
+        })),
+        limitations: [],
+      });
+    },
+  });
+  const result = await (await agent()).review();
+  expect(result.findings).toEqual([]);
+  expect(
+    result.limitations.filter((item) => item.includes("could not be verified")),
+  ).toHaveLength(files.length);
+  expect(requests).toHaveLength(files.length * 3);
+});
+
+test.each([null, 64000, 1000000])(
+  "a large shared dependency graph groups with a %s-token override without a metadata-budget failure",
+  async (contextWindow) => {
+    state.contextWindow = contextWindow;
+    const selected = Array.from({ length: 145 }, (_, index) => ({
+      ...files[0]!,
+      path: `src/${"feature-section/".repeat(5)}${index}.ts`,
+      diff: files[0]!.diff.slice(0, 4000),
+    }));
+    const edges = Array.from({ length: 244 }, (_, index) => ({
+      from: selected[index % selected.length]!.path,
+      to: selected[(index + 1) % selected.length]!.path,
+      specifier: "./shared-dependency",
+      typeOnly: false,
+      provenance: "compiler-resolved" as const,
+    }));
+    state.model = new MockLanguageModelV4({
+      doGenerate: async (options) => {
+        requests.push(options);
+        if (text(options).includes("Order these prepared files"))
+          return response({
+            groups: [
+              {
+                title: "Flow",
+                rationale: "Definitions first",
+                files: selected.map((_, index) => index),
+              },
+            ],
+          });
+        return response({
+          groups: [
+            {
+              title: "Flow",
+              rationale: "Change",
+              files: batch(options).changes.map((file) => ({
+                path: file.path,
+                summary: "Changes value",
+                related: [],
+              })),
+            },
+          ],
+        });
+      },
+    });
+    const reviewer = await agent(selected, defaultAiSettings.prompt, {
+      edges,
+      symbols: [],
+      diagnostics: [],
+      cycles: [],
+      limitations: [],
+    });
+    const grouped = await reviewer.grouping();
+    expect(
+      grouped.groups.flatMap((group) => group.files.map((file) => file.path)),
+    ).toEqual(selected.map((file) => file.path));
+    expect(requests.length).toBeGreaterThan(1);
+    for (const request of requests) {
+      const estimated =
+        Math.ceil(
+          Buffer.byteLength(
+            JSON.stringify({ prompt: request.prompt, tools: request.tools }),
+          ) / 3,
+        ) + request.maxOutputTokens!;
+      expect(estimated).toBeLessThan((contextWindow ?? 128000) * 0.8);
+      expect(text(request)).toContain("compiler-resolved");
+    }
+  },
+);
+
+test("successful batches are retained when a later batch needs smaller requests", async () => {
+  const selected = Array.from({ length: 12 }, (_, index) => ({
+    ...files[0]!,
+    path: `${index}.ts`,
+    diff: "small patch",
+  }));
+  let firstBatchCalls = 0;
+  state.model = new MockLanguageModelV4({
+    doGenerate: async (options) => {
+      requests.push(options);
+      if (text(options).includes("Order these prepared files"))
+        return response({
+          groups: [
+            {
+              title: "Flow",
+              rationale: "Change",
+              files: selected.map((_, index) => index),
+            },
+          ],
+        });
+      const input = batch(options);
+      if (input.changes[0]!.path === "0.ts") firstBatchCalls++;
+      if (input.changes[0]!.path === "8.ts" && input.changes.length === 4)
+        return {
+          ...response({}),
+          finishReason: { unified: "length", raw: "length" },
+        };
+      return response({
+        groups: [
+          {
+            title: "Flow",
+            rationale: "Change",
+            files: input.changes.map((file) => ({
+              path: file.path,
+              summary: "Complete summary",
+              related: [],
+            })),
+          },
+        ],
+      });
+    },
+  });
+  const grouped = await (await agent(selected)).grouping();
+  expect(
+    grouped.groups.flatMap((group) => group.files.map((file) => file.path)),
+  ).toEqual(selected.map((file) => file.path));
+  expect(firstBatchCalls).toBe(1);
+});
+
+test("cancellation stops before requesting a smaller batch", async () => {
+  const abort = new AbortController();
+  state.model = new MockLanguageModelV4({
+    doGenerate: async (options) => {
+      requests.push(options);
+      abort.abort();
+      return {
+        ...response({}),
+        finishReason: { unified: "length", raw: "length" },
+      };
+    },
+  });
+  await expect(
+    (
+      await agent(files.slice(0, 2), "Group", undefined, abort.signal)
+    ).grouping(),
+  ).rejects.toThrow(/abort/i);
+  expect(requests).toHaveLength(1);
+});
+
+test("reviews also narrow truncated batches and merge only validated complete results", async () => {
+  const selected = files
+    .slice(0, 2)
+    .map((file) => ({ ...file, diff: "small patch" }));
+  state.model = new MockLanguageModelV4({
+    doGenerate: async (options) => {
+      requests.push(options);
+      if (batch(options).changes.length > 1)
+        return {
+          ...response({}),
+          finishReason: { unified: "length", raw: "length" },
+        };
+      return response({
+        files: batch(options).changes.map((file) => ({
+          path: file.path,
+          findings: [],
+        })),
+        limitations: [],
+      });
+    },
+  });
+  await expect((await agent(selected)).review()).resolves.toMatchObject({
+    findings: [],
+  });
+  expect(requests).toHaveLength(3);
+});
+
+test("malformed final ordering groups trigger placement-only repair and retain every prepared summary", async () => {
+  state.model = new MockLanguageModelV4({
+    doGenerate: async (options) => {
+      if (text(options).includes("Order these prepared files"))
+        return response({ groups: [null] });
+      if (text(options).includes("Repair input:"))
+        return response({
+          groups: [{ index: 0, title: "Flow", rationale: "Change" }],
+          files: files.map((file) => ({
+            path: file.path,
+            groupIndex: 0,
+            beforePath: null,
+          })),
+        });
+      return response({
+        groups: [
+          {
+            title: "Flow",
+            rationale: "Change",
+            files: batch(options).changes.map((file) => ({
+              path: file.path,
+              summary: `PREPARED ${file.path}`,
+              related: [],
+            })),
+          },
+        ],
+      });
+    },
+  });
+  const result = await (await agent()).grouping();
+  expect(
+    result.groups.flatMap((group) => group.files).map((file) => file.summary),
+  ).toEqual(files.map((file) => `PREPARED ${file.path}`));
+});
+
+test("reasoning exhaustion during final ordering preserves prepared batches and recovers ordering only", async () => {
+  let orderingCalls = 0;
+  let sourceCalls = 0;
+  state.model = new MockLanguageModelV4({
+    doGenerate: async (options) => {
+      if (text(options).includes("Order these prepared files")) {
+        if (++orderingCalls === 1)
+          return {
+            ...response({}),
+            content: [],
+            finishReason: { unified: "length", raw: "length" },
+            usage: {
+              ...usage,
+              outputTokens: {
+                total: options.maxOutputTokens,
+                text: 0,
+                reasoning: options.maxOutputTokens,
+              },
+            },
+          };
+        return response({
+          groups: [
+            {
+              title: "Flow",
+              rationale: "Change",
+              files: files.map((_, id) => id),
+            },
+          ],
+        });
+      }
+      sourceCalls++;
+      return response({
+        groups: [
+          {
+            title: "Flow",
+            rationale: "Change",
+            files: batch(options).changes.map((file) => ({
+              path: file.path,
+              summary: `PREPARED ${file.path}`,
+              related: [],
+            })),
+          },
+        ],
+      });
+    },
+  });
+  const result = await (await agent()).grouping();
+  expect(
+    result.groups.flatMap((group) => group.files).map((file) => file.summary),
+  ).toEqual(files.map((file) => `PREPARED ${file.path}`));
+  expect(orderingCalls).toBe(2);
+  expect(sourceCalls).toBe(12);
+});
+
+test("persistent final ordering exhaustion still publishes the validated batch groups", async () => {
+  let orderingCalls = 0;
+  state.model = new MockLanguageModelV4({
+    doGenerate: async (options) => {
+      if (text(options).includes("Order these prepared files")) {
+        orderingCalls++;
+        return {
+          ...response({}),
+          content: [],
+          finishReason: { unified: "length", raw: "length" },
+        };
+      }
+      return response({
+        groups: [
+          {
+            title: "Flow",
+            rationale: "Change",
+            files: batch(options).changes.map((file) => ({
+              path: file.path,
+              summary: `PREPARED ${file.path}`,
+              related: [],
+            })),
+          },
+        ],
+      });
+    },
+  });
+  const result = await (await agent()).grouping();
+  expect(
+    result.groups.flatMap((group) => group.files).map((file) => file.path),
+  ).toEqual(files.map((file) => file.path));
+  expect(
+    result.groups.flatMap((group) => group.files).map((file) => file.summary),
+  ).toEqual(files.map((file) => `PREPARED ${file.path}`));
+  expect(
+    result.groups.every((group) => group.rationale.includes("Global ordering")),
+  ).toBe(true);
+  expect(orderingCalls).toBe(2);
+});
+
+test("canceling final ordering prevents the fallback from publishing prepared groups", async () => {
+  const abort = new AbortController();
+  state.model = new MockLanguageModelV4({
+    doGenerate: async (options) => {
+      if (text(options).includes("Order these prepared files")) {
+        abort.abort(new Error("Canceled during ordering"));
+        return {
+          ...response({}),
+          content: [],
+          finishReason: { unified: "length", raw: "length" },
+        };
+      }
+      return response({
+        groups: [
+          {
+            title: "Flow",
+            rationale: "Change",
+            files: batch(options).changes.map((file) => ({
+              path: file.path,
+              summary: "PREPARED",
+              related: [],
+            })),
+          },
+        ],
+      });
+    },
+  });
+  await expect(
+    (await agent(files, undefined, undefined, abort.signal)).grouping(),
+  ).rejects.toThrow(/Canceled/);
+});
+
+test("cumulative grouping sends only changed files with existing group context and preserves accepted summaries", async () => {
+  const selected = files
+    .slice(0, 2)
+    .map((file) => ({ ...file, diff: "small patch" }));
+  state.model = new MockLanguageModelV4({
+    doGenerate: async (options) => {
+      requests.push(options);
+      const input = batch(options);
+      expect(input.changes.map((change) => change.path)).toEqual(["0.ts"]);
+      return response({
+        groups: [
+          {
+            title: "Existing flow",
+            rationale: "Placement",
+            files: [{ path: "0.ts", summary: "Updated", related: [] }],
+          },
+        ],
+      });
+    },
+  });
+  const retained = {
+    groups: [
+      {
+        title: "Existing flow",
+        rationale: "Keep order",
+        files: [{ path: "1.ts", summary: "KEEP", related: [] }],
+      },
+    ],
+  };
+  const result = await (
+    await agent(
+      selected,
+      "Keep flows",
+      undefined,
+      undefined,
+      undefined,
+      { groupingInputTokens: 12000, groupingMaxFiles: 8, batchConcurrency: 2 },
+      { context: retained, retained },
+    )
+  ).grouping();
+  expect(result.groups).toHaveLength(1);
+  expect(result.groups[0]!.files).toEqual([
+    { path: "1.ts", summary: "KEEP", related: [] },
+    { path: "0.ts", summary: "Updated", related: [] },
+  ]);
+  expect(JSON.stringify(requests.at(-1)?.prompt)).toContain("Existing flow");
+});
+
+test("chat reserves its final step for an answer after seven tool steps", async () => {
+  state.model = new MockLanguageModelV4({
+    doStream: async (options) => {
+      requests.push(options);
+      const final = options.toolChoice?.type === "none";
+      return {
+        stream: new ReadableStream({
+          start(controller) {
+            controller.enqueue({ type: "text-start", id: "text" });
+            controller.enqueue({
+              type: "text-delta",
+              id: "text",
+              delta: final
+                ? "Here is the final answer."
+                : "Let me check more source.",
+            });
+            controller.enqueue({ type: "text-end", id: "text" });
+            if (!final)
+              controller.enqueue({
+                type: "tool-call",
+                toolCallId: `read-${requests.length}`,
+                toolName: "readSource",
+                input: JSON.stringify({ path: "0.ts" }),
+              });
+            controller.enqueue({
+              type: "finish",
+              finishReason: {
+                unified: final ? "stop" : "tool-calls",
+                raw: undefined,
+              },
+              usage,
+            });
+            controller.close();
+          },
+        }),
+      };
+    },
+  });
+  const reviewer = await agent();
+  let answer = "";
+  for await (const part of reviewer.stream([
+    { role: "user", content: "Catch me up" },
+  ]).stream)
+    if (part.type === "text-delta") answer += part.text;
+  expect(requests).toHaveLength(8);
+  expect(requests.at(-1)?.toolChoice).toEqual({ type: "none" });
+  expect(answer).toContain("Here is the final answer.");
+});
+
+test("group ordering cannot discard already validated summaries when both placement repairs omit files", async () => {
+  const selected = files
+    .slice(0, 3)
+    .map((file) => ({ ...file, diff: "small patch" }));
+  state.model = new MockLanguageModelV4({
+    doGenerate: async (options) => {
+      requests.push(options);
+      const properties =
+        options.responseFormat?.type === "json"
+          ? (options.responseFormat.schema?.properties as Record<
+              string,
+              unknown
+            >)
+          : undefined;
+      if (properties?.files) return response({ groups: [], files: [] });
+      if (text(options).includes("Order these prepared files"))
+        return response({
+          groups: [
+            { title: "Partial ordering", rationale: "First", files: [0] },
+          ],
+        });
+      const input = batch(options);
+      return response({
+        groups: [
+          {
+            title: "Flow",
+            rationale: "Review",
+            files: input.changes.map((file) => ({
+              path: file.path,
+              summary: "Verified summary",
+              related: [],
+            })),
+          },
+        ],
+      });
+    },
+  });
+  const result = await (
+    await agent(selected, undefined, undefined, undefined, undefined, {
+      groupingMaxFiles: 1,
+      batchConcurrency: 1,
+    })
+  ).grouping();
+  expect(
+    result.groups
+      .flatMap((group) => group.files.map((file) => file.path))
+      .sort(),
+  ).toEqual(["0.ts", "1.ts", "2.ts"]);
+  expect(
+    result.groups.some((group) =>
+      /ordering could not complete/.test(group.rationale),
+    ),
+  ).toBe(true);
+});
+
+test("incomplete multi-file grouping narrows the failed batch instead of losing the entire review", async () => {
+  const selected = files
+    .slice(0, 3)
+    .map((file) => ({ ...file, diff: "small patch" }));
+  let smallCalls = 0;
+  state.model = new MockLanguageModelV4({
+    doGenerate: async (options) => {
+      requests.push(options);
+      const properties =
+        options.responseFormat?.type === "json"
+          ? (options.responseFormat.schema?.properties as Record<
+              string,
+              unknown
+            >)
+          : undefined;
+      if (properties?.files) return response({ groups: [], files: [] });
+      if (text(options).includes("Order these prepared files"))
+        return response({
+          groups: [{ title: "Flow", rationale: "Review", files: [0, 1, 2] }],
+        });
+      const input = batch(options);
+      if (input.changes.length === 1) smallCalls++;
+      return response({
+        groups: [
+          {
+            title: "Flow",
+            rationale: "Review",
+            files: input.changes.slice(0, 1).map((file) => ({
+              path: file.path,
+              summary: "Verified summary",
+              related: [],
+            })),
+          },
+        ],
+      });
+    },
+  });
+  const result = await (await agent(selected)).grouping();
+  expect(
+    result.groups
+      .flatMap((group) => group.files.map((file) => file.path))
+      .sort(),
+  ).toEqual(["0.ts", "1.ts", "2.ts"]);
+  expect(smallCalls).toBeGreaterThan(0);
+});
+
+test("malformed final ordering JSON retains validated groups after bounded format correction", async () => {
+  const selected = files
+    .slice(0, 3)
+    .map((file) => ({ ...file, diff: "small patch" }));
+  state.model = new MockLanguageModelV4({
+    doGenerate: async (options) => {
+      requests.push(options);
+      if (text(options).includes("Order these prepared files"))
+        return {
+          ...response({}),
+          content: [{ type: "text" as const, text: "{" }],
+        };
+      return response({
+        groups: [
+          {
+            title: "Flow",
+            rationale: "Review",
+            files: batch(options).changes.map((file) => ({
+              path: file.path,
+              summary: "Verified summary",
+              related: [],
+            })),
+          },
+        ],
+      });
+    },
+  });
+  const result = await (
+    await agent(selected, undefined, undefined, undefined, undefined, {
+      groupingMaxFiles: 1,
+      batchConcurrency: 1,
+    })
+  ).grouping();
+  expect(
+    result.groups.flatMap((group) => group.files.map((file) => file.path)),
+  ).toEqual(["0.ts", "1.ts", "2.ts"]);
+  expect(requests).toHaveLength(5);
+});

@@ -8,8 +8,21 @@ import type { PreviewFileSchema } from "@senslop/contracts";
 import type { ReviewAnnotation, ReviewNote } from "../types";
 import { PreviewDiff } from "../components/preview-diff";
 
-const mocks = vi.hoisted(() => ({ diff: vi.fn(), file: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  diff: vi.fn(),
+  file: vi.fn(),
+  explanation: vi.fn(),
+}));
+vi.mock("../../agents/components/selection-explanation", () => ({
+  SelectionExplanation: (props: unknown) => {
+    mocks.explanation(props);
+    return null;
+  },
+}));
 vi.mock("next-themes", () => ({ useTheme: () => ({ resolvedTheme: "dark" }) }));
+vi.mock("../hooks/use-diff-highlighter", () => ({
+  useDiffHighlighter: () => ({ ready: true, error: false, retry: vi.fn() }),
+}));
 vi.mock("@pierre/diffs/react", () => ({
   FileDiff: (props: FileDiffProps<ReviewAnnotation, undefined>) => {
     mocks.diff(props);
@@ -170,10 +183,6 @@ test.each(["split", "unified", "unchanged"] as const)(
         end: unchanged ? 2 : 1,
         side: "additions",
       });
-      props.options.onLineNumberClick({
-        lineNumber: unchanged ? 2 : 1,
-        annotationSide: "additions",
-      });
     });
     expect(
       (screen.getByLabelText("Comment") as HTMLTextAreaElement).value,
@@ -221,7 +230,7 @@ test("cancel removes only the draft and view changes retain the message", async 
   expect(handlers.onAddComment).not.toHaveBeenCalled();
 });
 
-test("line-number clicks anchor the new side and invalid line events are ignored", () => {
+test("gutter clicks anchor the new side and invalid line events are ignored", () => {
   render(
     <PreviewDiff
       file={file}
@@ -239,9 +248,10 @@ test("line-number clicks anchor the new side and invalid line events are ignored
   );
   expect(screen.queryByLabelText("Comment")).toBeNull();
   act(() =>
-    mocks.diff.mock.lastCall?.[0].options.onLineNumberClick({
-      lineNumber: 1,
-      annotationSide: "additions",
+    mocks.diff.mock.lastCall?.[0].options.onGutterUtilityClick({
+      start: 1,
+      end: 1,
+      side: "additions",
     }),
   );
   expect(mocks.diff.mock.lastCall?.[0].lineAnnotations[0]).toMatchObject({
@@ -348,4 +358,177 @@ test("empty files expose no comment action", () => {
   );
   expect(screen.getByText("Rendered file")).toBeTruthy();
   expect(screen.queryByRole("button")).toBeNull();
+});
+
+test("review evidence selects the exact source side and brings it into view", () => {
+  render(
+    <PreviewDiff
+      file={file}
+      view="split"
+      settings={settings}
+      notes={[]}
+      onAddComment={vi.fn()}
+      onDeleteNote={vi.fn()}
+      evidence={{ side: "before", start: 1, end: 1 }}
+    />,
+  );
+  const props = mocks.diff.mock.lastCall?.[0];
+  expect(props.selectedLines).toMatchObject({
+    start: 1,
+    end: 1,
+    side: "deletions",
+  });
+  const host = document.createElement("div");
+  const root = host.attachShadow({ mode: "open" });
+  const scroller = document.createElement("div");
+  scroller.dataset.reviewScroll = "";
+  scroller.scrollTop = 80;
+  scroller.scrollTo = vi.fn();
+  scroller.getBoundingClientRect = () => new DOMRect(0, 100, 400, 400);
+  scroller.append(host);
+  document.body.append(scroller);
+  const line = document.createElement("span");
+  line.getBoundingClientRect = () => new DOMRect(0, 650, 200, 20);
+  line.dataset.line = "1";
+  line.dataset.selectedLine = "single";
+  line.scrollIntoView = vi.fn();
+  root.append(line);
+  vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+    callback(0);
+    return 1;
+  });
+  try {
+    props.options.onPostRender(host, {} as never, "render");
+    expect(line.scrollIntoView).not.toHaveBeenCalled();
+    expect(scroller.scrollTo).toHaveBeenCalledWith({ top: 440 });
+    props.options.onPostRender(host, {} as never, "render");
+    expect(scroller.scrollTo).toHaveBeenCalledTimes(1);
+  } finally {
+    scroller.remove();
+    vi.unstubAllGlobals();
+  }
+});
+
+test("native line selection controls the range without opening a comment composer", () => {
+  render(
+    <PreviewDiff file={file} view="split" settings={settings} {...handlers} />,
+  );
+  expect(mocks.diff.mock.lastCall?.[0].options.enableLineSelection).toBe(true);
+  act(() =>
+    mocks.diff.mock.lastCall?.[0].options.onLineSelected({
+      start: 1,
+      end: 1,
+      side: "deletions",
+    }),
+  );
+  expect(mocks.diff.mock.lastCall?.[0].selectedLines).toEqual({
+    start: 1,
+    end: 1,
+    side: "deletions",
+  });
+  expect(screen.queryByLabelText("Comment")).toBeNull();
+  act(() => mocks.diff.mock.lastCall?.[0].options.onLineSelected(null));
+  expect(mocks.diff.mock.lastCall?.[0].selectedLines).toBeNull();
+});
+
+test("the explanation bubble anchors to the selected source side in a split diff", () => {
+  render(
+    <PreviewDiff
+      snapshotId="snapshot"
+      file={file}
+      view="split"
+      settings={settings}
+      {...handlers}
+    />,
+  );
+  const host = document.createElement("div");
+  const shadow = host.attachShadow({ mode: "open" });
+  shadow.innerHTML =
+    '<code data-code data-deletions><div data-line="1" data-selected-line>old</div></code><code data-code data-additions><div data-line="1" data-selected-line>new</div></code>';
+  act(() => {
+    mocks.diff.mock.lastCall?.[0].options.onPostRender(host, {}, "mount");
+    mocks.diff.mock.lastCall?.[0].options.onLineSelected({
+      start: 1,
+      end: 1,
+      side: "additions",
+    });
+  });
+  const selected = shadow.querySelector<HTMLElement>(
+    "[data-additions] [data-line]",
+  )!;
+  const rect = new DOMRect(100, 200, 300, 20);
+  selected.getBoundingClientRect = () => rect;
+  expect(
+    mocks.explanation.mock.lastCall?.[0].anchor.getBoundingClientRect(),
+  ).toBe(rect);
+  selected.removeAttribute("data-selected-line");
+  expect(
+    mocks.explanation.mock.lastCall?.[0].anchor.getBoundingClientRect(),
+  ).toBe(rect);
+});
+
+test("a selected range creates a note below its last line and hovering a saved note highlights its range", async () => {
+  const rangedFile = {
+    ...file,
+    after: "one\ntwo\nthree\n",
+    diff: "--- a/index.ts\n+++ b/index.ts\n@@ -1 +1,3 @@\n-old\n+one\n+two\n+three\n",
+  };
+  const notes: ReviewNote[] = [
+    {
+      id: "range",
+      previewId: "snapshot",
+      path: file.path,
+      body: "Covered range",
+      line: {
+        side: "additions",
+        lineNumber: 1,
+        endLineNumber: 2,
+        code: "one\ntwo",
+      },
+    },
+  ];
+  render(
+    <PreviewDiff
+      file={rangedFile}
+      view="split"
+      settings={settings}
+      {...handlers}
+      notes={notes}
+      snapshotId="snapshot"
+    />,
+  );
+  const user = userEvent.setup();
+  await user.hover(screen.getByText("Covered range"));
+  expect(mocks.diff.mock.lastCall?.[0].selectedLines).toMatchObject({
+    start: 1,
+    end: 2,
+    side: "additions",
+  });
+  await user.unhover(screen.getByText("Covered range"));
+  act(() =>
+    mocks.diff.mock.lastCall?.[0].options.onLineSelected({
+      start: 3,
+      end: 1,
+      side: "additions",
+    }),
+  );
+  act(() => mocks.explanation.mock.lastCall?.[0].onAddNote());
+  const draft = mocks.diff.mock.lastCall?.[0].lineAnnotations.find(
+    (annotation: { metadata: ReviewAnnotation }) =>
+      annotation.metadata.kind === "composer",
+  );
+  expect(draft.lineNumber).toBe(3);
+  expect(mocks.diff.mock.lastCall?.[0].selectedLines).toMatchObject({
+    start: 1,
+    end: 3,
+  });
+  await user.type(screen.getByLabelText("Comment"), "Overlap");
+  await user.click(screen.getByRole("button", { name: "Comment" }));
+  expect(handlers.onAddComment).toHaveBeenCalledWith("Overlap", {
+    side: "additions",
+    lineNumber: 1,
+    endLineNumber: 3,
+    code: "one\ntwo\nthree",
+  });
+  expect(screen.getByText("New Lines 1-2")).toBeTruthy();
 });

@@ -4,6 +4,8 @@ import {
   type ProviderConfigSchema,
 } from "@senslop/contracts";
 
+import { readProviderAccessError, readProviderJson } from "./provider-http";
+
 const catalogModelSchema = z.object({
   id: z.string().max(200).optional(),
   name: z.string().max(200).optional(),
@@ -59,7 +61,8 @@ export const probeConnection = async (
   }
   if (response.status === 401 || response.status === 403)
     throw new Error(
-      "Provider rejected the credentials. Check your API key and endpoint.",
+      (await readProviderAccessError(response, connection.provider)) ??
+        "Provider rejected the credentials. Check your API key and endpoint.",
     );
   if ([404, 405, 501].includes(response.status))
     return {
@@ -74,22 +77,7 @@ export const probeConnection = async (
     );
   let payload: unknown;
   try {
-    const reader = response.body?.getReader();
-    if (!reader) throw new Error("Empty response");
-    let size = 0;
-    const chunks: Uint8Array[] = [];
-    try {
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        size += value.byteLength;
-        if (size > 4 * 1024 * 1024) throw new Error("Response too large");
-        chunks.push(value);
-      }
-      payload = JSON.parse(Buffer.concat(chunks).toString("utf8"));
-    } finally {
-      await reader.cancel();
-    }
+    payload = await readProviderJson(response);
   } catch {
     throw new Error(
       "Provider returned invalid or oversized metadata. Retry after checking the endpoint.",

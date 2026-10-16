@@ -7,6 +7,7 @@ export type RepositoryState = {
   commits: { id: string; subject: string; date: string }[];
 };
 export type SavedReviewSummary = {
+  round?: number;
   id: string;
   title: string;
   createdAt: string;

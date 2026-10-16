@@ -1,5 +1,7 @@
 import { afterEach, expect, test } from "vitest";
 import {
+  cp,
+  symlink,
   mkdir,
   mkdtemp,
   readFile,
@@ -8,7 +10,8 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve, relative } from "node:path";
+import { fileURLToPath } from "node:url";
 import { startLocalApp } from "../local-app.js";
 
 const directories: string[] = [];
@@ -16,7 +19,14 @@ afterEach(async () => {
   await Promise.all(
     directories
       .splice(0)
-      .map((path) => rm(path, { recursive: true, force: true })),
+      .map((path) =>
+        rm(path, {
+          recursive: true,
+          force: true,
+          maxRetries: 5,
+          retryDelay: 100,
+        }),
+      ),
   );
 });
 
@@ -41,7 +51,7 @@ const fixture = async (code?: string) => {
 
 test("a local app starts without cloud credentials, atomically receives snapshots and releases its port", async () => {
   const serverPath = await fixture();
-  const app = await startLocalApp({ serverPath });
+  const app = await startLocalApp({ jobs: false, serverPath });
   try {
     const response = await fetch(new URL("/api/health", app.origin));
     expect(response.ok).toBe(true);
@@ -88,6 +98,7 @@ test("a local app starts without cloud credentials, atomically receives snapshot
 test("aborting the workspace shuts down its child and resolves the lifetime", async () => {
   const signal = new AbortController();
   const app = await startLocalApp({
+    jobs: false,
     serverPath: await fixture(),
     signal: signal.signal,
   });
@@ -99,6 +110,7 @@ test("aborting the workspace shuts down its child and resolves the lifetime", as
 test("an exited child fails startup promptly instead of leaving a connection loop running", async () => {
   await expect(
     startLocalApp({
+      jobs: false,
       serverPath: await fixture("process.exit(7)"),
       startupTimeout: 2000,
     }),
@@ -107,7 +119,7 @@ test("an exited child fails startup promptly instead of leaving a connection loo
 
 test("a missing bundled server explains that the CLI must be built", async () => {
   await expect(
-    startLocalApp({ serverPath: "/missing/senslop/server.js" }),
+    startLocalApp({ jobs: false, serverPath: "/missing/senslop/server.js" }),
   ).rejects.toThrow(/build|bundle/i);
 });
 
@@ -128,6 +140,7 @@ test("development launches the workspace Next CLI without a production bundle", 
     }).listen(Number(args[args.indexOf('--port') + 1]), args[args.indexOf('--hostname') + 1]);`,
   );
   const app = await startLocalApp({
+    jobs: false,
     development: true,
     appDirectory: directory,
     serverPath: "/missing/production/server.js",
@@ -156,7 +169,11 @@ test("development launches the workspace Next CLI without a production bundle", 
 
 test("a missing development workspace explains the checkout requirement", async () => {
   await expect(
-    startLocalApp({ development: true, appDirectory: "/missing/workspace" }),
+    startLocalApp({
+      jobs: false,
+      development: true,
+      appDirectory: "/missing/workspace",
+    }),
   ).rejects.toThrow(/development.*checkout|checkout.*development/i);
 });
 
@@ -166,7 +183,47 @@ test.skipIf(process.env.RUN_LOCAL_DEV_TESTS !== "1")(
   async () => {
     const dataDirectory = await mkdtemp(join(tmpdir(), "senslop-dev-data-"));
     directories.push(dataDirectory);
-    const app = await startLocalApp({ development: true, dataDirectory });
+    const source = fileURLToPath(
+      new URL("../../../../../../apps/local/", import.meta.url),
+    );
+    const cache = resolve(source, "../../.cache");
+    await mkdir(cache, { recursive: true });
+    const appDirectory = await mkdtemp(join(cache, "local-dev-smoke-"));
+    directories.push(appDirectory);
+    for (const name of [
+      "package.json",
+      "next.config.ts",
+      "next-env.d.ts",
+      "postcss.config.mjs",
+    ])
+      await cp(join(source, name), join(appDirectory, name));
+    await cp(join(source, "src"), join(appDirectory, "src"), {
+      recursive: true,
+    });
+    await symlink(
+      join(source, "node_modules"),
+      join(appDirectory, "node_modules"),
+    );
+    const config = JSON.parse(
+      await readFile(join(source, "tsconfig.json"), "utf8"),
+    );
+    for (const [name, paths] of Object.entries(
+      config.compilerOptions.paths as Record<string, string[]>,
+    ))
+      if (name !== "@/*")
+        config.compilerOptions.paths[name] = paths.map((path) =>
+          relative(appDirectory, resolve(source, path)),
+        );
+    await writeFile(
+      join(appDirectory, "tsconfig.json"),
+      JSON.stringify(config),
+    );
+    const app = await startLocalApp({
+      appDirectory,
+      development: true,
+      startupTimeout: 30000,
+      dataDirectory,
+    });
     try {
       expect((await fetch(app.origin)).status).toBe(403);
       const session = await fetch(app.url, { redirect: "manual" });
@@ -180,7 +237,9 @@ test.skipIf(process.env.RUN_LOCAL_DEV_TESTS !== "1")(
       expect(css).toBeTruthy();
       const stylesheet = await fetch(new URL(css!, app.origin));
       expect(stylesheet.status).toBe(200);
-      expect(await stylesheet.text()).toContain("--background");
+      const cssContent = await stylesheet.text();
+      expect(cssContent).toContain("--background");
+      expect(cssContent).toContain(".bg-sidebar");
       expect(
         await (
           await fetch(`${app.origin}/api/preview`, {
@@ -193,5 +252,5 @@ test.skipIf(process.env.RUN_LOCAL_DEV_TESTS !== "1")(
     }
     await expect(fetch(app.origin)).rejects.toThrow();
   },
-  60000,
+  120000,
 );

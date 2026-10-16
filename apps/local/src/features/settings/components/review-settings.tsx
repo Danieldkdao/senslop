@@ -14,15 +14,17 @@ import { formatTheme } from "@/lib/formatters";
 import type { Theme } from "@/lib/types";
 import type { DiffSettingsState, DiffView } from "../../review/types";
 import { DiffSettings } from "../../review/components/diff-settings";
-import { ProviderSettings } from "../../providers/components/provider-settings";
-import { ConnectionForm } from "../../providers/components/connection-form";
-import { formatProvider } from "../../providers/lib/formatters";
-import { providerIds } from "@senslop/contracts";
+import { getProviderSettingsSection } from "./provider-settings-dialog";
+import { AiSettings } from "../../agents/components/ai-settings";
 import { SettingsDialog } from "./settings-dialog";
 import type { SettingsSection } from "../types";
 import { EditorDiffPreview } from "./editor-diff-preview";
+import { ReviewPreferences } from "./review-preferences";
 
 type ReviewSettingsProps = {
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  initialSection?: string;
   settings: DiffSettingsState;
   onChange: (settings: DiffSettingsState) => void;
   view: DiffView;
@@ -30,6 +32,9 @@ type ReviewSettingsProps = {
 };
 
 export const ReviewSettings = ({
+  open,
+  onOpenChange,
+  initialSection,
   settings,
   onChange,
   view,
@@ -37,9 +42,14 @@ export const ReviewSettings = ({
 }: ReviewSettingsProps) => {
   const { theme, setTheme } = useTheme();
   return (
-    <SettingsDialog>
+    <SettingsDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      initialSection={initialSection}
+    >
       {(navigation, search) => {
         const query = search.toLowerCase().trim();
+        const providers = getProviderSettingsSection(navigation, "");
         const sections: SettingsSection[] = [
           {
             id: "appearance",
@@ -80,13 +90,20 @@ export const ReviewSettings = ({
             ),
           },
           {
+            id: "review-preferences",
+            label: "Review Preferences",
+            keywords:
+              "review preferences automatic auto advance next file completion complete navigation",
+            content: <ReviewPreferences />,
+          },
+          {
             id: "editor",
             label: "Editor",
             keywords:
               "editor review diff preview split unified indicators inline changes wrapping backgrounds line numbers",
             content: (
               <>
-                <div className="space-y-2">
+                <div className="flex flex-col gap-2">
                   <p>Diff view</p>
                   <div
                     role="group"
@@ -115,42 +132,17 @@ export const ReviewSettings = ({
             ),
           },
           {
-            id: "providers",
-            label: "Providers",
-            links: providerIds
-              .filter(
-                (provider) =>
-                  !query ||
-                  `providers api key model endpoint ${formatProvider(provider).label}`
-                    .toLowerCase()
-                    .includes(query),
-              )
-              .map((provider) => ({
-                id: `settings-provider-${provider}`,
-                label: formatProvider(provider).label,
-              })),
-            keywords: `providers api key model endpoint ${providerIds.map((provider) => formatProvider(provider).label).join(" ")}`,
-            content: (
-              <ProviderSettings
-                search={query}
-                onConfigure={(provider, connection, reload, feedback) =>
-                  navigation.navigate({
-                    id: connection?.id ?? provider,
-                    label: formatProvider(provider).label,
-                    content: (
-                      <ConnectionForm
-                        provider={provider}
-                        connection={connection}
-                        {...feedback}
-                        onSaved={async () => {
-                          await reload();
-                        }}
-                      />
-                    ),
-                  })
-                }
-              />
-            ),
+            id: "ai",
+            label: "AI",
+            keywords: `ai models grouping context review explain ${providers.keywords}`,
+            content: <AiSettings navigation={navigation} />,
+            links: [
+              {
+                id: "providers",
+                label: "Providers",
+                onSelect: () => navigation.navigate(providers),
+              },
+            ],
           },
         ];
         return sections.map((section) => ({

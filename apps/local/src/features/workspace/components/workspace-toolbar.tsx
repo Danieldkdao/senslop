@@ -1,66 +1,43 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { savedReviewSchema } from "@senslop/contracts";
+import { useState } from "react";
 import { Dot, History, RefreshCw } from "lucide-react";
 import { TooltipWrapper } from "@/components/ui/tooltip-wrapper";
 import { Button } from "@/components/ui/button";
+import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 import { useLivePreview } from "../../review/components/live-preview-provider";
-import type { WorkspaceMetadata } from "../types";
-import { formatFreshness } from "../lib/formatters";
+import { useWorkspaceMetadata } from "../hooks/use-workspace-metadata";
+import {
+  formatFreshness,
+  formatResyncUnavailableReason,
+} from "../lib/formatters";
 import { ReviewHistory } from "./review-history";
+import { ResyncPopover } from "./resync-popover";
 import { NewReviewPopover } from "./new-review-popover";
 
-export const WorkspaceToolbar = () => {
-  const { preview, refresh } = useLivePreview();
-  const [metadata, setMetadata] = useState<WorkspaceMetadata | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+export const WorkspaceToolbar = ({
+  preparing = false,
+}: {
+  preparing?: boolean;
+}) => {
+  const { preview, refresh, trackReviewOperation } = useLivePreview();
+  const repository = useWorkspaceMetadata();
+  const metadata = repository.data ?? null;
+  const [actionError, setError] = useState<string | null>(null);
+  const error = actionError ?? repository.error?.message ?? null;
+  const loading = repository.isPending;
   const [busy, setBusy] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
-  const load = useCallback(async (signal?: AbortSignal) => {
-    const response = await fetch("/api/workspace", {
-      cache: "no-store",
-      signal,
-    });
-    const data = (await response.json()) as WorkspaceMetadata & {
-      message?: string;
-    };
-    if (!response.ok)
-      throw new Error(data.message ?? "Repository unavailable. Retry.");
-    if (!signal?.aborted) {
-      setMetadata(data);
-      setLoading(false);
-    }
-  }, []);
-  useEffect(() => {
-    const abort = new AbortController();
-    let timer: ReturnType<typeof setTimeout>;
-    const tick = async () => {
-      try {
-        await load(abort.signal);
-      } catch (failure) {
-        if (!abort.signal.aborted) {
-          setError(
-            failure instanceof Error
-              ? failure.message
-              : "Repository or local history unavailable. Retry after checking Git and application-data permissions.",
-          );
-          setLoading(false);
-        }
-      } finally {
-        if (!abort.signal.aborted) timer = setTimeout(tick, 5000);
-      }
-    };
-    void tick();
-    return () => {
-      abort.abort();
-      clearTimeout(timer);
-    };
-  }, [load]);
-  const act = async (body: object) => {
+  const load = async () => {
+    const result = await repository.refetch();
+    if (result.error) throw result.error;
+  };
+  const act = async (body: object, notify?: "inspect" | "new" | "keep") => {
     setBusy(true);
     setError(null);
+    if (!notify) trackReviewOperation(null);
     try {
       const response = await fetch("/api/workspace", {
         method: "POST",
@@ -70,16 +47,33 @@ export const WorkspaceToolbar = () => {
       const data = (await response.json()) as { message?: string } | null;
       if (!response.ok)
         throw new Error(data?.message ?? "Local operation failed. Retry.");
+      const savedReview = savedReviewSchema.safeParse(data);
+      if (notify && savedReview.success)
+        trackReviewOperation({
+          snapshotId: savedReview.data.id,
+          hash: savedReview.data.hash,
+          mode: notify,
+        });
       await refresh();
       await load();
       return true;
     } catch (error) {
+      trackReviewOperation(null);
       setError((error as Error).message);
+      if (notify) toast.error((error as Error).message);
       return false;
     } finally {
       setBusy(false);
     }
   };
+  const resyncUnavailableReason = formatResyncUnavailableReason({
+    preview,
+    repository: metadata?.repository,
+    preparing,
+    busy,
+    loading,
+    failed: repository.isError,
+  });
   return (
     <div
       className="flex shrink-0 items-center gap-1"
@@ -127,6 +121,15 @@ export const WorkspaceToolbar = () => {
           <RefreshCw aria-hidden="true" className="size-5" />
         </Button>
       </TooltipWrapper>
+      <ResyncPopover
+        disabled={!!resyncUnavailableReason}
+        unavailableReason={resyncUnavailableReason}
+        busy={busy}
+        error={error}
+        onResync={(mode, grouping) =>
+          act({ action: "resync", id: preview!.id, mode, grouping }, mode)
+        }
+      />
       <TooltipWrapper content="Saved reviews">
         <Button
           variant="ghost"
@@ -148,7 +151,9 @@ export const WorkspaceToolbar = () => {
         loading={loading}
         busy={busy}
         error={error}
-        onInspect={(source) => act({ action: "inspect", source })}
+        onInspect={(source, grouping) =>
+          act({ action: "inspect", source, grouping }, "inspect")
+        }
       />
     </div>
   );

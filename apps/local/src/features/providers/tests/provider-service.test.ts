@@ -167,3 +167,46 @@ test("a failed credential readback keeps failed cleanup recoverable without savi
     store.close();
   }
 });
+
+test("inference resolution reads current credentials and refuses missing keys or deleted connections", async () => {
+  const { store, service, keys } = await fixture();
+  try {
+    const saved = await service.save(input);
+    expect((await service.resolve(saved.connection.id)).secret).toBe(
+      input.apiKey,
+    );
+    await service.save({
+      ...input,
+      id: saved.connection.id,
+      apiKey: "rotated-key",
+    });
+    expect((await service.resolve(saved.connection.id)).secret).toBe(
+      "rotated-key",
+    );
+    keys.clear();
+    await expect(service.resolve(saved.connection.id)).rejects.toThrow(
+      "missing",
+    );
+    await service.delete(saved.connection.id);
+    await expect(service.resolve(saved.connection.id)).rejects.toThrow(
+      "not found",
+    );
+  } finally {
+    store.close();
+  }
+});
+
+test("a saved keyless local connection resolves without credentials", async () => {
+  const { store, service } = await fixture();
+  try {
+    const saved = await service.save({
+      ...input,
+      provider: "llama-cpp",
+      apiKey: "",
+      baseURL: "http://localhost:8080/v1",
+    });
+    expect((await service.resolve(saved.connection.id)).secret).toBeNull();
+  } finally {
+    store.close();
+  }
+});

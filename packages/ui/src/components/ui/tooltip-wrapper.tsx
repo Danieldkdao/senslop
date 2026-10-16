@@ -10,22 +10,18 @@ type TooltipWrapperProps = {
 
 export const TooltipWrapper = ({ children, content }: TooltipWrapperProps) => (
   <Tooltip>
-    {children.props.disabled ? (
-      // Disabled controls cannot receive hover/focus; keep their hint on a neutral wrapper.
-      <TooltipTrigger
-        render={
-          <span
-            className="inline-flex shrink-0"
-            tabIndex={0}
-            aria-label={content}
-          />
-        }
-      >
-        {children}
-      </TooltipTrigger>
-    ) : (
-      <TooltipTrigger render={children} />
-    )}
+    {/* Keep the hover target stable when loading enables or replaces the button. */}
+    <TooltipTrigger
+      render={
+        <span
+          className="inline-flex shrink-0"
+          tabIndex={children.props.disabled ? 0 : undefined}
+          aria-label={children.props.disabled ? content : undefined}
+        />
+      }
+    >
+      {children}
+    </TooltipTrigger>
     <TooltipContent className="text-base">{content}</TooltipContent>
   </Tooltip>
 );

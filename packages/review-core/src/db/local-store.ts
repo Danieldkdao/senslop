@@ -1,3 +1,4 @@
+import { carrySnapshotNotes } from "../features/history/note-anchors";
 import { DatabaseSync } from "node:sqlite";
 import { createHash } from "node:crypto";
 import { chmodSync, mkdirSync } from "node:fs";
@@ -26,7 +27,7 @@ export class LocalStore {
         const version = Number(
           this.database.prepare("PRAGMA user_version").get()?.user_version,
         );
-        if (version > 2)
+        if (version > 4)
           throw new Error(
             "Local data was created by a newer Senslop. Upgrade the CLI to open it.",
           );
@@ -44,6 +45,22 @@ export class LocalStore {
           this.database.exec(
             "CREATE TABLE credential_cleanup (id TEXT PRIMARY KEY) STRICT; PRAGMA user_version = 2;",
           );
+        }
+        if (version < 3) {
+          this.database.exec(`
+            CREATE TABLE ai_jobs (id TEXT PRIMARY KEY, snapshot_id TEXT NOT NULL REFERENCES reviews(id) ON DELETE CASCADE, body TEXT NOT NULL) STRICT;
+            CREATE INDEX ai_jobs_snapshot ON ai_jobs(snapshot_id);
+            CREATE TABLE ai_conversations (id TEXT PRIMARY KEY, snapshot_id TEXT NOT NULL REFERENCES reviews(id) ON DELETE CASCADE, body TEXT NOT NULL) STRICT;
+            CREATE INDEX ai_conversations_snapshot ON ai_conversations(snapshot_id);
+            CREATE TABLE ai_context (snapshot_id TEXT PRIMARY KEY REFERENCES reviews(id) ON DELETE CASCADE, body TEXT NOT NULL) STRICT;
+            PRAGMA user_version = 3;
+          `);
+        }
+        if (version < 4) {
+          this.database.exec(`
+            CREATE TABLE ai_batch_checkpoints (job_id TEXT NOT NULL REFERENCES ai_jobs(id) ON DELETE CASCADE, checkpoint_key TEXT NOT NULL, body TEXT NOT NULL, PRIMARY KEY (job_id, checkpoint_key)) STRICT;
+            PRAGMA user_version = 4;
+          `);
         }
       });
     } catch (error) {
@@ -83,6 +100,7 @@ export class LocalStore {
       const review = savedReviewSchema.parse(JSON.parse(String(row.body)));
       return {
         id: review.id,
+        round: review.round,
         title: review.title,
         createdAt: review.createdAt,
         updatedAt: review.updatedAt,
@@ -121,15 +139,66 @@ export class LocalStore {
     repository: string,
     input: LocalPreviewSchema,
     fingerprint: string | null,
+    groupingEnabled = false,
+    metadata: Partial<
+      Pick<
+        SavedReviewSchema,
+        "repositoryState" | "syncBaseline" | "previousReviewId" | "resyncMode"
+      >
+    > & { expectedHash?: string; expectedRound?: number } = {},
   ) =>
     this.transaction(() => {
       const preview = localPreviewSchema.parse(input);
       const existingReview = this.getReview(repository, preview.id);
-      if (existingReview) return existingReview;
+      const keep = metadata.resyncMode === "keep";
+      if (existingReview && !keep) return existingReview;
+      const previousReview = metadata.previousReviewId
+        ? this.currentReview(repository)
+        : null;
+      if (
+        (keep && !previousReview) ||
+        (metadata.previousReviewId &&
+          (previousReview?.id !== metadata.previousReviewId ||
+            (metadata.expectedHash &&
+              previousReview.hash !== metadata.expectedHash) ||
+            (metadata.expectedRound &&
+              previousReview?.round !== metadata.expectedRound)))
+      )
+        throw new Error(
+          "Re-sync requires the current active review. Reload and retry.",
+        );
+      if (keep && previousReview) preview.id = previousReview.id;
       const now = new Date().toISOString();
+      const unchanged = new Set(
+        preview.files
+          .filter((file) =>
+            previousReview?.files.some(
+              (previous) =>
+                previous.path === file.path &&
+                previous.beforeHash === file.beforeHash &&
+                previous.afterHash === file.afterHash,
+            ),
+          )
+          .map((file) => file.path),
+      );
+      const carriedNotes = new Map(
+        carrySnapshotNotes(
+          previousReview?.notes ?? [],
+          preview.files,
+          preview.id,
+        ).map((note) => [note.id, note]),
+      );
       const saved = savedReviewSchema.parse({
         ...preview,
-        title: `Review: ${preview.source.head?.slice(0, 8) ?? "uncommitted changes"}`,
+        groupingEnabled,
+        ...metadata,
+        previousReviewId: keep
+          ? previousReview?.previousReviewId
+          : metadata.previousReviewId,
+        round: previousReview ? previousReview.round + 1 : 1,
+        title:
+          previousReview?.title ??
+          `Review: ${preview.source.head?.slice(0, 8) ?? "uncommitted changes"}`,
         hash: createHash("sha256")
           .update(
             JSON.stringify({
@@ -140,16 +209,71 @@ export class LocalStore {
           )
           .digest("hex"),
         fingerprint,
-        createdAt: now,
+        createdAt: keep ? (previousReview?.createdAt ?? now) : now,
         updatedAt: now,
-        revision: 0,
-        notes: [],
-        completedPaths: [],
-        selectedPath: preview.files[0]?.path ?? null,
+        revision: keep ? (previousReview?.revision ?? 0) + 1 : 0,
+        notes: keep
+          ? (previousReview?.notes.map(
+              (note) =>
+                carriedNotes.get(note.id) ?? {
+                  ...note,
+                  previewId: preview.id,
+                  line: null,
+                },
+            ) ?? [])
+          : [],
+        completedPaths: keep
+          ? (previousReview?.completedPaths.filter((path) =>
+              unchanged.has(path),
+            ) ?? [])
+          : [],
+        selectedPath:
+          keep &&
+          preview.files.some(
+            (file) => file.path === previousReview?.selectedPath,
+          )
+            ? previousReview!.selectedPath
+            : (preview.files[0]?.path ?? null),
       });
-      this.database
-        .prepare("INSERT INTO reviews VALUES (?, ?, ?)")
-        .run(saved.id, repository, JSON.stringify(saved));
+      if (previousReview && !keep) {
+        previousReview.completedPaths = previousReview.files.map(
+          (file) => file.path,
+        );
+        previousReview.updatedAt = now;
+        previousReview.revision++;
+        this.database
+          .prepare(
+            "UPDATE reviews SET body = ? WHERE repository = ? AND id = ?",
+          )
+          .run(JSON.stringify(previousReview), repository, previousReview.id);
+      }
+      if (keep && previousReview) {
+        this.database
+          .prepare(
+            "UPDATE ai_jobs SET body = json_set(body, '$.snapshotRound', ?) WHERE snapshot_id = ? AND json_type(body, '$.snapshotRound') IS NULL",
+          )
+          .run(previousReview.round, saved.id);
+        this.database
+          .prepare(
+            "UPDATE reviews SET body = ? WHERE repository = ? AND id = ?",
+          )
+          .run(JSON.stringify(saved), repository, saved.id);
+        // Retain the previous content for incremental grouping while rebuilding its source cache.
+        this.database
+          .prepare(
+            "INSERT INTO ai_context VALUES (?, ?) ON CONFLICT(snapshot_id) DO UPDATE SET body = excluded.body",
+          )
+          .run(saved.id, JSON.stringify({ previousReview }));
+        this.database
+          .prepare(
+            "UPDATE ai_jobs SET body = json_set(body, '$.status', 'canceled', '$.progress', 'Superseded by re-sync', '$.updatedAt', ?) WHERE snapshot_id = ? AND json_extract(body, '$.status') IN ('queued', 'running')",
+          )
+          .run(now, saved.id);
+      } else {
+        this.database
+          .prepare("INSERT INTO reviews VALUES (?, ?, ?)")
+          .run(saved.id, repository, JSON.stringify(saved));
+      }
       this.database
         .prepare(
           "INSERT INTO active_reviews VALUES (?, ?) ON CONFLICT(repository) DO UPDATE SET review_id = excluded.review_id",
@@ -158,12 +282,23 @@ export class LocalStore {
       return saved;
     });
 
-  changeReview = (repository: string, id: string, input: ReviewChangeSchema) =>
+  changeReview = (
+    repository: string,
+    id: string,
+    input: ReviewChangeSchema,
+    expected?: Pick<SavedReviewSchema, "hash" | "round">,
+  ) =>
     this.transaction(() => {
       const change = reviewChangeSchema.parse(input);
       const existingReview = this.getReview(repository, id);
       if (!existingReview)
         throw new Error("Saved review not found in this repository.");
+      if (
+        expected &&
+        (existingReview.hash !== expected.hash ||
+          existingReview.round !== expected.round)
+      )
+        throw new Error("Review contents changed. Reload and retry.");
       const requirePath = (path: string) => {
         if (!existingReview.files.some((file) => file.path === path))
           throw new Error("File does not belong to this snapshot.");
@@ -193,9 +328,13 @@ export class LocalStore {
           if (change.note.line) {
             const content =
               change.note.line.side === "additions" ? file.after : file.before;
+            const start = change.note.line.lineNumber;
+            const end = change.note.line.endLineNumber ?? start;
+            const lines = content?.split("\n");
             if (
-              content?.split("\n")[change.note.line.lineNumber - 1] !==
-              change.note.line.code
+              !lines ||
+              end > lines.length ||
+              lines.slice(start - 1, end).join("\n") !== change.note.line.code
             )
               throw new Error("Note line does not match the frozen snapshot.");
           }

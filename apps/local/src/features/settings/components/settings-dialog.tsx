@@ -22,20 +22,37 @@ import type {
 } from "../types";
 
 type SettingsDialogProps = {
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  initialSection?: string;
+  hideTrigger?: boolean;
   children: (
     navigation: SettingsNavigation,
     search: string,
   ) => SettingsSection[];
 };
 
-export const SettingsDialog = ({ children }: SettingsDialogProps) => {
+export const SettingsDialog = ({
+  children,
+  open: controlledOpen,
+  onOpenChange,
+  initialSection,
+  hideTrigger = false,
+}: SettingsDialogProps) => {
   const id = useId();
   const contentRef = useRef<HTMLDivElement>(null);
   const [search, setSearch] = useState("");
   const [screens, setScreens] = useState<SettingsScreen[]>([]);
-  const [open, setOpen] = useState(false);
+  const [internalOpen, setOpen] = useState(false);
+  const open = controlledOpen ?? internalOpen;
   const navigation: SettingsNavigation = {
-    navigate: (screen) => setScreens((current) => [...current, screen]),
+    navigate: (screen) =>
+      setScreens((current) => {
+        const index = current.findIndex((item) => item.id === screen.id);
+        return index === -1
+          ? [...current, screen]
+          : current.slice(0, index + 1);
+      }),
     back: () => setScreens((current) => current.slice(0, -1)),
   };
   const sections = children(navigation, search);
@@ -59,6 +76,22 @@ export const SettingsDialog = ({ children }: SettingsDialogProps) => {
     });
   };
   useEffect(() => {
+    if (!open || !initialSection) return;
+    const frame = requestAnimationFrame(() => {
+      const target = document.getElementById(`${id}-${initialSection}`);
+      const content = contentRef.current;
+      if (target && content)
+        content.scrollTo({
+          top:
+            content.scrollTop +
+            target.getBoundingClientRect().top -
+            content.getBoundingClientRect().top -
+            24,
+        });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [open, initialSection, id]);
+  useEffect(() => {
     if (current)
       document
         .getElementById(`${id}-screen-title`)
@@ -68,25 +101,31 @@ export const SettingsDialog = ({ children }: SettingsDialogProps) => {
     <Dialog
       open={open}
       onOpenChange={(value) => {
-        setOpen(value);
+        if (controlledOpen === undefined) setOpen(value);
+        onOpenChange?.(value);
         if (!value) {
           setScreens([]);
           setSearch("");
         }
       }}
     >
-      <TooltipWrapper content="Settings">
-        <DialogTrigger
-          render={<Button variant="ghost" size="icon" aria-label="Settings" />}
-        >
-          <Settings aria-hidden="true" className="size-5" />
-        </DialogTrigger>
-      </TooltipWrapper>
+      {!hideTrigger && (
+        <TooltipWrapper content="Settings">
+          <DialogTrigger
+            render={
+              <Button variant="ghost" size="icon" aria-label="Settings" />
+            }
+          >
+            <Settings aria-hidden="true" className="size-5" />
+          </DialogTrigger>
+        </TooltipWrapper>
+      )}
       <DialogContent className="h-[85dvh] max-h-[55rem] w-[calc(100vw-2rem)] sm:max-w-5xl p-0 gap-0 overflow-hidden text-base">
         <DialogHeader className="sr-only">
           <DialogTitle>Settings</DialogTitle>
           <DialogDescription>
-            Appearance, editor, and provider settings on this computer.
+            Appearance, review preferences, editor, and AI settings on this
+            computer.
           </DialogDescription>
         </DialogHeader>
         <div className="flex min-h-0 h-full flex-col sm:flex-row">
@@ -170,7 +209,7 @@ export const SettingsDialog = ({ children }: SettingsDialogProps) => {
             <div
               ref={contentRef}
               className={cn(
-                "flex-1 min-h-0 overflow-auto px-6 py-7 space-y-10",
+                "flex-1 min-h-0 overflow-auto px-6 py-7 flex flex-col gap-10",
                 current && "hidden",
               )}
             >
@@ -179,7 +218,7 @@ export const SettingsDialog = ({ children }: SettingsDialogProps) => {
                   key={section.id}
                   hidden={section.visible === false}
                   id={`${id}-${section.id}`}
-                  className="space-y-5 scroll-mt-6"
+                  className="flex flex-col gap-5 scroll-mt-6"
                 >
                   <h2 className="text-xl font-medium">{section.label}</h2>
                   {section.content}
@@ -189,21 +228,22 @@ export const SettingsDialog = ({ children }: SettingsDialogProps) => {
                 <p className="text-muted-foreground">No matching settings.</p>
               )}
             </div>
-            {current && (
+            {screens.map((screen, index) => (
               <div
-                key={current.id}
+                key={`${screen.id}:${index}`}
+                hidden={screen !== current}
                 className="flex-1 min-h-0 overflow-auto px-6 py-7"
               >
                 <h2
-                  id={`${id}-screen-title`}
+                  id={screen === current ? `${id}-screen-title` : undefined}
                   tabIndex={-1}
                   className="text-xl mb-6 font-medium outline-none"
                 >
-                  {current.label}
+                  {screen.label}
                 </h2>
-                {current.content}
+                {screen.content}
               </div>
-            )}
+            ))}
           </div>
         </div>
       </DialogContent>

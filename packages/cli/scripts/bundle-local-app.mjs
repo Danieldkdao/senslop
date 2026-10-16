@@ -48,3 +48,10 @@ await cp(
 
 // Runtime caches must also stay out of archives packed after a dashboard session.
 await writeFile(join(target, ".npmignore"), "**/route-cache/**\n**/cache/**\n");
+
+await cp(
+  fileURLToPath(
+    new URL("../src/features/workspace/engine-supervisor.mjs", import.meta.url),
+  ),
+  fileURLToPath(new URL("../dist/engine-supervisor.mjs", import.meta.url)),
+);

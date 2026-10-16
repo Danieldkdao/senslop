@@ -43,7 +43,7 @@ export const SettingsContentsItem = ({
             key={link.id}
             variant="ghost"
             className="w-full justify-start pl-7 text-base text-muted-foreground"
-            onClick={() => onSelect(link.id, true)}
+            onClick={link.onSelect ?? (() => onSelect(link.id, true))}
           >
             {link.label}
           </Button>

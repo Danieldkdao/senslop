@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { serverEnv } from "@/data/env/server";
-import { allowsLocalRequest } from "@/features/workspace/lib/session";
+import { serverEnv } from "./data/env/server";
+import { allowsLocalRequest } from "./features/workspace/lib/session";
 
 export const proxy = (request: NextRequest) => {
   const origin = serverEnv.SENSLOP_LOCAL_ORIGIN;
@@ -9,10 +9,23 @@ export const proxy = (request: NextRequest) => {
     return new NextResponse("Start the workspace with the Senslop CLI.", {
       status: 503,
     });
-  if (request.headers.get("host") !== new URL(origin).host)
-    return new NextResponse("Invalid local host.", { status: 403 });
   const bootstrap = request.nextUrl.pathname === "/api/session";
-  if (!bootstrap && !allowsLocalRequest(request.headers, { origin, token }))
+  // Inngest validates POST signatures; registration uses a persistent private worker capability.
+  const worker =
+    request.nextUrl.pathname === "/api/inngest" &&
+    (request.headers.has("x-inngest-signature") ||
+      request.nextUrl.searchParams.get("token") ===
+        (serverEnv.SENSLOP_LOCAL_WORKER_TOKEN ?? token));
+  const expectedHost = new URL(origin);
+  const host = request.headers.get("host");
+  const workerHost = `localhost:${expectedHost.port}`;
+  if (host !== expectedHost.host && !(worker && host === workerHost))
+    return new NextResponse("Invalid local host.", { status: 403 });
+  if (
+    !bootstrap &&
+    !worker &&
+    !allowsLocalRequest(request.headers, { origin, token })
+  )
     return new NextResponse(
       "Open the workspace using the URL printed by your Senslop CLI.",
       { status: 403 },

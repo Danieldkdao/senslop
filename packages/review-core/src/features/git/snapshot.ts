@@ -12,7 +12,7 @@ import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 
 import { simpleGit } from "simple-git";
-import { formatPatch, structuredPatch } from "diff";
+import { frozenDiff } from "./frozen-diff";
 
 const execute = promisify(execFile);
 
@@ -68,16 +68,21 @@ export type FrozenSnapshot = {
 const digest = (value: string | Buffer) =>
   createHash("sha256").update(value).digest("hex");
 
-const git = async (cwd: string, args: string[]): Promise<Buffer> => {
+const git = async (
+  cwd: string,
+  args: string[],
+  input?: string,
+): Promise<Buffer> => {
   try {
-    const result = await execute("git", args, {
+    const execution = execute("git", args, {
       cwd,
       encoding: "buffer",
       maxBuffer: 25 * 1024 * 1024,
       // Git inherits PATH and user configuration; this is child-process plumbing.
       env: { ...process.env, GIT_OPTIONAL_LOCKS: "0" },
     });
-    return result.stdout;
+    if (input !== undefined) execution.child.stdin?.end(input);
+    return (await execution).stdout;
   } catch (error) {
     const details = error as {
       stderr?: Buffer;
@@ -139,7 +144,7 @@ const parseChanges = (value: Buffer) => {
     );
   return result;
 };
-const blob = async (
+export const blob = async (
   cwd: string,
   ref: string,
   path: string,
@@ -164,7 +169,76 @@ const blob = async (
     unsupported: null,
   };
 };
-const localBytes = async (root: string, path: string) => {
+export const readBlobBatch = async (
+  cwd: string,
+  ref: string,
+  paths: string[],
+  byteLimit: number,
+) => {
+  const tree = await git(cwd, ["ls-tree", "-r", "-l", "-z", ref]);
+  const entries = new Map(
+    tree
+      .toString()
+      .split("\0")
+      .filter(Boolean)
+      .map((entry) => {
+        const separator = entry.indexOf("\t");
+        return [
+          entry.slice(separator + 1),
+          entry.slice(0, separator).trim().split(/\s+/),
+        ] as const;
+      }),
+  );
+  const selected: { path: string; id: string; size: number }[] = [];
+  const unavailable: string[] = [];
+  let bytes = 0;
+  let limited = false;
+  for (const path of paths) {
+    const entry = entries.get(path);
+    if (!entry) continue;
+    const [mode, type, id, length] = entry;
+    if (mode === "120000" || type !== "blob") continue;
+    const size = Number(length);
+    if (
+      !Number.isSafeInteger(size) ||
+      size < 0 ||
+      size > SNAPSHOT_LIMITS.fileBytes
+    ) {
+      unavailable.push(path);
+      continue;
+    }
+    if (bytes + size > byteLimit) {
+      limited = true;
+      break;
+    }
+    bytes += size;
+    selected.push({ path, id: id!, size });
+  }
+  const sources: Record<string, string> = {};
+  if (!selected.length) return { sources, unavailable, limited };
+  // Object IDs keep batch input safe even when repository filenames contain newlines.
+  const output = await git(
+    cwd,
+    ["cat-file", "--batch"],
+    selected.map(({ id }) => id).join("\n") + "\n",
+  );
+  let offset = 0;
+  for (const { path, id, size } of selected) {
+    const end = output.indexOf(10, offset);
+    if (
+      end < 0 ||
+      output.toString("utf8", offset, end) !== `${id} blob ${size}` ||
+      end + size + 1 >= output.length
+    )
+      throw new Error("Git context batch returned an invalid object.");
+    const contents = output.subarray(end + 1, end + 1 + size);
+    if (!contents.includes(0)) sources[path] = contents.toString("utf8");
+    offset = end + size + 2;
+  }
+  return { sources, unavailable, limited };
+};
+
+export const localBytes = async (root: string, path: string) => {
   const absolute = resolve(root, path);
   if (
     isAbsolute(relative(root, absolute)) ||
@@ -229,30 +303,6 @@ const textContent = (bytes: Buffer | null): string | null => {
   } catch {
     return null;
   }
-};
-const frozenDiff = (file: SnapshotFile) => {
-  const patch = structuredPatch(
-    file.before === null ? "/dev/null" : `a/${file.oldPath ?? file.path}`,
-    file.after === null ? "/dev/null" : `b/${file.path}`,
-    file.before ?? "",
-    file.after ?? "",
-    undefined,
-    undefined,
-    { context: 3, timeout: 5000 },
-  );
-  if (!patch)
-    throw new Error(`Diff parsing exceeded its time limit (${file.path}).`);
-  patch.isGit = true;
-  patch.isCreate = file.before === null;
-  patch.isDelete = file.after === null;
-  patch.isRename = file.status.startsWith("R");
-  for (const hunk of patch.hunks) {
-    for (const line of hunk.lines) {
-      if (line.startsWith("+")) file.added++;
-      if (line.startsWith("-")) file.deleted++;
-    }
-  }
-  return formatPatch(patch);
 };
 
 export const collectSnapshot = async ({
@@ -407,7 +457,7 @@ export const collectSnapshot = async ({
   for (const file of files)
     file.diff = file.binary
       ? `Binary file ${JSON.stringify(file.path)} changed (metadata only).\n`
-      : frozenDiff(file);
+      : await frozenDiff(file);
   const result = {
     source: { kind: source.kind, base, head, firstParent },
     files,
@@ -434,4 +484,111 @@ export const collectSnapshot = async ({
       "Serialized snapshot exceeds the 20 MiB upload limit, including diffs and metadata; nothing was truncated.",
     );
   return result;
+};
+
+export const resyncSnapshot = async (
+  root: string,
+  baseline: SnapshotFile[],
+  current: FrozenSnapshot,
+  retained?: SnapshotFile[],
+) => {
+  const states = (files: SnapshotFile[]) => {
+    const contents = new Map<
+      string,
+      { text: string | null; hash: string | null; binary: boolean }
+    >();
+    for (const file of files) {
+      if (
+        file.status.startsWith("R") &&
+        file.oldPath &&
+        file.oldPath !== file.path
+      )
+        contents.set(file.oldPath, { text: null, hash: null, binary: false });
+      contents.set(file.path, {
+        text: file.after,
+        hash: file.afterHash,
+        binary: file.binary,
+      });
+    }
+    return contents;
+  };
+  const before = states(baseline);
+  const after = states(current.files);
+  // Restore this round's original sides while leaving older rounds in the baseline.
+  for (const file of retained ?? []) {
+    const path = file.oldPath ?? file.path;
+    before.set(path, {
+      text: file.before,
+      hash: file.beforeHash,
+      binary: file.binary,
+    });
+    if (path !== file.path)
+      before.set(file.path, { text: null, hash: null, binary: false });
+  }
+  const paths = [...new Set([...before.keys(), ...after.keys()])].sort();
+  if (paths.length > 2000)
+    throw new Error(
+      "Re-sync exceeds the 2,000-file snapshot limit; nothing was truncated.",
+    );
+  const excluded = new Set(current.excluded.map((file) => file.path));
+  const files: SnapshotFile[] = [];
+  for (const path of paths) {
+    if (excluded.has(path)) continue;
+    let original = {
+      text: null as string | null,
+      hash: null as string | null,
+      binary: false,
+    };
+    if (!before.has(path) || !after.has(path)) {
+      const result = await blob(root, current.source.base, path);
+      if (result.unsupported)
+        throw new Error(
+          `Re-sync cannot capture ${path}: ${result.unsupported}.`,
+        );
+      const text = textContent(result.bytes);
+      original = {
+        text,
+        hash: result.bytes ? digest(result.bytes) : null,
+        binary: result.bytes !== null && text === null,
+      };
+    }
+    const previous = before.get(path) ?? original;
+    const latest = after.get(path) ?? original;
+    if (previous.hash === latest.hash) continue;
+    const binary = previous.binary || latest.binary;
+    const file: SnapshotFile = {
+      path,
+      oldPath: previous.hash === null ? null : path,
+      status: previous.hash === null ? "A" : latest.hash === null ? "D" : "M",
+      before: binary ? null : previous.text,
+      after: binary ? null : latest.text,
+      beforeHash: previous.hash,
+      afterHash: latest.hash,
+      binary,
+      added: 0,
+      deleted: 0,
+      diff: "",
+    };
+    file.diff = binary
+      ? `Binary file ${JSON.stringify(path)} changed (metadata only).\n`
+      : await frozenDiff(file);
+    files.push(file);
+  }
+  if (!files.length && !retained)
+    throw new Error(
+      "No new changes since this review round. Make more edits before re-syncing.",
+    );
+  const snapshot = { ...current, files };
+  snapshot.hash = digest(
+    JSON.stringify({
+      source: snapshot.source,
+      files,
+      excluded: snapshot.excluded,
+    }),
+  );
+  if (Buffer.byteLength(JSON.stringify(snapshot)) > MAX_SNAPSHOT_BYTES)
+    throw new Error(
+      "Re-sync exceeds the 20 MiB snapshot limit; nothing was truncated.",
+    );
+  return snapshot;
 };

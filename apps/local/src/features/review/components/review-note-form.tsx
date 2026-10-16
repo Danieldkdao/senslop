@@ -48,13 +48,18 @@ export const ReviewNoteForm = ({
     }
   };
   return (
-    <form noValidate onSubmit={handleSubmit(submit)} className="space-y-3">
-      <div className="space-y-2">
+    <form
+      noValidate
+      onSubmit={handleSubmit(submit)}
+      className="flex flex-col gap-3"
+    >
+      <div className="flex flex-col gap-2">
         <label htmlFor={`${id}-body`} className={cn(isComment && "sr-only")}>
           {isComment ? "Comment" : "Note"}
         </label>
         <Textarea
           id={`${id}-body`}
+          disabled={isSubmitting}
           className={cn(
             "text-base md:text-base",
             isComment ? "min-h-16" : "min-h-24",
@@ -91,7 +96,7 @@ export const ReviewNoteForm = ({
       <div className="flex items-center gap-2">
         <Button
           type="submit"
-          className={cn(isComment && "h-8")}
+          className={cn("text-base", isComment && "h-8")}
           disabled={isSubmitting}
         >
           <LoadingSwap isLoading={isSubmitting}>
@@ -102,7 +107,7 @@ export const ReviewNoteForm = ({
           <Button
             type="button"
             variant="ghost"
-            className={cn(isComment && "h-8")}
+            className={cn("text-base", isComment && "h-8")}
             disabled={isSubmitting}
             onClick={onCancel}
           >

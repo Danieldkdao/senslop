@@ -60,6 +60,8 @@ Read the exact versioned docs at https://docs.expo.dev/versions/v57.0.0/ before 
 ## Project conventions
 
 - Use exactly one blank line between imports and main code, between functions, and between unrelated definitions. Keep each Zod schema directly adjacent to its inferred type. Never add multiple blank lines; run formatting on changed authored files.
+- Use flex layouts with gap utilities for spacing in authored application UI; never use Tailwind `space-*` utilities. Preserve existing generated shadcn/ui primitive classes.
+- Use `LoadingSwap` for button loading states and `useConfirm` for confirmation dialogs.
 - Use shadcn/ui Select for application selection controls, following the installed Base UI composition API.
 - Use a Lucide dot icon or structured spacing to separate UI metadata; avoid the literal middle-dot character in authored UI text.
 - Add shadcn components through the installed CLI using the existing `components.json`. Preserve generated primitives and the owner's theme. Follow the selected Base UI composition API in application callers.

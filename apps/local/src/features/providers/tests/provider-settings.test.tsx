@@ -6,6 +6,18 @@ import { ProviderSettings } from "../components/provider-settings";
 import { ConnectionForm } from "../components/connection-form";
 import type { PublicConnectionSchema } from "@senslop/contracts";
 
+const modelState = vi.hoisted(() => ({
+  entries: [] as unknown[],
+  refresh: vi.fn(),
+  retry: vi.fn(),
+}));
+vi.mock("../hooks/use-provider-models", () => ({
+  useProviderModels: () => ({
+    entries: modelState.entries,
+    refresh: modelState.refresh,
+  }),
+}));
+
 vi.mock("../../../components/provider-icon", () => ({
   ProviderIcon: () => <span />,
 }));
@@ -15,8 +27,47 @@ vi.mock("@/components/ui/toast", () => ({
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  modelState.entries = [];
+  vi.clearAllMocks();
 });
 const empty = { connections: [], defaultId: null, cleanupPending: false };
+
+test("model discovery details and retry appear on the matching settings connection", async () => {
+  const connection = {
+    id: "00000000-0000-4000-8000-000000000003",
+    provider: "ollama",
+    name: "Ollama",
+    baseURL: "http://localhost:11434",
+    model: "",
+    contextWindow: null,
+    configured: false,
+    credentialError: null,
+  };
+  modelState.entries = [
+    {
+      connection,
+      catalog: undefined,
+      pending: false,
+      error: new Error(
+        "Provider returned invalid or oversized model metadata.",
+      ),
+      refetch: modelState.retry,
+    },
+  ];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => Response.json({ ...empty, connections: [connection] })),
+  );
+  const user = userEvent.setup();
+  render(<ProviderSettings onConfigure={vi.fn()} />);
+  expect(
+    await screen.findByText(
+      "Provider returned invalid or oversized model metadata.",
+    ),
+  ).toBeTruthy();
+  await user.click(screen.getByRole("button", { name: "Retry Ollama models" }));
+  expect(modelState.retry).toHaveBeenCalledOnce();
+});
 
 test("a newly saved local connection exposes key removal and retains its saved state", async () => {
   const connection: PublicConnectionSchema = {
@@ -237,7 +288,7 @@ test("blur saves once, failed secure storage retains draft, and saved keys are n
   vi.stubGlobal("fetch", fetcher);
   const user = userEvent.setup();
   render(<ProviderSettings onConfigure={vi.fn()} />);
-  const input = await screen.findByLabelText("ChatGPT API key");
+  const input = await screen.findByLabelText("OpenAI API key");
   await user.type(input, "new-test-key");
   await user.tab();
   await user.tab();
@@ -411,4 +462,51 @@ test("local key blur checks the newly saved endpoint, preserves the configuratio
   ]);
   expect(saved).toHaveBeenCalledOnce();
   expect(screen.getByLabelText("API base URL")).toBeTruthy();
+});
+
+test("connection deletion asks in a dialog and cancel retains the saved connection", async () => {
+  const connection: PublicConnectionSchema = {
+    id: "00000000-0000-4000-8000-000000000004",
+    provider: "ollama",
+    name: "Ollama",
+    baseURL: "http://localhost:11434",
+    model: "",
+    contextWindow: null,
+    configured: false,
+    credentialError: null,
+  };
+  let deleted = false;
+  const calls: object[] = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (_url, options?: RequestInit) => {
+      if (options?.body) {
+        const body = JSON.parse(String(options.body));
+        calls.push(body);
+        deleted = true;
+        return Response.json(null);
+      }
+      return Response.json({
+        ...empty,
+        connections: deleted ? [] : [connection],
+      });
+    }),
+  );
+  render(<ProviderSettings onConfigure={vi.fn()} />);
+  const user = userEvent.setup();
+  await user.click(
+    await screen.findByRole("button", { name: "Delete Ollama connection" }),
+  );
+  expect(
+    await screen.findByRole("dialog", { name: "Delete this connection?" }),
+  ).toBeTruthy();
+  await user.click(screen.getByRole("button", { name: "Cancel" }));
+  expect(calls).toEqual([]);
+  await user.click(
+    screen.getByRole("button", { name: "Delete Ollama connection" }),
+  );
+  await user.click(screen.getByRole("button", { name: "Confirm" }));
+  await waitFor(() =>
+    expect(calls).toEqual([{ action: "delete", id: connection.id }]),
+  );
 });

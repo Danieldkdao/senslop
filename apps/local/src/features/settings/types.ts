@@ -7,7 +7,7 @@ export type SettingsSection = {
   keywords: string;
   visible?: boolean;
   content: ReactNode;
-  links?: { id: string; label: string }[];
+  links?: { id: string; label: string; onSelect?: () => void }[];
 };
 export type SettingsNavigation = {
   navigate: (screen: SettingsScreen) => void;

@@ -9,7 +9,7 @@ import {
   rm,
   writeFile,
 } from "node:fs/promises";
-import { createServer } from "node:net";
+import { startLocalJobs, availablePort, workspacePort } from "./local-jobs.js";
 import { homedir, tmpdir } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -32,21 +32,8 @@ type LocalAppOptions = {
   serverPath?: string;
   signal?: AbortSignal;
   startupTimeout?: number;
+  jobs?: boolean;
 };
-
-const availablePort = () =>
-  new Promise<number>((resolve, reject) => {
-    const server = createServer();
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", () => {
-      const address = server.address();
-      if (!address || typeof address === "string")
-        return server.close(() =>
-          reject(new Error("No local port available.")),
-        );
-      server.close((error) => (error ? reject(error) : resolve(address.port)));
-    });
-  });
 
 export const applicationDataDirectory = () => {
   switch (process.platform) {
@@ -76,7 +63,8 @@ export const startLocalApp = async ({
     new URL("./local-app/apps/local/server.js", import.meta.url),
   ),
   signal,
-  startupTimeout = 30000,
+  startupTimeout = 60000,
+  jobs = true,
 }: LocalAppOptions = {}) => {
   const repositoryRoot = await resolveRepository(repository);
   const userData = dataDirectory ?? applicationDataDirectory();
@@ -109,7 +97,10 @@ export const startLocalApp = async ({
   const token = randomBytes(32).toString("hex");
   let port: number;
   try {
-    port = await availablePort();
+    port = jobs
+      ? await workspacePort(userData, repositoryRoot)
+      : await availablePort();
+    if (jobs) await availablePort(port);
   } catch (error) {
     await rm(directory, { recursive: true, force: true });
     throw error;
@@ -135,14 +126,30 @@ export const startLocalApp = async ({
   const args = development
     ? ["dev", "--hostname", "127.0.0.1", "--port", String(port)]
     : [];
+  let engine: Awaited<ReturnType<typeof startLocalJobs>> | undefined;
+  try {
+    if (jobs)
+      engine = await startLocalJobs({
+        dataDirectory: userData,
+        repository: repositoryRoot,
+        sdkUrl: `${origin}/api/inngest?token=${token}`,
+        signal,
+      });
+  } catch (error) {
+    await rm(directory, { recursive: true, force: true });
+    throw error;
+  }
   const child = fork(entry, args, {
     cwd,
     env: {
       ...env,
+      ...engine?.env,
+      INNGEST_DEV: "0",
       NODE_ENV: development ? "development" : "production",
       NEXT_TELEMETRY_DISABLED: "1",
       HOSTNAME: "127.0.0.1",
       PORT: String(port),
+      SENSLOP_LOCAL_STARTED_AT: new Date().toISOString(),
       SENSLOP_LOCAL_ORIGIN: origin,
       SENSLOP_LOCAL_TOKEN: token,
       SENSLOP_LOCAL_SNAPSHOT: snapshotPath,
@@ -172,6 +179,7 @@ export const startLocalApp = async ({
     if (ended) return;
     ended = true;
     signal?.removeEventListener("abort", onAbort);
+    await engine?.stop().catch(() => {});
     await write.catch(() => {});
     await rm(directory, { recursive: true, force: true });
     if (error) fail(error);
@@ -192,6 +200,7 @@ export const startLocalApp = async ({
   const stop = async () => {
     if (!stopping && !ended) {
       stopping = true;
+      await engine?.stop().catch(() => {});
       child.kill("SIGTERM");
       const force = setTimeout(() => child.kill("SIGKILL"), 5000);
       force.unref();
@@ -202,6 +211,7 @@ export const startLocalApp = async ({
       }
     } else await closed;
   };
+  void engine?.closed.catch(() => child.kill("SIGTERM"));
   const onAbort = () => {
     void stop().catch(() => {});
   };
@@ -235,7 +245,7 @@ export const startLocalApp = async ({
         const response = await fetch(`${origin}/api/preview`, {
           method: "POST",
           headers: { Authorization: `Bearer ${token}` },
-          signal: AbortSignal.timeout(10000),
+          signal: AbortSignal.timeout(120000),
         });
         if (!response.ok)
           throw new Error(
@@ -253,7 +263,20 @@ export const startLocalApp = async ({
         headers: { Authorization: `Bearer ${token}` },
         signal: AbortSignal.timeout(500),
       }).catch(() => null);
-      if (response?.ok && response.headers.get("X-Senslop-Session") === token)
+      if (response?.ok && response.headers.get("X-Senslop-Session") === token) {
+        if (engine) {
+          const registration = await fetch(
+            `${origin}/api/inngest?token=${engine.env.SENSLOP_LOCAL_WORKER_TOKEN}`,
+            {
+              method: "PUT",
+              signal: AbortSignal.timeout(15000),
+            },
+          );
+          if (!registration.ok)
+            throw new Error(
+              "Could not register the local AI worker. Restart Senslop to retry.",
+            );
+        }
         return {
           origin,
           url: `${origin}/api/session?token=${token}`,
@@ -262,6 +285,7 @@ export const startLocalApp = async ({
           setSnapshot,
           stop,
         };
+      }
       await Promise.race([
         sleep(100),
         closed.then(() => {
