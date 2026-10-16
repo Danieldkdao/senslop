@@ -237,14 +237,16 @@ export const resolveLanguageModel = (
             (connection.provider === "opencode" &&
               getOpenCodeProtocol(modelId) === "gemini") ||
             (connection.provider === "vercel" && modelId.startsWith("google/"));
-          // Nested array bounds can exceed Google's schema complexity limit.
-          // SDK validation still enforces every original bound.
+          // Expanding array bounds can exceed Google's schema complexity limit.
+          // Keep empty-array constraints; SDK validation enforces all original bounds.
           if (googleSchema)
             return {
               ...params,
               responseFormat: JSON.parse(
                 JSON.stringify(params.responseFormat, (key, value) =>
-                  key === "maxItems" && typeof value === "number"
+                  (key === "minItems" || key === "maxItems") &&
+                  typeof value === "number" &&
+                  value > 0
                     ? undefined
                     : value,
                 ),

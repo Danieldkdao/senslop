@@ -73,6 +73,26 @@ export const getAiErrorStatus = (error: unknown, depth = 0): number | null => {
   return typeof status === "number" ? status : null;
 };
 
+export const isAiSchemaComplexityError = (error: unknown): boolean => {
+  if (getAiErrorStatus(error) !== 400) return false;
+  let current = error;
+  for (let depth = 0; current instanceof Error && depth < 6; depth++) {
+    if (
+      /\bschema\b|response[_ -]?format|responseJsonSchema/i.test(
+        current.message,
+      ) &&
+      /too many states|too complex|complexity|(?:exceeds?|maximum)[\s\S]{0,60}(?:nesting|depth)/i.test(
+        current.message,
+      )
+    )
+      return true;
+    current = RetryError.isInstance(current)
+      ? current.lastError
+      : current.cause;
+  }
+  return false;
+};
+
 export const isRetryableAiError = (error: unknown): boolean => {
   if (RetryError.isInstance(error)) return isRetryableAiError(error.lastError);
   if (error instanceof AiTransientError) return true;
@@ -215,6 +235,8 @@ export const formatAiError = (error: unknown) => {
   )
     return "The provider request timed out or was canceled. Retry when ready.";
   const status = getAiErrorStatus(error);
+  if (isAiSchemaComplexityError(error))
+    return "The provider rejected the response schema as too complex. Retry with a smaller review or choose another model.";
   if (status !== null && status >= 500 && status <= 599)
     return "The model provider is temporarily unavailable. Try again later or choose another model.";
   if (status === 401 || status === 403)

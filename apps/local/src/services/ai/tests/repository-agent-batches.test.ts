@@ -1,5 +1,6 @@
 import { beforeEach, expect, test, vi } from "vitest";
 import { MockLanguageModelV4 } from "ai/test";
+import { APICallError } from "ai";
 import { createRepositoryAgent } from "../repository-agent";
 import { defaultAiSettings } from "../../../features/agents/constants";
 import { correctnessSchema } from "../../../features/agents/schemas";
@@ -1016,6 +1017,73 @@ test("review requests name the exact expected paths and finding repairs accept e
   expect(result.limitations).toEqual([]);
   expect(requests).toHaveLength(2);
 });
+
+test("schema complexity rejections narrow the review without losing any file assessments", async () => {
+  const selected = Array.from({ length: 26 }, (_, index) => ({
+    ...files[0]!,
+    path: `${index}.ts`,
+    diff: "small patch",
+  }));
+  const assessed: string[] = [];
+  state.model = new MockLanguageModelV4({
+    doGenerate: async (options) => {
+      requests.push(options);
+      const changes = batch(options).changes;
+      if (changes.length > 2)
+        throw new APICallError({
+          message:
+            "The specified schema produces a constraint that has too many states for serving.",
+          url: "https://example.test/generateContent",
+          requestBodyValues: {},
+          statusCode: 400,
+          isRetryable: false,
+        });
+      assessed.push(...changes.map(({ path }) => path));
+      return response({
+        files: changes.map(({ path }) => ({ path, findings: [] })),
+        limitations: [],
+      });
+    },
+  });
+  const result = await (await agent(selected)).review();
+  expect(result.findings).toEqual([]);
+  expect(result.limitations).toEqual([]);
+  expect(assessed.sort()).toEqual(selected.map(({ path }) => path).sort());
+  expect(requests.length).toBeLessThan(40);
+});
+
+test.each([
+  [400, "Request contains an invalid argument.", 2],
+  [401, "Invalid API key.", 2],
+  [400, "Schema contains an unsupported property.", 2],
+  [400, "The response schema is too complex.", 1],
+])(
+  "unrecoverable %i rejections stop without repeating unchanged requests",
+  async (statusCode, message, count) => {
+    state.model = new MockLanguageModelV4({
+      doGenerate: async (options) => {
+        requests.push(options);
+        throw new APICallError({
+          message,
+          url: "https://example.test/generateContent",
+          requestBodyValues: {},
+          statusCode,
+          isRetryable: false,
+        });
+      },
+    });
+    await expect(
+      (
+        await agent(
+          files
+            .slice(0, count)
+            .map((file) => ({ ...file, diff: "small patch" })),
+        )
+      ).review(),
+    ).rejects.toMatchObject({ statusCode });
+    expect(requests).toHaveLength(1);
+  },
+);
 
 test("a persistently missing single-file assessment fails clearly without claiming a clean review", async () => {
   state.model = new MockLanguageModelV4({
