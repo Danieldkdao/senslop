@@ -51,6 +51,7 @@ vi.mock("next-themes", () => ({
   useTheme: () => ({
     theme: preview.theme,
     resolvedTheme: preview.theme,
+    systemTheme: "dark",
     setTheme: preview.setTheme,
   }),
 }));
@@ -366,7 +367,7 @@ test("editor preview follows every diff control with representative code and no 
   expect(props().newFile).toBe(initial.newFile);
   preview.theme = "light";
   rendered.rerender(<Harness />);
-  expect(props().options?.themeType).toBe("light");
+  expect(props().options?.themeType).toBe("dark");
   expect(screen.queryByLabelText("Comment")).toBeNull();
   expect(screen.queryByRole("button", { name: "Mark reviewed" })).toBeNull();
 });

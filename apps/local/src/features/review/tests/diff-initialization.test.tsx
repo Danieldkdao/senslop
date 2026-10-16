@@ -44,7 +44,7 @@ vi.mock("../../agents/components/selection-explanation", () => ({
   },
 }));
 vi.mock("next-themes", () => ({
-  useTheme: () => ({ resolvedTheme: state.theme }),
+  useTheme: () => ({ resolvedTheme: state.theme, systemTheme: state.theme }),
 }));
 
 beforeEach(async () => {

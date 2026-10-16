@@ -10,7 +10,7 @@ import type { DiffFont } from "../types";
 
 afterAll(disposeHighlighter);
 
-test("default follows application appearance while explicit editor themes keep their own color mode", () => {
+test("default follows system appearance while explicit editor themes keep their own color mode", () => {
   expect(getDiffOptions(defaultDiffSettings, "split", "dark")).toMatchObject({
     theme: { light: "pierre-light", dark: "pierre-dark" },
     themeType: "dark",

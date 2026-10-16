@@ -15,13 +15,13 @@ export const getDiffStyle = (
 export const getDiffOptions = (
   settings: DiffSettingsState,
   view: DiffView,
-  resolvedTheme: string | undefined,
+  systemTheme: string | undefined,
 ) =>
   ({
     theme: settings.theme === "default" ? diffThemes : settings.theme,
     themeType:
       settings.theme === "default"
-        ? resolvedTheme === "dark"
+        ? systemTheme === "dark"
           ? "dark"
           : "light"
         : lightDiffThemes.some((theme) => theme === settings.theme)

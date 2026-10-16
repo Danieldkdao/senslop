@@ -75,7 +75,7 @@ export const EditorDiffPreview = ({
   view,
 }: EditorDiffPreviewProps) => {
   const id = useId();
-  const { resolvedTheme } = useTheme();
+  const { systemTheme } = useTheme();
   const highlighter = useDiffHighlighter(
     newFile.name,
     oldFile.name,
@@ -84,13 +84,13 @@ export const EditorDiffPreview = ({
     true,
   );
   const options = useMemo(
-    () => getDiffOptions(settings, view, resolvedTheme),
-    [settings, view, resolvedTheme],
+    () => getDiffOptions(settings, view, systemTheme),
+    [settings, view, systemTheme],
   );
   return (
     <section
       aria-labelledby={id}
-      className="sticky top-0 z-10 min-w-0 flex flex-col gap-3 bg-background pb-3 text-base"
+      className="sticky top-0 z-10 min-w-0 flex flex-col gap-3 bg-popover pb-3 text-base"
     >
       <div className="flex flex-col gap-1">
         <h3 id={id} className="font-medium">
@@ -111,6 +111,9 @@ export const EditorDiffPreview = ({
               className={cn(
                 "preview-diff",
                 settings.theme === "default" && "preview-diff-default",
+                settings.theme === "default" &&
+                  systemTheme === "dark" &&
+                  "preview-diff-default-dark",
               )}
               style={getDiffStyle(settings)}
             />

@@ -53,7 +53,7 @@ export const PreviewDiff = ({
   snapshotId,
   evidence,
 }: PreviewDiffProps) => {
-  const { resolvedTheme } = useTheme();
+  const { systemTheme } = useTheme();
   const [commentTarget, setCommentTarget] = useState<CommentTarget | null>(
     null,
   );
@@ -222,7 +222,7 @@ export const PreviewDiff = ({
   );
   const options = useMemo<FileDiffOptions<ReviewAnnotation, undefined>>(
     () => ({
-      ...getDiffOptions(settings, view, resolvedTheme),
+      ...getDiffOptions(settings, view, systemTheme),
       onPostRender: revealEvidence,
       enableLineSelection: commentTarget === null,
       controlledSelection: true,
@@ -248,7 +248,7 @@ export const PreviewDiff = ({
     [
       file,
       view,
-      resolvedTheme,
+      systemTheme,
       settings,
       lines,
       openComment,
@@ -384,6 +384,9 @@ export const PreviewDiff = ({
           className={cn(
             "preview-diff",
             settings.theme === "default" && "preview-diff-default",
+            settings.theme === "default" &&
+              systemTheme === "dark" &&
+              "preview-diff-default-dark",
           )}
           style={getDiffStyle(settings)}
         />
@@ -402,6 +405,9 @@ export const PreviewDiff = ({
           className={cn(
             "preview-diff",
             settings.theme === "default" && "preview-diff-default",
+            settings.theme === "default" &&
+              systemTheme === "dark" &&
+              "preview-diff-default-dark",
           )}
           style={getDiffStyle(settings)}
         />

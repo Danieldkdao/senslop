@@ -1,18 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { useTheme } from "next-themes";
 import { Button } from "@/components/ui/button";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { themes } from "@/lib/constants";
-import { formatTheme } from "@/lib/formatters";
-import type { Theme } from "@/lib/types";
+import { applicationThemes } from "@/lib/constants";
+import { formatApplicationTheme } from "@/lib/formatters";
+import { ApplicationThemeSelect } from "./application-theme-select";
 import type { DiffSettingsState, DiffView } from "../../review/types";
 import { DiffSettings } from "../../review/components/diff-settings";
 import { getProviderSettingsSection } from "./provider-settings-dialog";
@@ -41,7 +33,6 @@ export const ReviewSettings = ({
   view,
   onViewChange,
 }: ReviewSettingsProps) => {
-  const { theme, setTheme } = useTheme();
   const [previewSettings, setPreviewSettings] =
     useState<Partial<DiffSettingsState> | null>(null);
   return (
@@ -60,40 +51,8 @@ export const ReviewSettings = ({
           {
             id: "appearance",
             label: "Appearance",
-            keywords: "appearance theme light dark system",
-            content: (
-              <div className="flex flex-col gap-1">
-                <label htmlFor="settings-theme">Theme</label>
-                <Select<Theme>
-                  value={
-                    theme === "light" || theme === "dark" ? theme : "system"
-                  }
-                  onValueChange={(value) => {
-                    if (value) setTheme(value);
-                  }}
-                >
-                  <SelectTrigger
-                    id="settings-theme"
-                    className="w-full max-w-xs text-base"
-                  >
-                    <SelectValue>
-                      {formatTheme(
-                        theme === "light" || theme === "dark"
-                          ? theme
-                          : "system",
-                      )}
-                    </SelectValue>
-                  </SelectTrigger>
-                  <SelectContent>
-                    {themes.map((value) => (
-                      <SelectItem key={value} value={value}>
-                        {formatTheme(value)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            ),
+            keywords: `appearance theme light dark system ${applicationThemes.map(formatApplicationTheme).join(" ")}`,
+            content: <ApplicationThemeSelect />,
           },
           {
             id: "review-preferences",

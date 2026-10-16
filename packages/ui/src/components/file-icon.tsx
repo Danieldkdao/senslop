@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import { useTheme } from "next-themes";
+import { formatApplicationThemeMode } from "../lib/formatters";
 import type { Manifest } from "material-icon-theme";
 import materialManifest from "material-icon-theme/dist/material-icons.json";
 import { version } from "material-icon-theme/package.json";
@@ -62,7 +63,11 @@ export const FileIcon = ({
   className,
 }: FileIconProps) => {
   const { resolvedTheme } = useTheme();
-  const icon = formatIconName(fileName, isDir, resolvedTheme === "light");
+  const icon = formatIconName(
+    fileName,
+    isDir,
+    formatApplicationThemeMode(resolvedTheme) === "light",
+  );
   const asset = manifest.iconDefinitions?.[icon]?.iconPath?.split("/").at(-1);
   return (
     <Image

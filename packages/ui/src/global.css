@@ -1,9 +1,11 @@
 @import "tailwindcss";
 @import "shadcn/tailwind.css";
+@import "./application-themes.css";
 
-@custom-variant dark (&:is(.dark *));
+@custom-variant dark (&:is(.dark *, [data-theme$="-dark"] *));
 
 :root {
+  color-scheme: light;
   --background: oklch(0.9907 0.0054 95.0978);
   --foreground: oklch(0.3213 0.0199 145.0936);
   --card: oklch(0.9794 0.0093 113.1566);
@@ -74,7 +76,9 @@
   --spacing: 0.25rem;
 }
 
-.dark {
+.dark,
+[data-theme$="-dark"] {
+  color-scheme: dark;
   --success: oklch(0.7273 0.0793 137.5298);
   --finding-critical: oklch(0.7 0.19 25);
   --finding-critical-surface: oklch(0.3 0.09 25);
@@ -233,19 +237,28 @@
 }
 
 .preview-diff-default {
-  --diffs-addition-color-override: var(--primary);
-  --diffs-deletion-color-override: var(--destructive);
-  --diffs-modified-color-override: var(--primary);
-  --diffs-bg-context-override: var(--background);
-  --diffs-bg-context-gutter-override: var(--muted);
-  --diffs-bg-buffer-override: var(--muted);
-  --diffs-bg-separator-override: var(--muted);
-  --diffs-fg-number-override: var(--muted-foreground);
+  /* Keep the original editor palette independent of application appearance. */
+  --diffs-addition-color-override: oklch(0.4803 0.0682 138.4565);
+  --diffs-deletion-color-override: oklch(0.5083 0.1082 25.9788);
+  --diffs-modified-color-override: var(--diffs-addition-color-override);
+  --diffs-bg-context-override: oklch(0.9907 0.0054 95.0978);
+  --diffs-bg-context-gutter-override: oklch(0.9604 0.0108 118.0236);
+  --diffs-bg-buffer-override: var(--diffs-bg-context-gutter-override);
+  --diffs-bg-separator-override: var(--diffs-bg-context-gutter-override);
+  --diffs-fg-number-override: oklch(0.5318 0.0273 133.6435);
   --diffs-bg-selection-override: color-mix(
     in oklch,
-    var(--primary) 20%,
-    var(--background)
+    var(--diffs-addition-color-override) 20%,
+    var(--diffs-bg-context-override)
   );
+}
+
+.preview-diff-default-dark {
+  --diffs-addition-color-override: oklch(0.7273 0.0793 137.5298);
+  --diffs-deletion-color-override: oklch(0.7026 0.1326 26.0394);
+  --diffs-bg-context-override: oklch(0.2264 0.0073 145.3297);
+  --diffs-bg-context-gutter-override: oklch(0.2877 0.0091 145.3326);
+  --diffs-fg-number-override: oklch(0.7121 0.0219 145.3409);
 }
 
 @keyframes preview-file-enter {
