@@ -35,6 +35,7 @@ import {
   Bot,
   Search,
   ListRestart,
+  CheckIcon,
 } from "lucide-react";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { FileIcon } from "@/components/file-icon";
@@ -335,8 +336,17 @@ export const ReviewWorkspace = ({ children }: ReviewWorkspaceProps) => {
             </SheetContent>
           </Sheet>
         )}
-        <FileIcon fileName={preparing ? "" : (selectedFile?.path ?? "")} />
-        <span className="min-w-0 flex-1 truncate text-foreground">
+        {completed && !preparing ? (
+          <CheckIcon className="size-5 text-success" />
+        ) : (
+          <FileIcon fileName={preparing ? "" : (selectedFile?.path ?? "")} />
+        )}
+        <span
+          className={cn(
+            "min-w-0 flex-1 truncate",
+            completed && !preparing ? "text-success" : "text-foreground",
+          )}
+        >
           {preparing
             ? "Preparing review…"
             : (selectedFile?.path ?? "No file selected")}
