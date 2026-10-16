@@ -68,16 +68,21 @@ export type FrozenSnapshot = {
 const digest = (value: string | Buffer) =>
   createHash("sha256").update(value).digest("hex");
 
-const git = async (cwd: string, args: string[]): Promise<Buffer> => {
+const git = async (
+  cwd: string,
+  args: string[],
+  input?: string,
+): Promise<Buffer> => {
   try {
-    const result = await execute("git", args, {
+    const execution = execute("git", args, {
       cwd,
       encoding: "buffer",
       maxBuffer: 25 * 1024 * 1024,
       // Git inherits PATH and user configuration; this is child-process plumbing.
       env: { ...process.env, GIT_OPTIONAL_LOCKS: "0" },
     });
-    return result.stdout;
+    if (input !== undefined) execution.child.stdin?.end(input);
+    return (await execution).stdout;
   } catch (error) {
     const details = error as {
       stderr?: Buffer;
@@ -164,6 +169,75 @@ export const blob = async (
     unsupported: null,
   };
 };
+export const readBlobBatch = async (
+  cwd: string,
+  ref: string,
+  paths: string[],
+  byteLimit: number,
+) => {
+  const tree = await git(cwd, ["ls-tree", "-r", "-l", "-z", ref]);
+  const entries = new Map(
+    tree
+      .toString()
+      .split("\0")
+      .filter(Boolean)
+      .map((entry) => {
+        const separator = entry.indexOf("\t");
+        return [
+          entry.slice(separator + 1),
+          entry.slice(0, separator).trim().split(/\s+/),
+        ] as const;
+      }),
+  );
+  const selected: { path: string; id: string; size: number }[] = [];
+  const unavailable: string[] = [];
+  let bytes = 0;
+  let limited = false;
+  for (const path of paths) {
+    const entry = entries.get(path);
+    if (!entry) continue;
+    const [mode, type, id, length] = entry;
+    if (mode === "120000" || type !== "blob") continue;
+    const size = Number(length);
+    if (
+      !Number.isSafeInteger(size) ||
+      size < 0 ||
+      size > SNAPSHOT_LIMITS.fileBytes
+    ) {
+      unavailable.push(path);
+      continue;
+    }
+    if (bytes + size > byteLimit) {
+      limited = true;
+      break;
+    }
+    bytes += size;
+    selected.push({ path, id: id!, size });
+  }
+  const sources: Record<string, string> = {};
+  if (!selected.length) return { sources, unavailable, limited };
+  // Object IDs keep batch input safe even when repository filenames contain newlines.
+  const output = await git(
+    cwd,
+    ["cat-file", "--batch"],
+    selected.map(({ id }) => id).join("\n") + "\n",
+  );
+  let offset = 0;
+  for (const { path, id, size } of selected) {
+    const end = output.indexOf(10, offset);
+    if (
+      end < 0 ||
+      output.toString("utf8", offset, end) !== `${id} blob ${size}` ||
+      end + size + 1 >= output.length
+    )
+      throw new Error("Git context batch returned an invalid object.");
+    const contents = output.subarray(end + 1, end + 1 + size);
+    if (!contents.includes(0)) sources[path] = contents.toString("utf8");
+    offset = end + size + 2;
+  }
+  return { sources, unavailable, limited };
+};
+
 export const localBytes = async (root: string, path: string) => {
   const absolute = resolve(root, path);
   if (
@@ -481,12 +555,6 @@ export const resyncSnapshot = async (
     const previous = before.get(path) ?? original;
     const latest = after.get(path) ?? original;
     if (previous.hash === latest.hash) continue;
-    if (
-      retained &&
-      latest.hash === null &&
-      !retained.some((file) => file.path === path && file.afterHash === null)
-    )
-      continue;
     const binary = previous.binary || latest.binary;
     const file: SnapshotFile = {
       path,

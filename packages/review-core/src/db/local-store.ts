@@ -282,12 +282,23 @@ export class LocalStore {
       return saved;
     });
 
-  changeReview = (repository: string, id: string, input: ReviewChangeSchema) =>
+  changeReview = (
+    repository: string,
+    id: string,
+    input: ReviewChangeSchema,
+    expected?: Pick<SavedReviewSchema, "hash" | "round">,
+  ) =>
     this.transaction(() => {
       const change = reviewChangeSchema.parse(input);
       const existingReview = this.getReview(repository, id);
       if (!existingReview)
         throw new Error("Saved review not found in this repository.");
+      if (
+        expected &&
+        (existingReview.hash !== expected.hash ||
+          existingReview.round !== expected.round)
+      )
+        throw new Error("Review contents changed. Reload and retry.");
       const requirePath = (path: string) => {
         if (!existingReview.files.some((file) => file.path === path))
           throw new Error("File does not belong to this snapshot.");

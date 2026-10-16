@@ -355,3 +355,61 @@ test.each(["commit", "branch", "working-tree"] as const)(
     ).toBe(true);
   },
 );
+
+test.each([
+  { hash: "old", snapshotRound: 2 },
+  { hash: "current", snapshotRound: 1 },
+  { hash: "current" },
+])(
+  "older contents or rounds stay in history without navigating current evidence: %j",
+  async (identity) => {
+    const onEvidence = vi.fn();
+    const job = {
+      ...identity,
+      id: "old-review",
+      snapshotId: "snapshot",
+      kind: "review",
+      status: "completed",
+      title: "Previous findings",
+      createdAt: "2026-10-14T20:00:00Z",
+      settings: { separate: false, shared: { name: "Model" } },
+      result: {
+        findings: [
+          {
+            severity: "high",
+            title: "Old issue",
+            problem: "Old contents",
+            rationale: "Old caller",
+            path: "a.ts",
+            side: "after",
+            start: 1,
+            end: 1,
+            code: "old",
+            fixPrompt: "Fix",
+          },
+        ],
+        limitations: [],
+      },
+    };
+    render(
+      <AgentPanel
+        snapshotId="snapshot"
+        snapshot={{ id: "snapshot", hash: "current", round: 2 } as never}
+        agents={{ state: { data: { jobs: [job] } } } as never}
+        onEvidence={onEvidence}
+      />,
+    );
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("tab", { name: "Review" }));
+    expect(screen.queryByText("Previous findings")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Saved reviews" }));
+    expect(screen.getByText(/Older round/)).toBeTruthy();
+    await user.click(screen.getByRole("option", { name: /Previous findings/ }));
+    expect(screen.getByText(/Evidence navigation is unavailable/)).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Old issue" }));
+    const evidence = screen.getByRole("button", { name: /a.ts/ });
+    expect(evidence.hasAttribute("disabled")).toBe(true);
+    await user.click(evidence);
+    expect(onEvidence).not.toHaveBeenCalled();
+  },
+);

@@ -158,11 +158,27 @@ export const LivePreviewProvider = ({ children }: { children: ReactNode }) => {
   );
   const changes = useMemo(() => createReviewChangeQueue(), []);
   const saveChange = useCallback(
-    async (id: string, change: ReviewChangeSchema, signal: AbortSignal) => {
-      if (stateRef.current.preview?.id !== id)
+    async (
+      id: string,
+      change: ReviewChangeSchema,
+      signal: AbortSignal,
+      expected: { hash?: string; round?: number },
+    ) => {
+      if (
+        stateRef.current.preview?.id !== id ||
+        stateRef.current.preview.hash !== expected.hash ||
+        stateRef.current.preview.round !== expected.round
+      )
         throw new DOMException("Review changed.", "AbortError");
       const data = await requestReview(
-        { action: "change", id, change, response: "state" },
+        {
+          action: "change",
+          id,
+          change,
+          expectedHash: expected.hash,
+          expectedRound: expected.round,
+          response: "state",
+        },
         signal,
       );
       if (signal.aborted)
@@ -199,9 +215,13 @@ export const LivePreviewProvider = ({ children }: { children: ReactNode }) => {
   );
   const changeReview = useCallback(
     (change: ReviewChangeSchema) => {
-      const id = stateRef.current.preview?.id;
-      if (!id) return Promise.reject(new Error("Select a saved review first."));
-      return changes.enqueue(id, change, saveChange);
+      const preview = stateRef.current.preview;
+      if (!preview)
+        return Promise.reject(new Error("Select a saved review first."));
+      const expected = { hash: preview.hash, round: preview.round };
+      return changes.enqueue(preview.id, change, (id, queuedChange, signal) =>
+        saveChange(id, queuedChange, signal, expected),
+      );
     },
     [changes, saveChange],
   );

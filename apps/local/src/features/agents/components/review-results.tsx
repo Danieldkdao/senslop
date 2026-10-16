@@ -23,7 +23,7 @@ export const ReviewResults = ({
   onEvidence,
 }: {
   job: JobSchema;
-  onEvidence: (finding: FindingSchema) => void;
+  onEvidence?: (finding: FindingSchema) => void;
 }) => {
   if (!job.result || !("findings" in job.result)) return null;
   const result = job.result;
@@ -95,7 +95,8 @@ export const ReviewResults = ({
                     <Button
                       variant="link"
                       className="h-auto whitespace-normal p-0 text-left text-base"
-                      onClick={() => onEvidence(finding)}
+                      disabled={!onEvidence}
+                      onClick={() => onEvidence?.(finding)}
                     >
                       {finding.path} ({finding.side}, {finding.start}–
                       {finding.end})
@@ -129,7 +130,7 @@ export const ReviewResults = ({
               </span>
               <ChevronDown
                 aria-hidden="true"
-                className="size-4 shrink-0 transition-transform group-data-[panel-open]/limitations:rotate-180 motion-reduce:transition-none"
+                className="size-4 shrink-0 transition-transform group-data-panel-open/limitations:rotate-180 motion-reduce:transition-none"
               />
             </CollapsibleTrigger>
           </h3>

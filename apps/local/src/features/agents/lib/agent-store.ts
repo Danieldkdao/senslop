@@ -375,12 +375,8 @@ export class AgentStore {
   ) =>
     this.changeConversation(id, (conversation) => {
       const last = conversation.messages.at(-1);
-      if (
-        last?.status === "streaming" &&
-        Date.now() - Date.parse(last.updatedAt) < 180000
-      )
+      if (last?.status === "streaming")
         throw new Error("A response is already running.");
-      if (last?.status === "streaming") last.status = "interrupted";
       const previousUser = conversation.messages.at(-2);
       if (
         previousUser?.role === "user" &&

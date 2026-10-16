@@ -8,6 +8,7 @@ import {
   MAX_SNAPSHOT_BYTES,
   PROTOCOL_VERSION,
   localPreviewSchema,
+  type SavedReviewSchema,
   sourceSelectionSchema,
 } from "@senslop/contracts";
 import {
@@ -28,6 +29,7 @@ type LocalWorkspaceOptions = {
 export class LocalWorkspace {
   readonly store: LocalStore;
   private handoff: Promise<void> = Promise.resolve();
+  private contexts = new Set<Promise<void>>();
   constructor(private readonly options: LocalWorkspaceOptions) {
     this.store = new LocalStore(options.databasePath);
   }
@@ -56,6 +58,12 @@ export class LocalWorkspace {
     }
   };
 
+  private captureContext = (root: string, review: SavedReviewSchema) => {
+    const capture = freezeContext(this.store, root, review);
+    this.contexts.add(capture);
+    void capture.finally(() => this.contexts.delete(capture)).catch(() => {});
+  };
+
   inspect = async (input: unknown, group?: boolean) => {
     const selection = sourceSelectionSchema.options
       .find(
@@ -78,7 +86,7 @@ export class LocalWorkspace {
       this.groupingEnabled(root, group),
       { repositoryState: inspection.repository },
     );
-    await freezeContext(this.store, root, savedReview);
+    this.captureContext(root, savedReview);
     return savedReview;
   };
 
@@ -150,7 +158,7 @@ export class LocalWorkspace {
         syncBaseline: current.files,
       },
     );
-    await freezeContext(this.store, root, savedReview);
+    this.captureContext(root, savedReview);
     return savedReview;
   };
 
@@ -191,7 +199,7 @@ export class LocalWorkspace {
               ? { repositoryState: repository }
               : {},
           );
-          await freezeContext(this.store, root, savedReview);
+          this.captureContext(root, savedReview);
         } finally {
           await unlink(claimedPath);
         }
@@ -200,5 +208,9 @@ export class LocalWorkspace {
     return this.store.currentReview(root);
   };
 
-  close = () => this.store.close();
+  close = async () => {
+    await this.handoff.catch(() => {});
+    await Promise.allSettled(this.contexts);
+    this.store.close();
+  };
 }

@@ -170,14 +170,38 @@ test("navigation and completion can request compact state without retransferring
       body: JSON.stringify({
         action: "change",
         id,
+        expectedHash: saved.hash,
+        expectedRound: saved.round,
         change: { action: "complete", path: "large.ts", complete: true },
         response: "state",
       }),
     }),
   );
   expect(response.status).toBe(200);
+  expect(state.changeReview).toHaveBeenCalledWith(
+    "/repository",
+    id,
+    expect.any(Object),
+    { hash: saved.hash, round: saved.round },
+  );
   const data = await response.json();
   expect(data.completedPaths).toEqual(["large.ts"]);
   expect(data.files).toBeUndefined();
   expect(JSON.stringify(data).length).toBeLessThan(1000);
+});
+
+test("review changes require the expected contents and round", async () => {
+  const response = await postWorkspace(
+    new Request("http://localhost/api/workspace", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "change",
+        id: crypto.randomUUID(),
+        change: { action: "complete", path: "a.ts", complete: true },
+      }),
+    }),
+  );
+  expect(response.status).toBe(400);
+  expect(state.changeReview).not.toHaveBeenCalled();
 });

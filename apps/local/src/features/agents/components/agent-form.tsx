@@ -1,14 +1,13 @@
 "use client";
 
-import { useId } from "react";
-import { useController, useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { RefreshCcwIcon, SendIcon, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { FieldError } from "@/components/ui/field";
 import { LoadingSwap } from "@/components/ui/loading-swap";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/toast";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { RefreshCcwIcon, SendIcon, Square } from "lucide-react";
+import { useId } from "react";
+import { useController, useForm } from "react-hook-form";
 import { ModelPicker } from "../../providers/components/model-picker";
 import type { ModelSelection } from "../../providers/model-schemas";
 import { agentFormSchema, type AgentFormSchema } from "../schemas";
@@ -73,7 +72,10 @@ export const AgentForm = ({
       onSubmit={(event) => {
         // Model configuration dialogs render portals whose submit events can bubble here.
         if (event.target === event.currentTarget)
-          void handleSubmit(submit)(event);
+          void handleSubmit(submit, ({ content }) => {
+            if (content?.type === "too_big" && content.message)
+              toast.error(content.message);
+          })(event);
       }}
     >
       <div className="flex flex-col gap-2">
@@ -90,8 +92,7 @@ export const AgentForm = ({
               ? "Ask about these changes…"
               : "Choose a chat model to start a conversation."
           }
-          aria-invalid={!!errors.content}
-          aria-describedby={errors.content ? `${id}-content-error` : undefined}
+          aria-invalid={errors.content?.type === "too_big"}
           onKeyDown={(event) => {
             if (
               event.key === "Enter" &&
@@ -99,7 +100,7 @@ export const AgentForm = ({
               !event.nativeEvent.isComposing
             ) {
               event.preventDefault();
-              if (!busy && !isSubmitting && model)
+              if (!busy && !isSubmitting && model && field.value.trim())
                 event.currentTarget.form?.requestSubmit();
             }
           }}

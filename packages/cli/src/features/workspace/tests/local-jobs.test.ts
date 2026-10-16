@@ -1,6 +1,7 @@
 import { afterEach, expect, test } from "vitest";
 import { mkdtemp, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
+import { createServer } from "node:net";
 import { join } from "node:path";
 import { startLocalJobs, workspacePort } from "../local-jobs";
 const directories: string[] = [];
@@ -27,6 +28,9 @@ test("local engine uses persistent per-repository state, loopback and shuts down
     sdkUrl: "http://127.0.0.1:3000/api/inngest?token=test",
     enginePath: engine,
   });
+  await expect(workspacePort(dataDirectory, "/repo")).rejects.toThrow(
+    /already running/,
+  );
   const firstKey = jobs.env.INNGEST_EVENT_KEY;
   const workerToken = jobs.env.SENSLOP_LOCAL_WORKER_TOKEN;
   const data = (await (await fetch(jobs.env.INNGEST_BASE_URL)).json()) as {
@@ -53,4 +57,23 @@ test("local engine uses persistent per-repository state, loopback and shuts down
   expect(restarted.env.INNGEST_EVENT_KEY).toBe(firstKey);
   expect(restarted.env.SENSLOP_LOCAL_WORKER_TOKEN).toBe(workerToken);
   await restarted.stop();
+});
+
+test("an unowned workspace replaces an occupied saved port and persists its replacement", async () => {
+  const dataDirectory = await mkdtemp(join(tmpdir(), "senslop-ports-"));
+  directories.push(dataDirectory);
+  const port = await workspacePort(dataDirectory, "/repo");
+  const server = createServer();
+  await new Promise<void>((resolve) =>
+    server.listen(port, "127.0.0.1", resolve),
+  );
+  try {
+    const replacement = await workspacePort(dataDirectory, "/repo");
+    expect(replacement).not.toBe(port);
+    expect(await workspacePort(dataDirectory, "/repo")).toBe(replacement);
+  } finally {
+    await new Promise<void>((resolve, reject) =>
+      server.close((error) => (error ? reject(error) : resolve())),
+    );
+  }
 });

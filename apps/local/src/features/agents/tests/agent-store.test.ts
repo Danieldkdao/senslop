@@ -349,3 +349,39 @@ test("AI review titles and deletion are durable and scoped without deleting snap
     reopened.database.close();
   }
 });
+
+test("another tab cannot replace a streaming answer after three minutes", async () => {
+  const { local, review, agents } = await fixture();
+  try {
+    const conversation = agents.createConversation(review.id);
+    const model = {
+      connectionId: randomUUID(),
+      modelId: "fixture",
+      name: "Fixture",
+    };
+    const turn = agents.beginTurn(conversation.id, "first question", model);
+    turn.messages.at(-1)!.updatedAt = new Date(
+      Date.now() - 4 * 60 * 1000,
+    ).toISOString();
+    local.database
+      .prepare("UPDATE ai_conversations SET body = ? WHERE id = ?")
+      .run(JSON.stringify(turn), conversation.id);
+    const otherTab = new AgentStore(local, "/repo");
+    expect(() =>
+      otherTab.beginTurn(conversation.id, "second question", model),
+    ).toThrow(/already running/);
+    agents.finishTurn(conversation.id, "first answer", "complete", {
+      id: turn.messages.at(-1)!.id!,
+      role: "assistant",
+      parts: [{ type: "text", text: "first answer" }],
+    });
+    expect(agents.conversation(conversation.id)?.messages.at(-1)).toMatchObject(
+      { content: "first answer", status: "complete" },
+    );
+    expect(() =>
+      otherTab.beginTurn(conversation.id, "second question", model),
+    ).not.toThrow();
+  } finally {
+    local.close();
+  }
+});

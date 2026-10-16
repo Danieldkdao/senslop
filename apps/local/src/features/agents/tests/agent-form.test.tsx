@@ -38,10 +38,13 @@ test("agent composer validates questions and supports multiline and IME input wi
   const input = screen.getByRole("textbox", {
     name: "Message",
   }) as HTMLTextAreaElement;
-  await user.click(screen.getByRole("button", { name: "Send message" }));
-  await waitFor(() => expect(input.getAttribute("aria-invalid")).toBe("true"));
+  const send = screen.getByRole("button", { name: "Send message" });
+  expect(send.hasAttribute("disabled")).toBe(true);
+  await user.click(send);
+  await user.keyboard("{Enter}");
   expect(onSend).not.toHaveBeenCalled();
-  expect(screen.getByText("Enter a message before sending.")).toBeTruthy();
+  expect(feedback.error).not.toHaveBeenCalled();
+  expect(screen.queryByRole("alert")).toBeNull();
   await user.type(input, "Explain this");
   await user.keyboard("{Shift>}{Enter}{/Shift}");
   expect(input.value).toBe("Explain this\n");
@@ -124,4 +127,58 @@ test("a slow successful turn clears the visible draft and the next typed questio
   await user.type(input, "New question");
   fireEvent.submit(input.closest("form")!);
   await waitFor(() => expect(onSend).toHaveBeenLastCalledWith("New question"));
+});
+
+test("oversized messages show a toast without adding inline errors or clearing the draft", async () => {
+  const onSend = vi.fn();
+  const content = "a".repeat(10001);
+  render(<AgentForm {...props} initialContent={content} onSend={onSend} />);
+  const input = screen.getByRole("textbox", {
+    name: "Message",
+  }) as HTMLTextAreaElement;
+  await userEvent
+    .setup()
+    .click(screen.getByRole("button", { name: "Send message" }));
+  await waitFor(() =>
+    expect(feedback.error).toHaveBeenCalledWith(
+      "Keep your message under 10,000 characters.",
+    ),
+  );
+  expect(screen.queryByRole("alert")).toBeNull();
+  expect(input.hasAttribute("aria-describedby")).toBe(false);
+  expect(input.value).toBe(content);
+  expect(onSend).not.toHaveBeenCalled();
+});
+
+test.each(["", "   "])(
+  "empty and whitespace-only input stays disabled and silent: %j",
+  async (content) => {
+    const onSend = vi.fn();
+    render(<AgentForm {...props} initialContent={content} onSend={onSend} />);
+    const input = screen.getByRole("textbox", { name: "Message" });
+    expect(
+      screen
+        .getByRole("button", { name: "Send message" })
+        .hasAttribute("disabled"),
+    ).toBe(true);
+    fireEvent.keyDown(input, { key: "Enter" });
+    fireEvent.submit(input.closest("form")!);
+    await act(async () => {});
+    expect(feedback.error).not.toHaveBeenCalled();
+    expect(input.getAttribute("aria-invalid")).not.toBe("true");
+    expect(input.hasAttribute("aria-describedby")).toBe(false);
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(onSend).not.toHaveBeenCalled();
+  },
+);
+
+test("messages at the 10,000-character limit still send", async () => {
+  const onSend = vi.fn();
+  const content = "a".repeat(10000);
+  render(<AgentForm {...props} initialContent={content} onSend={onSend} />);
+  await userEvent
+    .setup()
+    .click(screen.getByRole("button", { name: "Send message" }));
+  await waitFor(() => expect(onSend).toHaveBeenCalledWith(content));
+  expect(feedback.error).not.toHaveBeenCalled();
 });

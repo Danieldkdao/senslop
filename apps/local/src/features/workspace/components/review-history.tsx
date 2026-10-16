@@ -93,6 +93,8 @@ const ReviewHistoryItem = ({
                   await act({
                     action: "change",
                     id: review.id,
+                    expectedHash: review.hash,
+                    expectedRound: review.round ?? 1,
                     change: { action: "rename", title },
                   })
                 )

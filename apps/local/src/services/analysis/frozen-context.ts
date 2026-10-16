@@ -1,7 +1,7 @@
 import {
   listSourcePaths,
   readRepository,
-  readSourceText,
+  readSourceTexts,
 } from "@senslop/review-core/git";
 import type { LocalStore } from "@senslop/review-core/storage";
 import type {
@@ -39,24 +39,26 @@ export const captureSources = async (
   let bytes = 0;
   const capture = async (ref: string | null, map: SourceMap) => {
     const paths = await listSourcePaths(root, ref);
-    for (const path of paths.slice(0, 2000)) {
-      try {
-        const text = await readSourceText(root, path, ref);
-        if (text === null) continue;
-        bytes += Buffer.byteLength(text);
-        if (bytes > 20 * 1024 * 1024) {
-          limitations.push(
-            "Context reached its 20 MiB bound. Uncaptured files cannot be read by agents; selected changes remain exact.",
-          );
-          break;
-        }
-        map[path] = text;
-      } catch {
-        limitations.push(
-          `${path}: context unavailable or exceeds the file limit.`,
-        );
-      }
-    }
+    const captured = await readSourceTexts(
+      root,
+      paths.slice(0, 2000),
+      ref,
+      20 * 1024 * 1024 - bytes,
+    );
+    Object.assign(map, captured.sources);
+    bytes += Object.values(captured.sources).reduce(
+      (sum, text) => sum + Buffer.byteLength(text),
+      0,
+    );
+    if (captured.limited)
+      limitations.push(
+        "Context reached its 20 MiB bound. Uncaptured files cannot be read by agents; selected changes remain exact.",
+      );
+    limitations.push(
+      ...captured.unavailable.map(
+        (path) => `${path}: context unavailable or exceeds the file limit.`,
+      ),
+    );
     if (paths.length > 2000)
       limitations.push(
         "Context inventory exceeded 2,000 files; the first 2,000 allowed paths were captured.",
@@ -76,7 +78,7 @@ export const captureSources = async (
   return { sources, before, limitations };
 };
 
-export const freezeContext = async (
+const captureContext = async (
   store: LocalStore,
   root: string,
   snapshot: SavedReviewSchema,
@@ -88,6 +90,7 @@ export const freezeContext = async (
     ? (JSON.parse(String(existingContext.body)) as {
         previousReview?: SavedReviewSchema;
         hash?: string;
+        round?: number;
         sources?: SourceMap;
         error?: string;
       })
@@ -95,7 +98,8 @@ export const freezeContext = async (
   if (
     existing &&
     (existing.sources || existing.error) &&
-    (!existing.hash || existing.hash === snapshot.hash)
+    (!existing.hash || existing.hash === snapshot.hash) &&
+    (!existing.round || existing.round === snapshot.round)
   )
     return;
   const previousReview =
@@ -125,6 +129,7 @@ export const freezeContext = async (
     body = {
       ...captured,
       hash: snapshot.hash,
+      round: snapshot.round,
       previousReview:
         snapshot.resyncMode === "keep" ? previousReview : undefined,
     };
@@ -132,15 +137,43 @@ export const freezeContext = async (
     body = {
       error: (error as Error).message,
       hash: snapshot.hash,
+      round: snapshot.round,
       previousReview,
     };
   }
-  if (store.getReview(root, snapshot.id)?.hash !== snapshot.hash) return;
+  const currentReview = store.getReview(root, snapshot.id);
+  if (
+    currentReview?.hash !== snapshot.hash ||
+    currentReview.round !== snapshot.round
+  )
+    return;
   store.database
     .prepare(
       "INSERT INTO ai_context VALUES (?, ?) ON CONFLICT(snapshot_id) DO UPDATE SET body = excluded.body",
     )
     .run(snapshot.id, JSON.stringify(body));
+};
+
+const captures = new WeakMap<LocalStore, Map<string, Promise<void>>>();
+
+export const freezeContext = (
+  store: LocalStore,
+  root: string,
+  snapshot: SavedReviewSchema,
+) => {
+  let pending = captures.get(store);
+  if (!pending) {
+    pending = new Map();
+    captures.set(store, pending);
+  }
+  const key = `${snapshot.id}:${snapshot.hash}:${snapshot.round}`;
+  const existing = pending.get(key);
+  if (existing) return existing;
+  const capture = captureContext(store, root, snapshot).finally(() =>
+    pending.delete(key),
+  );
+  pending.set(key, capture);
+  return capture;
 };
 
 export const loadContext = async (
@@ -160,9 +193,13 @@ export const loadContext = async (
     analysis?: import("./types").Analysis;
     error?: string;
     hash?: string;
+    round?: number;
     previousReview?: SavedReviewSchema;
   };
-  if (captured.hash && captured.hash !== snapshot.hash)
+  if (
+    (captured.hash && captured.hash !== snapshot.hash) ||
+    (captured.round && captured.round !== snapshot.round)
+  )
     throw new Error(
       "Snapshot changed during context loading. Reload and retry.",
     );
@@ -179,7 +216,8 @@ export const loadContext = async (
     ));
   if (
     !captured.analysis &&
-    store.getReview(root, snapshot.id)?.hash === snapshot.hash
+    store.getReview(root, snapshot.id)?.hash === snapshot.hash &&
+    store.getReview(root, snapshot.id)?.round === snapshot.round
   )
     store.database
       .prepare("UPDATE ai_context SET body = ? WHERE snapshot_id = ?")

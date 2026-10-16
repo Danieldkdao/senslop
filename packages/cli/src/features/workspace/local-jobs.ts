@@ -37,7 +37,20 @@ export const workspacePort = async (
   await mkdir(state, { recursive: true, mode: 0o700 });
   const path = join(state, "worker-port.json");
   try {
-    return z
+    const pid = Number(await readFile(join(state, "owner.lock"), "utf8"));
+    process.kill(pid, 0);
+    throw new Error(
+      "A workspace for this repository is already running. Use its terminal or stop it first.",
+    );
+  } catch (error) {
+    if (
+      !["ENOENT", "ESRCH"].includes((error as NodeJS.ErrnoException).code ?? "")
+    )
+      throw error;
+  }
+  let savedPort: number | undefined;
+  try {
+    savedPort = z
       .number()
       .int()
       .min(1024)
@@ -45,15 +58,25 @@ export const workspacePort = async (
       .parse(JSON.parse(await readFile(path, "utf8")));
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-    const port = await availablePort();
-    try {
-      await writeFile(path, JSON.stringify(port), { flag: "wx", mode: 0o600 });
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-      return workspacePort(dataDirectory, repository);
-    }
-    return port;
   }
+  if (savedPort !== undefined) {
+    try {
+      return await availablePort(savedPort);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EADDRINUSE") throw error;
+    }
+  }
+  const port = await availablePort();
+  try {
+    await writeFile(path, JSON.stringify(port), {
+      flag: savedPort === undefined ? "wx" : "w",
+      mode: 0o600,
+    });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    return workspacePort(dataDirectory, repository);
+  }
+  return port;
 };
 
 const engineKeysSchema = z.object({

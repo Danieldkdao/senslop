@@ -34,6 +34,8 @@ const workspaceActionSchema = z.discriminatedUnion("action", [
       action: z.literal("change"),
       id: z.uuid(),
       change: reviewChangeSchema,
+      expectedHash: reviewStateSchema.shape.hash,
+      expectedRound: reviewStateSchema.shape.round.unwrap(),
       response: z.literal("state").optional(),
     })
     .strict(),
@@ -114,6 +116,7 @@ export const POST = async (request: Request) => {
           root,
           action.id,
           action.change,
+          { hash: action.expectedHash, round: action.expectedRound },
         );
         return Response.json(
           action.response === "state"

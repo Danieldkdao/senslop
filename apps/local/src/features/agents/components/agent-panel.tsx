@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { History } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { matchesJobSnapshot } from "../lib/job-snapshots";
 import { assignedModel } from "../lib/model-selection";
 import { useAiSettings } from "../hooks/use-ai-settings";
 import { LoadingSwap } from "@/components/ui/loading-swap";
@@ -69,11 +70,18 @@ export const AgentPanel = ({
   const [history, setHistory] = useState(false);
   const reviews =
     agents.state.data?.jobs.filter((job) => job.kind === "review") ?? [];
-  const latest = reviews[0];
+  const currentReviews = reviews.filter((job) =>
+    snapshot
+      ? job.snapshotId === snapshotId && matchesJobSnapshot(job, snapshot)
+      : true,
+  );
+  const latest = currentReviews[0];
   const displayed =
     (selectedRun?.snapshotId === snapshotId ? selectedRun : null) ??
-    reviews.find((job) => job.status === "completed") ??
+    currentReviews.find((job) => job.status === "completed") ??
     latest;
+  const olderResult =
+    !!displayed && !!snapshot && !matchesJobSnapshot(displayed, snapshot);
   const running = latest?.status === "running" || latest?.status === "queued";
   const status = latest ? formatJobStatusAppearance(latest.status) : null;
   const StatusIcon = status?.Icon;
@@ -242,7 +250,16 @@ export const AgentPanel = ({
                   {formatReviewName(displayed)}
                   <span className="block">{formatJobModel(displayed)}</span>
                 </p>
-                <ReviewResults job={displayed} onEvidence={onEvidence} />
+                {olderResult && (
+                  <p role="status" className="px-4 pt-4 text-muted-foreground">
+                    Older round. Evidence navigation is unavailable for these
+                    previous contents.
+                  </p>
+                )}
+                <ReviewResults
+                  job={displayed}
+                  onEvidence={olderResult ? undefined : onEvidence}
+                />
               </>
             ) : (
               <p className="p-5 text-muted-foreground">
@@ -270,6 +287,7 @@ export const AgentPanel = ({
         open={history}
         onOpenChange={setHistory}
         snapshotId={snapshotId}
+        snapshot={snapshot}
         reviews={reviews}
         onAction={agents.act}
         onSelect={setSelectedRun}

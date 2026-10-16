@@ -12,7 +12,10 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
-import { loadContext } from "../../../services/analysis/frozen-context";
+import {
+  loadContext,
+  freezeContext,
+} from "../../../services/analysis/frozen-context";
 import { AgentStore } from "../../agents/lib/agent-store";
 import { LocalWorkspace } from "../lib/local-workspace";
 
@@ -77,7 +80,7 @@ test("a delayed handoff cannot delete the next terminal snapshot", async () => {
     expect((await workspace.current())?.id).toBe(second.id);
     await expect(readFile(options.snapshotPath)).rejects.toThrow();
   } finally {
-    workspace.close();
+    await workspace.close();
   }
 });
 
@@ -143,7 +146,7 @@ test("browser inspection is repository-bound, restarts restore reviews, and term
     title: "Saved in browser",
   });
   workspace.store.openReview(repository, saved.id);
-  workspace.close();
+  await workspace.close();
   workspace = new LocalWorkspace(options);
   try {
     expect((await workspace.current())?.title).toBe("Saved in browser");
@@ -154,7 +157,7 @@ test("browser inspection is repository-bound, restarts restore reviews, and term
     workspace.store.deleteReview(await workspace.root(), handoff.id);
     expect(await workspace.current()).toBeNull();
   } finally {
-    workspace.close();
+    await workspace.close();
   }
 });
 
@@ -235,6 +238,7 @@ test("re-sync advances the captured baseline across rounds without changing Git,
     expect(third.round).toBe(3);
     expect(third.files.map((file) => file.path)).toEqual(["b.ts"]);
     expect(third.files[0]?.before).toBe("export const b = 1;\n");
+    await freezeContext(workspace.store, repository, third);
     const context = JSON.parse(
       String(
         workspace.store.database
@@ -245,7 +249,7 @@ test("re-sync advances the captured baseline across rounds without changing Git,
     expect(context.before["a.ts"]).toBe("export const a = 2;\n");
     expect(context.before["b.ts"]).toBe("export const b = 1;\n");
   } finally {
-    workspace.close();
+    await workspace.close();
   }
 });
 
@@ -278,7 +282,7 @@ test("re-sync includes reversions, new files, deletions, and renames relative to
       status: "D",
     });
   } finally {
-    workspace.close();
+    await workspace.close();
   }
 });
 
@@ -306,7 +310,7 @@ test("re-sync refuses mismatched branch, HEAD, unsupported sources, and legacy r
       /identity|fresh|uncommitted/i,
     );
   } finally {
-    workspace.close();
+    await workspace.close();
   }
 });
 
@@ -320,7 +324,7 @@ test("a missing grouping model never blocks inspection even when a saved prefere
       (await workspace.inspect({ kind: "working-tree" })).groupingEnabled,
     ).toBe(false);
   } finally {
-    workspace.close();
+    await workspace.close();
   }
 });
 
@@ -355,7 +359,7 @@ test("re-sync handles an entirely restored tree and refuses publication if repos
       workspace.store.getReview(repository, third.id)?.completedPaths,
     ).toEqual([]);
   } finally {
-    workspace.close();
+    await workspace.close();
   }
 });
 
@@ -388,7 +392,7 @@ test("re-sync retains binary hashes and compares tracked renames against their c
     });
     expect(binary.beforeHash).not.toBe(binary.afterHash);
   } finally {
-    workspace.close();
+    await workspace.close();
   }
 });
 
@@ -408,7 +412,7 @@ test("re-sync recognizes a recreated original path after a captured rename", asy
       status: "A",
     });
   } finally {
-    workspace.close();
+    await workspace.close();
   }
 });
 
@@ -485,7 +489,7 @@ test("cumulative re-sync preserves the round baseline, notes, completion and fol
     const fourth = await workspace.resync(third.id, "keep");
     expect(fourth.files[0]?.before).toBe("export const b = 1;\n");
   } finally {
-    workspace.close();
+    await workspace.close();
   }
 });
 
@@ -514,7 +518,7 @@ test("cumulative re-sync drops reverted additions and removed files and can prod
     expect(second.id).toBe(first.id);
     expect(second.groupingEnabled).toBe(false);
   } finally {
-    workspace.close();
+    await workspace.close();
   }
 });
 
@@ -545,7 +549,7 @@ test("each re-sync applies the current always, never and ask grouping preference
       expect(round.groupingEnabled).toBe(expected);
     }
   } finally {
-    workspace.close();
+    await workspace.close();
   }
 });
 
@@ -614,6 +618,148 @@ test("merged grouping reuses only the previous content and cannot reuse stale ba
     expect(agents.readCheckpoint(latest.id, "batch")).toBeNull();
     expect(workspace.store.listReviews(repository)).toHaveLength(1);
   } finally {
-    workspace.close();
+    await workspace.close();
+  }
+});
+
+test.each(["delete", "rename"] as const)(
+  "keep re-sync retains the original side of a tracked %s",
+  async (operation) => {
+    const { workspace, repository, git } = await syncWorkspace();
+    try {
+      await writeFile(join(repository, "a.ts"), "export const a = 1;\n");
+      await writeFile(join(repository, "added.ts"), "new\n");
+      const first = await workspace.inspect({ kind: "working-tree" });
+      if (operation === "rename") git("mv", "a.ts", "renamed.ts");
+      else await unlink(join(repository, "a.ts"));
+      await unlink(join(repository, "added.ts"));
+      const second = await workspace.resync(first.id, "keep");
+      expect(second.files.find((file) => file.path === "a.ts")).toMatchObject({
+        status: "D",
+        before: "export const a = 0;\n",
+        after: null,
+      });
+      expect(second.files.some((file) => file.path === "added.ts")).toBe(false);
+      if (operation === "rename")
+        expect(
+          second.files.find((file) => file.path === "renamed.ts"),
+        ).toMatchObject({ after: "export const a = 1;\n" });
+    } finally {
+      await workspace.close();
+    }
+  },
+);
+
+test("writes from the previous contents or round cannot change a kept review", async () => {
+  const { workspace, repository } = await syncWorkspace();
+  try {
+    await writeFile(join(repository, "a.ts"), "export const a = 1;\n");
+    const first = await workspace.inspect({ kind: "working-tree" });
+    await writeFile(join(repository, "a.ts"), "export const a = 2;\n");
+    const second = await workspace.resync(first.id, "keep");
+    const changes = [
+      { action: "complete", path: "a.ts", complete: true },
+      {
+        action: "add-note",
+        note: {
+          id: crypto.randomUUID(),
+          previewId: first.id,
+          path: "a.ts",
+          body: "Old note",
+          line: null,
+        },
+      },
+    ] as const;
+    for (const change of changes) {
+      for (const expected of [first, { ...second, round: first.round }])
+        expect(() =>
+          workspace.store.changeReview(repository, first.id, change, expected),
+        ).toThrow(/changed/);
+    }
+    expect(workspace.store.getReview(repository, second.id)).toEqual(second);
+    expect(
+      workspace.store.changeReview(repository, second.id, changes[0], second)
+        .completedPaths,
+    ).toEqual(["a.ts"]);
+  } finally {
+    await workspace.close();
+  }
+});
+
+test("plain inspections return while their frozen context is still capturing", async () => {
+  const { workspace, repository } = await syncWorkspace();
+  const contextModule =
+    await import("../../../services/analysis/frozen-context");
+  let finish!: () => void;
+  const pending = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  const freeze = vi
+    .spyOn(contextModule, "freezeContext")
+    .mockReturnValue(pending);
+  try {
+    await writeFile(join(repository, "a.ts"), "one\n");
+    const inspection = workspace.inspect({ kind: "working-tree" });
+    const saved = await Promise.race([
+      inspection,
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), 1500)),
+    ]);
+    expect(saved?.groupingEnabled).toBe(false);
+    expect(freeze).toHaveBeenCalledTimes(1);
+    finish();
+    await inspection;
+  } finally {
+    finish();
+    freeze.mockRestore();
+    await workspace.close();
+  }
+});
+
+test("shared background capture cannot overwrite a later round that returns to the same hash", async () => {
+  const gitModule = await import("@senslop/review-core/git");
+  const readSourceTexts = gitModule.readSourceTexts;
+  const { workspace, repository } = await syncWorkspace();
+  let release!: () => void;
+  const pending = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let reads = 0;
+  const read = vi
+    .spyOn(gitModule, "readSourceTexts")
+    .mockImplementation(async (...args) => {
+      if (++reads === 1) await pending;
+      return readSourceTexts(...args);
+    });
+  try {
+    await writeFile(join(repository, "a.ts"), "one\n");
+    const first = await workspace.inspect({ kind: "working-tree" });
+    await vi.waitFor(() => expect(read).toHaveBeenCalledTimes(1));
+    const duplicate = freezeContext(workspace.store, repository, first);
+    expect(read).toHaveBeenCalledTimes(1);
+    await writeFile(join(repository, "a.ts"), "two\n");
+    const second = await workspace.resync(first.id, "keep");
+    await freezeContext(workspace.store, repository, second);
+    await writeFile(join(repository, "a.ts"), "one\n");
+    const third = await workspace.resync(second.id, "keep");
+    expect(third.hash).toBe(first.hash);
+    await freezeContext(workspace.store, repository, third);
+    release();
+    await duplicate;
+    const captured = JSON.parse(
+      String(
+        workspace.store.database
+          .prepare("SELECT body FROM ai_context WHERE snapshot_id = ?")
+          .get(third.id)?.body,
+      ),
+    );
+    expect(captured).toMatchObject({
+      hash: third.hash,
+      round: third.round,
+      sources: { "a.ts": "one\n" },
+    });
+    expect(captured.error).toBeUndefined();
+  } finally {
+    release();
+    await workspace.close();
   }
 });

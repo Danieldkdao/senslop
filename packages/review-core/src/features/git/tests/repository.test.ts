@@ -1,9 +1,17 @@
 import { afterEach, expect, test, vi } from "vitest";
-import { mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import {
+  mkdtemp,
+  realpath,
+  rm,
+  writeFile,
+  symlink,
+  readFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { simpleGit } from "simple-git";
 import {
+  readSourceTexts,
   collectSnapshot,
   inspectRepository,
   readRepository,
@@ -16,6 +24,7 @@ vi.mock("../snapshot", async (importOriginal) => {
 
 const directories: string[] = [];
 afterEach(async () => {
+  vi.unstubAllEnvs();
   await Promise.all(
     directories
       .splice(0)
@@ -96,4 +105,30 @@ test("repository refresh checks freshness without collecting contents or patches
   await git.add("file.ts");
   expect((await readRepository(cwd)).fingerprint).not.toBe(staged.fingerprint);
   expect(collectSnapshot).not.toHaveBeenCalled();
+});
+
+test("batched revision reads preserve unusual paths, file bounds, and symlink exclusions", async () => {
+  const { cwd, git } = await fixture();
+  const names = ["space name.ts", "line\nbreak.ts", "bracket[1].ts"];
+  for (const name of names) await writeFile(join(cwd, name), `text ${name}\n`);
+  await writeFile(join(cwd, "large.ts"), "x".repeat(1024 * 1024 + 1));
+  await writeFile(join(cwd, "binary.ts"), Buffer.from([0, 1, 2]));
+  await symlink("file.ts", join(cwd, "link.ts"));
+  await git.add(".");
+  await git.commit("context files");
+  const paths = [...names, "large.ts", "link.ts", "binary.ts"];
+  const trace = join(cwd, "git-trace.log");
+  vi.stubEnv("GIT_TRACE", trace);
+  const captured = await readSourceTexts(cwd, paths, "HEAD", 20 * 1024 * 1024);
+  expect((await readFile(trace, "utf8")).match(/built-in: git /g)).toHaveLength(
+    2,
+  );
+  for (const name of names)
+    expect(captured.sources[name]).toBe(`text ${name}\n`);
+  expect(captured.unavailable).toContain("large.ts");
+  expect(captured.sources["link.ts"]).toBeUndefined();
+  expect(captured.sources["binary.ts"]).toBeUndefined();
+  const bounded = await readSourceTexts(cwd, names, "HEAD", 1);
+  expect(bounded.limited).toBe(true);
+  expect(bounded.sources).toEqual({});
 });

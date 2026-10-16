@@ -308,16 +308,22 @@ packageTest(
     await post("/api/workspace", {
       action: "change",
       id: browserId,
+      expectedHash: browserReview.hash,
+      expectedRound: browserReview.round,
       change: { action: "add-note", note },
     });
     await post("/api/workspace", {
       action: "change",
       id: browserId,
+      expectedHash: browserReview.hash,
+      expectedRound: browserReview.round,
       change: { action: "complete", path: "sample.ts", complete: true },
     });
     await post("/api/workspace", {
       action: "change",
       id: browserId,
+      expectedHash: browserReview.hash,
+      expectedRound: browserReview.round,
       change: { action: "rename", title: "Packaged saved review" },
     });
     const searched = await (

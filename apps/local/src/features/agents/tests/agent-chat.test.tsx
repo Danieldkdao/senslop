@@ -152,8 +152,18 @@ test("chat cannot send until a conversation model is selected", async () => {
   expect(screen.getByText("Choose fixture").closest("form")).toBe(
     screen.getByRole("textbox", { name: "Message" }).closest("form"),
   );
-  await userEvent.setup().click(screen.getByText("Choose fixture"));
+  const user = userEvent.setup();
+  await user.click(screen.getByText("Choose fixture"));
   expect(state.act).not.toHaveBeenCalled();
+  expect(
+    screen
+      .getByRole("button", { name: "Send message" })
+      .hasAttribute("disabled"),
+  ).toBe(true);
+  await user.type(
+    screen.getByRole("textbox", { name: "Message" }),
+    "Explain this",
+  );
   expect(
     screen
       .getByRole("button", { name: "Send message" })
@@ -290,6 +300,14 @@ test.each([false, true])(
     expect(
       await screen.findByText(separate ? "Review default" : "Shared default"),
     ).toBeTruthy();
+    expect(
+      screen
+        .getByRole("button", { name: "Send message" })
+        .hasAttribute("disabled"),
+    ).toBe(true);
+    await userEvent
+      .setup()
+      .type(screen.getByRole("textbox", { name: "Message" }), "Explain this");
     expect(
       screen
         .getByRole("button", { name: "Send message" })

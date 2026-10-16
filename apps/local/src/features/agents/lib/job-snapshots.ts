@@ -6,4 +6,4 @@ export const matchesJobSnapshot = (
   snapshot: Pick<Partial<SavedReviewSchema>, "hash" | "round">,
 ) =>
   job.hash === snapshot.hash &&
-  (job.snapshotRound ?? snapshot.round ?? 1) === (snapshot.round ?? 1);
+  (job.snapshotRound ?? 1) === (snapshot.round ?? 1);

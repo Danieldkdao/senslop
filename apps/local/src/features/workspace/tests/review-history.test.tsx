@@ -112,6 +112,8 @@ test("rename and delete icon actions do not reopen; rename is inline and deletio
     expect(action).toHaveBeenCalledWith({
       action: "change",
       id: review.id,
+      expectedHash: review.hash,
+      expectedRound: 1,
       change: { action: "rename", title: "New title" },
     }),
   );

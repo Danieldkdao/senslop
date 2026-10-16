@@ -602,3 +602,36 @@ test("re-sync cancels queued writes for the previous snapshot version", async ()
     expect.objectContaining({ name: "AbortError" }),
   ]);
 });
+
+test("queued writes carry the identity shown when enqueued even before a re-sync is polled", async () => {
+  const snapshot = savedSnapshot();
+  let release!: () => void;
+  const writes: unknown[] = [];
+  const fetcher = vi.fn(async (_url, options) => {
+    if (options?.method !== "POST") return Response.json(snapshot);
+    writes.push(JSON.parse(options.body));
+    if (writes.length === 1)
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
+    return Response.json({ ...snapshot, revision: writes.length });
+  });
+  vi.stubGlobal("fetch", fetcher);
+  render(
+    <LivePreviewProvider>
+      <Consumer />
+    </LivePreviewProvider>,
+  );
+  await screen.findByText("file.ts");
+  fireEvent.click(screen.getByText("Change"));
+  fireEvent.click(screen.getByText("Change"));
+  await act(async () => {
+    release();
+  });
+  await waitFor(() => expect(writes).toHaveLength(2));
+  for (const write of writes)
+    expect(write).toMatchObject({
+      expectedHash: snapshot.hash,
+      expectedRound: snapshot.round,
+    });
+});

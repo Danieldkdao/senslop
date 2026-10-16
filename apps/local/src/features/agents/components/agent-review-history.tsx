@@ -1,5 +1,7 @@
 "use client";
 
+import { matchesJobSnapshot } from "../lib/job-snapshots";
+import type { LivePreview } from "../../review/types";
 import { useRef, useState } from "react";
 import { Pencil, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -29,6 +31,7 @@ export const AgentReviewHistory = ({
   open,
   onOpenChange,
   snapshotId,
+  snapshot,
   reviews,
   onSelect,
   onAction,
@@ -38,6 +41,7 @@ export const AgentReviewHistory = ({
   open: boolean;
   onOpenChange: (open: boolean) => void;
   snapshotId?: string;
+  snapshot?: LivePreview | null;
   reviews: JobSchema[];
   onSelect: (job: JobSchema) => void;
   onAction: (action: AgentActionSchema) => Promise<unknown>;
@@ -107,6 +111,11 @@ export const AgentReviewHistory = ({
               >
                 <span className="min-w-0 flex-1 truncate">
                   {title} — {formatJobStatus(job.status)}
+                  {snapshot && !matchesJobSnapshot(job, snapshot) && (
+                    <span className="block text-muted-foreground">
+                      Older round
+                    </span>
+                  )}
                 </span>
                 <Button
                   type="button"
