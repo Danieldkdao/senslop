@@ -25,8 +25,10 @@ import { useReviewReadyToast } from "../hooks/use-review-ready-toast";
 import { useReviewPreferences } from "../../settings/hooks/use-review-preferences";
 import { matchesJobSnapshot } from "../../agents/lib/job-snapshots";
 import { useReviewNavigation } from "../hooks/use-review-navigation";
-import { defaultDiffSettings } from "../constants";
-import type { DiffView, ReviewLine } from "../types";
+import { useUiPreferences } from "../../settings/hooks/use-ui-preferences";
+import { changedEditorPreferences } from "../../settings/lib/ui-preferences";
+import { panelPreferencesSchema } from "../../settings/schemas";
+import type { ReviewLine } from "../types";
 import {
   ArrowLeft,
   ArrowRight,
@@ -86,6 +88,20 @@ export const ReviewWorkspace = ({ children }: ReviewWorkspaceProps) => {
   } | null>(null);
   const agents = useAgentState(preview?.id);
   const { preferences } = useReviewPreferences();
+  const ui = useUiPreferences();
+  const settings = ui.values.editor;
+  const view = ui.values.view;
+  const panelGroup = useRef<{
+    getLayout: () => Record<string, number>;
+    setLayout: (layout: Record<string, number>) => Record<string, number>;
+  } | null>(null);
+  const panelsRestored = useRef(false);
+  useEffect(() => {
+    if (!ui.preferences.data || !panelGroup.current || panelsRestored.current)
+      return;
+    panelsRestored.current = true;
+    if (ui.values.panels) panelGroup.current.setLayout(ui.values.panels);
+  }, [ui.preferences.data, ui.values.panels, mobile]);
   const { settings: aiSettings } = useAiSettings();
   const groupingConfigured = !!assignedModel(aiSettings.data, "grouping");
   const groupingJobs =
@@ -121,11 +137,9 @@ export const ReviewWorkspace = ({ children }: ReviewWorkspaceProps) => {
     FindingSchema,
     "path" | "side" | "start" | "end"
   > | null>(null);
-  const [view, setView] = useState<DiffView>("split");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [initialSettingsSection, setInitialSettingsSection] =
     useState<string>();
-  const [settings, setSettings] = useState(defaultDiffSettings);
   const reviewNotes = preview?.notes ?? [];
   const selectedFile =
     preview?.files.find(
@@ -466,9 +480,18 @@ export const ReviewWorkspace = ({ children }: ReviewWorkspaceProps) => {
             onOpenChange={setSettingsOpen}
             initialSection={initialSettingsSection}
             settings={settings}
-            onChange={setSettings}
+            onChange={(next) => {
+              const editor = changedEditorPreferences(settings, next);
+              if (Object.keys(editor).length) ui.save({ editor });
+            }}
             view={view}
-            onViewChange={setView}
+            onViewChange={(next) => ui.save({ view: next })}
+            onApplicationThemeChange={(applicationTheme) =>
+              ui.save({ applicationTheme })
+            }
+            preferencesLoading={ui.preferences.isPending}
+            preferencesError={ui.preferences.error?.message}
+            onRetryPreferences={() => void ui.preferences.refetch()}
           />
           {mobile && (
             <Sheet>
@@ -588,7 +611,19 @@ export const ReviewWorkspace = ({ children }: ReviewWorkspaceProps) => {
       {mobile ? (
         canvas
       ) : (
-        <ResizablePanelGroup orientation="horizontal">
+        <ResizablePanelGroup
+          orientation="horizontal"
+          groupRef={panelGroup}
+          defaultLayout={ui.values.panels ?? undefined}
+          disabled={ui.preferences.isPending || !!ui.preferences.error}
+          onLayoutChanged={(layout, meta) => {
+            if (!meta.isUserInteraction || !ui.preferences.data) return;
+            const parsed = panelPreferencesSchema.safeParse(
+              meta.requestedLayout ?? layout,
+            );
+            if (parsed.success) ui.save({ panels: parsed.data });
+          }}
+        >
           <ResizablePanel
             id="review-files"
             defaultSize="20%"

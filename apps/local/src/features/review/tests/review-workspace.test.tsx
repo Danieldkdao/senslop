@@ -5,17 +5,30 @@ import {
   cleanup,
   act,
   fireEvent,
-  render,
+  render as renderView,
   screen,
   waitFor,
   within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { ReactNode } from "react";
+import { defaultUiPreferences } from "../../settings/constants";
+import { mergeUiPreferences } from "../../settings/lib/ui-preferences";
 import { defaultAiSettings } from "../../agents/constants";
+import { defaultDiffSettings } from "../constants";
 import type { JobSchema } from "../../agents/schemas";
 import type { LivePreview, ReviewLine, ReviewNote } from "../types";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ReviewWorkspace } from "../components/review-workspace";
+
+let queryClient: QueryClient;
+const render = (ui: ReactNode) =>
+  renderView(ui, {
+    wrapper: ({ children }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    ),
+  });
 
 vi.mock("../../agents/hooks/use-agent-state", () => ({
   useAgentState: () => ({
@@ -77,6 +90,58 @@ vi.mock("../../settings/hooks/use-review-preferences", () => ({
     preferences: { data: { autoAdvance: state.autoAdvance } },
   }),
 }));
+
+test("editor settings survive reopening the workspace instead of resetting to defaults", async () => {
+  state.mobile = true;
+  let saved = {
+    editor: defaultDiffSettings,
+    view: "split",
+    applicationTheme: null,
+    panels: null,
+  };
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (_url, options) => {
+      if (options?.method === "PATCH") {
+        const patch = JSON.parse(options.body);
+        saved = {
+          ...saved,
+          ...patch,
+          editor: { ...saved.editor, ...patch.editor },
+        };
+      }
+      return Response.json(saved);
+    }),
+  );
+  const user = userEvent.setup();
+  const mount = () => render(<ReviewWorkspace>Setup</ReviewWorkspace>);
+  mount();
+  await user.click(screen.getByRole("button", { name: "Settings" }));
+  const size = screen.getByRole("spinbutton", { name: "Font size" });
+  await waitFor(() => expect((size as HTMLInputElement).disabled).toBe(false));
+  fireEvent.change(size, { target: { value: "20" } });
+  fireEvent.blur(size);
+  await user.click(screen.getByRole("button", { name: "Unified" }));
+  await waitFor(() => expect(saved.view).toBe("unified"));
+  cleanup();
+  queryClient = new QueryClient();
+  mount();
+  await user.click(screen.getByRole("button", { name: "Settings" }));
+  await waitFor(() =>
+    expect(
+      (
+        screen.getByRole("spinbutton", {
+          name: "Font size",
+        }) as HTMLInputElement
+      ).value,
+    ).toBe("20"),
+  );
+  expect(
+    screen
+      .getByRole("button", { name: "Unified" })
+      .getAttribute("aria-pressed"),
+  ).toBe("true");
+});
 vi.mock("../../workspace/components/workspace-toolbar", () => ({
   WorkspaceToolbar: () => null,
 }));
@@ -174,6 +239,21 @@ vi.mock("@/components/ui/toast", () => ({
 }));
 
 beforeEach(() => {
+  queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  let savedPreferences = defaultUiPreferences;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (_url, options?: RequestInit) => {
+      if (options?.method === "PATCH")
+        savedPreferences = mergeUiPreferences(
+          savedPreferences,
+          JSON.parse(String(options.body)),
+        );
+      return Response.json(savedPreferences);
+    }),
+  );
   Object.defineProperty(Element.prototype, "scrollIntoView", {
     configurable: true,
     value: vi.fn(),

@@ -10,6 +10,7 @@ import {
   Outfit,
 } from "next/font/google";
 import localFont from "next/font/local";
+import { LocalPreferences } from "../features/settings/components/local-preferences";
 import "../global.css";
 
 const headings = Fraunces({
@@ -71,7 +72,9 @@ const RootLayout = ({ children }: { children: React.ReactNode }) => {
       )}
     >
       <body>
-        <Providers>{children}</Providers>
+        <Providers>
+          <LocalPreferences>{children}</LocalPreferences>
+        </Providers>
       </body>
     </html>
   );

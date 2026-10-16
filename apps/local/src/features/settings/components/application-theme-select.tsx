@@ -22,7 +22,15 @@ import {
 
 const subscribeToHydration = () => () => {};
 
-export const ApplicationThemeSelect = () => {
+type ApplicationThemeSelectProps = {
+  disabled?: boolean;
+  onChange?: (theme: ApplicationTheme) => void;
+};
+
+export const ApplicationThemeSelect = ({
+  disabled,
+  onChange,
+}: ApplicationThemeSelectProps) => {
   const id = useId();
   const { theme, systemTheme, setTheme } = useTheme();
   const [preview, setPreview] = useState<ApplicationTheme | null>(null);
@@ -76,12 +84,13 @@ export const ApplicationThemeSelect = () => {
           if (value) {
             setPreview(null);
             setTheme(value);
+            onChange?.(value);
           }
         }}
       >
         <SelectTrigger
           id={id}
-          disabled={!mounted}
+          disabled={!mounted || disabled}
           className="w-full max-w-xs text-base"
         >
           <SelectValue>
