@@ -29,7 +29,7 @@ export const ChatMessage = ({
     >
       {user ? (
         <>
-          <div className="ml-auto @md:w-fit min-w-0 rounded-2xl bg-card px-4 py-3 text-card-foreground shadow-xs">
+          <div className="ml-auto @md:w-fit min-w-0 rounded-2xl bg-chat-user px-4 py-3 text-card-foreground">
             <p className="whitespace-pre-wrap wrap-anywhere text-base">
               {text}
             </p>
@@ -51,7 +51,7 @@ export const ChatMessage = ({
             busy={busy}
           />
           {text && (
-            <div className="min-w-0 rounded-2xl text-card-foreground shadow-xs">
+            <div className="min-w-0 text-foreground">
               <AgentMarkdown streaming={busy}>{text}</AgentMarkdown>
             </div>
           )}

@@ -224,7 +224,7 @@ export const AgentPanel = ({
                   role="status"
                   className={cn("flex items-center gap-2", status?.className)}
                 >
-                  {StatusIcon && (
+                  {StatusIcon && latest.status !== "running" && (
                     <StatusIcon
                       aria-hidden="true"
                       className="size-4 shrink-0"

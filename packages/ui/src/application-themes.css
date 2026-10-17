@@ -219,6 +219,7 @@
   --background: var(--palette-background);
   --foreground: var(--palette-foreground);
   --card: var(--palette-surface);
+  --chat-user: var(--palette-muted);
   --card-foreground: var(--palette-foreground);
   --popover: var(--palette-surface);
   --popover-foreground: var(--palette-foreground);

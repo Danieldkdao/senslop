@@ -9,6 +9,7 @@
   --background: oklch(0.9907 0.0054 95.0978);
   --foreground: oklch(0.3213 0.0199 145.0936);
   --card: oklch(0.9794 0.0093 113.1566);
+  --chat-user: var(--muted);
   --card-foreground: oklch(0.3213 0.0199 145.0936);
   --popover: oklch(0.9907 0.0054 95.0978);
   --popover-foreground: oklch(0.3213 0.0199 145.0936);
@@ -91,6 +92,7 @@
   --background: oklch(0.2264 0.0073 145.3297);
   --foreground: oklch(0.9247 0.0103 145.4919);
   --card: oklch(0.2589 0.0094 145.2978);
+  --chat-user: var(--card);
   --card-foreground: oklch(0.9247 0.0103 145.4919);
   --popover: oklch(0.2264 0.0073 145.3297);
   --popover-foreground: oklch(0.9247 0.0103 145.4919);
@@ -146,6 +148,7 @@
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
+  --color-chat-user: var(--chat-user);
   --color-card-foreground: var(--card-foreground);
   --color-popover: var(--popover);
   --color-popover-foreground: var(--popover-foreground);
