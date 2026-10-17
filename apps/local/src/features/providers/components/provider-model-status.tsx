@@ -46,10 +46,10 @@ export const ProviderModelStatus = ({
       aria-busy={checking}
     >
       <TooltipWrapper content={presentation.message}>
-        <div
+        <button
+          type="button"
           className="size-7 cursor-default flex items-center justify-center"
           aria-label={`${label}: ${presentation.label}`}
-          aria-description={presentation.message}
         >
           {presentation.state === "checking" ? (
             <Loader2
@@ -67,7 +67,7 @@ export const ProviderModelStatus = ({
               className={cn("size-4", presentation.className)}
             />
           )}
-        </div>
+        </button>
       </TooltipWrapper>
       <TooltipWrapper
         content={`Refresh ${label} models using the saved connection.`}
