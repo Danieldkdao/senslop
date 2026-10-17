@@ -11,6 +11,7 @@ export const mergeUiPreferences = (
   ...current,
   ...patch,
   editor: { ...current.editor, ...patch.editor },
+  buddy: { ...current.buddy, ...patch.buddy },
 });
 
 export const changedEditorPreferences = (

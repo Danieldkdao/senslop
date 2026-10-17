@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { applicationThemes } from "@/lib/constants";
+import { buddyMaxSize, buddyMinSize, buddySize } from "../buddy/constants";
 import {
   defaultDiffSettings,
   diffFonts,
@@ -39,12 +40,35 @@ export const panelPreferencesSchema = z
   );
 export type PanelPreferencesSchema = z.infer<typeof panelPreferencesSchema>;
 
+export const buddyPreferencesSchema = z
+  .object({
+    visible: z.boolean(),
+    animations: z.boolean(),
+    size: z.number().int().min(buddyMinSize).max(buddyMaxSize),
+    position: z
+      .object({ x: z.number().min(0).max(1), y: z.number().min(0).max(1) })
+      .strict()
+      .nullable(),
+  })
+  .strict();
+export type BuddyPreferencesSchema = z.infer<typeof buddyPreferencesSchema>;
+
 export const uiPreferencesSchema = z
   .object({
     editor: editorPreferencesSchema.default(defaultDiffSettings),
     view: z.enum(diffViews).default("split"),
     applicationTheme: z.enum(applicationThemes).nullable().default(null),
     panels: panelPreferencesSchema.nullable().default(null),
+    buddy: buddyPreferencesSchema
+      .extend({
+        size: buddyPreferencesSchema.shape.size.default(buddySize),
+      })
+      .default(() => ({
+        visible: true,
+        animations: true,
+        size: buddySize,
+        position: null,
+      })),
   })
   .strict();
 export type UiPreferencesSchema = z.infer<typeof uiPreferencesSchema>;
@@ -55,6 +79,7 @@ export const uiPreferencesPatchSchema = z
     view: z.enum(diffViews).optional(),
     applicationTheme: z.enum(applicationThemes).nullable().optional(),
     panels: panelPreferencesSchema.nullable().optional(),
+    buddy: buddyPreferencesSchema.partial().optional(),
   })
   .strict();
 export type UiPreferencesPatchSchema = z.infer<typeof uiPreferencesPatchSchema>;

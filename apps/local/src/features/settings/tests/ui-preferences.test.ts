@@ -57,6 +57,9 @@ test("UI preferences survive database restart and partial saves preserve unrelat
     panels: { "review-files": 24, "review-canvas": 48, "review-agents": 28 },
   });
   await patch({ editor: { fontSize: 22 } });
+  await patch({ buddy: { visible: false, position: { x: 0.25, y: 0.75 } } });
+  expect((await patch({ buddy: { size: 120 } })).status).toBe(200);
+  await patch({ buddy: { animations: false } });
   state.store.database.close();
   state.store = new LocalStore(join(directory, "preferences.db"));
   expect(await (await GET(request())).json()).toMatchObject({
@@ -74,6 +77,40 @@ test("UI preferences survive database restart and partial saves preserve unrelat
     applicationTheme: "sage-light",
     view: "unified",
     panels: { "review-files": 24, "review-canvas": 48, "review-agents": 28 },
+    buddy: {
+      size: 120,
+      visible: false,
+      animations: false,
+      position: { x: 0.25, y: 0.75 },
+    },
+  });
+});
+
+test("existing buddy preferences acquire the default size without losing saved placement", async () => {
+  open();
+  state.store.database
+    .prepare("INSERT INTO preferences VALUES ('ui_preferences', ?)")
+    .run(
+      JSON.stringify({
+        buddy: {
+          visible: false,
+          animations: false,
+          position: { x: 0.2, y: 0.8 },
+        },
+      }),
+    );
+  expect(await (await GET(request())).json()).toMatchObject({
+    buddy: {
+      visible: false,
+      animations: false,
+      size: 96,
+      position: { x: 0.2, y: 0.8 },
+    },
+  });
+  expect((await patch({ buddy: { size: 80 } })).status).toBe(200);
+  await patch({ buddy: { position: null } });
+  expect(await (await GET(request())).json()).toMatchObject({
+    buddy: { size: 80, visible: false, position: null },
   });
 });
 
@@ -86,6 +123,9 @@ test("invalid, unauthorized, and unavailable writes do not report success", asyn
     { view: "invalid" },
     { panels: { "review-files": 60 } },
     { autoAdvance: true },
+    { buddy: { size: 79 } },
+    { buddy: { size: 121 } },
+    { buddy: { size: 96.5 } },
   ])
     expect((await patch(body)).status).toBe(400);
   state.allowed = false;
