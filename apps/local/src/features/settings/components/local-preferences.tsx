@@ -5,6 +5,7 @@ import { useTheme } from "next-themes";
 import { applicationThemes } from "@/lib/constants";
 import { useUiPreferences } from "../hooks/use-ui-preferences";
 import { useWorkspaceUpdates } from "../../workspace/hooks/use-workspace-updates";
+import { BuddyProvider } from "../../buddy/components/buddy-provider";
 
 export const LocalPreferences = ({ children }: { children: ReactNode }) => {
   useWorkspaceUpdates();
@@ -23,5 +24,5 @@ export const LocalPreferences = ({ children }: { children: ReactNode }) => {
   useEffect(() => {
     if (values.applicationTheme !== null) setTheme(values.applicationTheme);
   }, [values.applicationTheme, setTheme]);
-  return children;
+  return <BuddyProvider>{children}</BuddyProvider>;
 };

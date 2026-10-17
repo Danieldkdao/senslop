@@ -158,6 +158,9 @@ const mockSystem = () =>
     "matchMedia",
     vi.fn(() => ({
       matches: true,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      // next-themes still subscribes through the legacy browser API.
       addListener: vi.fn(),
       removeListener: vi.fn(),
     })),

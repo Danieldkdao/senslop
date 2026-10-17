@@ -1,0 +1,237 @@
+.pip-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  overflow: visible;
+}
+
+.pip-handle {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: var(--buddy-size);
+  height: var(--buddy-size);
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  cursor: grab;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.pip-handle:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 3px;
+}
+
+.pip-dragging {
+  cursor: grabbing;
+}
+
+.pip-message {
+  position: absolute;
+  width: max-content;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--popover);
+  color: var(--popover-foreground);
+  box-shadow: var(--shadow-sm);
+  font-size: 16px;
+  line-height: 1.4;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+.pip-motion,
+.pip-sprite,
+.pip-sprite-canvas,
+.pip-sprite-fallback {
+  display: block;
+  width: var(--buddy-size);
+  height: var(--buddy-size);
+  pointer-events: none;
+  image-rendering: pixelated;
+}
+
+.pip-motion {
+  transform-origin: 50% 90%;
+  filter: drop-shadow(0 2px 1px var(--buddy-shadow));
+}
+
+.pip-sprite {
+  position: relative;
+}
+.pip-sprite-canvas {
+  position: relative;
+}
+.pip-sprite-fallback {
+  position: absolute;
+  inset: 0;
+  background-image: url("/buddy/pip-poses.png");
+  background-size: 400% 400%;
+}
+
+.pip-motion[data-mood="idle"] {
+  animation: pip-breathe 3.6s ease-in-out infinite;
+}
+.pip-motion[data-mood="thinking"] {
+  animation: pip-think 1.8s ease-in-out infinite;
+}
+.pip-motion[data-mood="working"],
+.pip-motion[data-mood="grouping"] {
+  animation: pip-work 1.5s ease-in-out infinite;
+}
+.pip-motion[data-mood="happy"] {
+  animation: pip-hop 750ms ease-in-out;
+}
+.pip-motion[data-mood="celebrate"] {
+  animation: pip-hop 800ms ease-in-out 2;
+}
+.pip-motion[data-mood="dance"] {
+  animation: pip-dance 700ms ease-in-out 4;
+}
+.pip-motion[data-mood="cry"] {
+  animation: pip-sob 1s ease-in-out 3;
+}
+.pip-motion[data-mood="retry"],
+.pip-motion[data-mood="theme"] {
+  animation: pip-hop 1s ease-in-out;
+}
+.pip-motion[data-mood="pickup"] {
+  transform: translateY(-4px) rotate(-4deg);
+}
+.pip-motion[data-mood="landing"] {
+  animation: pip-land 450ms ease-out;
+}
+.pip-motion[data-mood="wave"] {
+  animation: pip-wave 550ms ease-in-out 3;
+}
+.pip-motion[data-mood="sleep"] {
+  animation: pip-breathe 5s ease-in-out infinite;
+}
+.pip-motion[data-mood="proud"] {
+  animation: pip-nod 900ms ease-in-out;
+}
+.pip-motion[data-still="true"] {
+  animation: none;
+  transform: none;
+}
+
+.pip-confetti {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.pip-confetti i {
+  position: absolute;
+  left: calc(50% - 2px);
+  top: 36%;
+  width: 4px;
+  height: 6px;
+  background: var(--primary);
+  animation: pip-particle 1.4s ease-out both;
+  animation-delay: calc(var(--particle) * 18ms);
+}
+.pip-confetti i:nth-child(3n) {
+  background: var(--buddy-shine);
+}
+.pip-confetti i:nth-child(3n + 1) {
+  background: var(--buddy-light);
+}
+
+@keyframes pip-breathe {
+  50% {
+    transform: translateY(-2px);
+  }
+}
+@keyframes pip-think {
+  25% {
+    transform: rotate(-2deg);
+  }
+  75% {
+    transform: rotate(2deg) translateY(-2px);
+  }
+}
+@keyframes pip-work {
+  40% {
+    transform: translateY(-2px) rotate(-1deg);
+  }
+  75% {
+    transform: rotate(1deg);
+  }
+}
+@keyframes pip-hop {
+  15% {
+    transform: scaleX(1.05) scaleY(0.94);
+  }
+  45% {
+    transform: translateY(-20px) scaleX(0.97) scaleY(1.03);
+  }
+  75% {
+    transform: scaleX(1.04) scaleY(0.96);
+  }
+}
+@keyframes pip-dance {
+  20% {
+    transform: translate(-6px, -16px) rotate(-5deg);
+  }
+  50% {
+    transform: scaleX(1.04) scaleY(0.96);
+  }
+  75% {
+    transform: translate(6px, -16px) rotate(5deg);
+  }
+}
+@keyframes pip-sob {
+  25% {
+    transform: translateX(-1px) translateY(2px);
+  }
+  75% {
+    transform: translateX(1px);
+  }
+}
+@keyframes pip-land {
+  20% {
+    transform: scaleX(1.1) scaleY(0.88);
+  }
+  60% {
+    transform: scaleX(0.98) scaleY(1.02);
+  }
+}
+@keyframes pip-wave {
+  30% {
+    transform: rotate(-3deg);
+  }
+  70% {
+    transform: rotate(3deg);
+  }
+}
+@keyframes pip-nod {
+  40% {
+    transform: translateY(3px) scaleY(0.97);
+  }
+}
+@keyframes pip-particle {
+  from {
+    opacity: 1;
+    transform: rotate(calc(var(--particle) * 30deg)) translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: rotate(calc(var(--particle) * 30deg))
+      translateY(calc(var(--buddy-size) * -0.8)) rotate(120deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pip-motion,
+  .pip-confetti i {
+    animation: none !important;
+    transform: none !important;
+  }
+  .pip-confetti {
+    display: none;
+  }
+}
