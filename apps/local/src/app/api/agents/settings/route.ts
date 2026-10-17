@@ -49,3 +49,24 @@ export const PUT = async (request: Request) => {
     );
   }
 };
+
+export const PATCH = async (request: Request) => {
+  if (!protectLocalRoute(request))
+    return Response.json(
+      { message: "Invalid local session." },
+      { status: 403 },
+    );
+  try {
+    const workspace = getWorkspace();
+    const updatedSettings = new AgentStore(
+      workspace.store,
+      await workspace.root(),
+    ).patchSettings(await readLocalBody(request));
+    return Response.json(updatedSettings);
+  } catch {
+    return Response.json(
+      { message: "Check the AI settings patch and retry." },
+      { status: 400 },
+    );
+  }
+};

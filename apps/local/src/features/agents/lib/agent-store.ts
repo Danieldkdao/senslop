@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import type { LocalStore } from "@senslop/review-core/storage";
 import {
   aiSettingsSchema,
+  aiSettingsPatchSchema,
   conversationSchema,
   jobSchema,
   type AiSettingsSchema,
@@ -40,6 +41,17 @@ export class AgentStore {
       .run(JSON.stringify(settings));
     return settings;
   };
+
+  patchSettings = (input: unknown) =>
+    this.local.transaction(() => {
+      const patch = aiSettingsPatchSchema.parse(input);
+      const existingSettings = this.settings();
+      return this.saveSettings({
+        ...existingSettings,
+        ...patch,
+        roles: { ...existingSettings.roles, ...patch.roles },
+      });
+    });
 
   snapshot = (id: string) => {
     const existingReview = this.local.getReview(this.repository, id);

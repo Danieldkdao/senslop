@@ -1,0 +1,64 @@
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { LocalStore } from "@senslop/review-core/storage";
+import { AgentStore } from "../../agents/lib/agent-store";
+
+const state = vi.hoisted(() => ({ store: null as unknown as LocalStore }));
+vi.mock("../../../features/workspace/lib/server-workspace", () => ({
+  getWorkspace: () => ({ store: state.store, root: async () => "/repo" }),
+  protectLocalRoute: () => true,
+  readLocalBody: (request: Request) => request.json(),
+}));
+import { PATCH as patchAi } from "../../../app/api/agents/settings/route";
+import {
+  GET as getReview,
+  PATCH as patchReview,
+} from "../../../app/api/review-preferences/route";
+
+let directory: string;
+beforeEach(async () => {
+  directory = await mkdtemp(join(tmpdir(), "senslop-settings-"));
+  state.store = new LocalStore(join(directory, "reviews.sqlite"));
+});
+afterEach(async () => {
+  state.store.close();
+  await rm(directory, { recursive: true, force: true });
+});
+const request = (body: object) =>
+  new Request("http://localhost/api/settings", {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  });
+
+test("CLI AI patches merge nested model roles without resetting other settings", async () => {
+  const agents = new AgentStore(state.store, "/repo");
+  const model = {
+    connectionId: crypto.randomUUID(),
+    modelId: "fixture",
+    name: "Fixture",
+  };
+  agents.saveSettings({
+    ...agents.settings(),
+    roles: { ...agents.settings().roles, review: model },
+  });
+  const response = await patchAi(
+    request({ groupingMode: "always", roles: { grouping: model } }),
+  );
+  expect(response.status).toBe(200);
+  expect(await response.json()).toMatchObject({
+    groupingMode: "always",
+    roles: { grouping: model, review: model },
+    prompt: agents.settings().prompt,
+  });
+  expect((await patchAi(request({ unknown: true }))).status).toBe(400);
+});
+
+test("review preference patches persist and reject unknown keys", async () => {
+  expect((await patchReview(request({ autoAdvance: true }))).status).toBe(200);
+  expect(await (await getReview(request({}))).json()).toEqual({
+    autoAdvance: true,
+  });
+  expect((await patchReview(request({ unrelated: false }))).status).toBe(400);
+});

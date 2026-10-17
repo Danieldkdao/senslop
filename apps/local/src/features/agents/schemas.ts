@@ -60,6 +60,11 @@ export const aiSettingsSchema = z.object({
     ),
 });
 export type AiSettingsSchema = z.infer<typeof aiSettingsSchema>;
+export const aiSettingsPatchSchema = aiSettingsSchema
+  .partial()
+  .extend({ roles: aiSettingsSchema.shape.roles.partial().optional() })
+  .strict();
+export type AiSettingsPatchSchema = z.infer<typeof aiSettingsPatchSchema>;
 export const groupingSchema = z.object({
   groups: z
     .array(
