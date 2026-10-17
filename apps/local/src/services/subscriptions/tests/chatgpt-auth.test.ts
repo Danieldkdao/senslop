@@ -97,7 +97,7 @@ test("wrong state and declined authorization never exchange a code", async () =>
   ).rejects.toMatchObject({
     stage: "plan-permission",
     message: expect.stringMatching(
-      /ChatGPT Plus.*ChatGPT Pro.*Free.*eligible account and workspace/,
+      /ChatGPT plan access.*ChatGPT Plus.*ChatGPT Pro.*eligible account and workspace/,
     ),
   });
   expect(calls).toBe(0);
