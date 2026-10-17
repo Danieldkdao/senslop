@@ -62,6 +62,11 @@ test("agent tabs occupy the panel header without a separate title row", () => {
   );
   const header = screen.getByLabelText("Agents").querySelector("header")!;
   expect(within(header).getByRole("tab", { name: "Chat" })).toBeTruthy();
+  expect(
+    within(header)
+      .getByRole("tab", { name: "Chat" })
+      .getAttribute("aria-selected"),
+  ).toBe("true");
   expect(within(header).getByRole("tab", { name: "Review" })).toBeTruthy();
   expect(within(header).queryByText("Agents")).toBeNull();
 });
@@ -180,6 +185,36 @@ test("grouping keeps agent tabs mounted and disables actions until ready", async
   expect(
     screen.getByRole("tab", { name: "Chat" }).getAttribute("aria-disabled"),
   ).not.toBe("true");
+  await waitFor(() =>
+    expect(
+      screen.getByRole("tab", { name: "Chat" }).getAttribute("aria-selected"),
+    ).toBe("true"),
+  );
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("tab", { name: "Review" }));
+  expect(
+    screen.getByRole("tab", { name: "Review" }).getAttribute("aria-selected"),
+  ).toBe("true");
+  rerender(
+    <AgentPanel
+      preparing
+      snapshotId="snapshot"
+      agents={{ state: { data: { jobs: [] } } } as never}
+      onEvidence={vi.fn()}
+    />,
+  );
+  rerender(
+    <AgentPanel
+      snapshotId="snapshot"
+      agents={{ state: { data: { jobs: [] } } } as never}
+      onEvidence={vi.fn()}
+    />,
+  );
+  await waitFor(() =>
+    expect(
+      screen.getByRole("tab", { name: "Review" }).getAttribute("aria-selected"),
+    ).toBe("true"),
+  );
 });
 
 test("a running code review keeps its action label and uses LoadingSwap", async () => {

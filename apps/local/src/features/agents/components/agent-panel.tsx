@@ -65,6 +65,7 @@ export const AgentPanel = ({
   });
   const { settings } = useAiSettings();
   const configured = !!assignedModel(settings.data, "review");
+  const [tab, setTab] = useState("chat");
   const [selectedRun, setSelectedRun] = useState<JobSchema | null>(null);
   const [stopping, setStopping] = useState(false);
   const [history, setHistory] = useState(false);
@@ -90,7 +91,13 @@ export const AgentPanel = ({
       aria-label="Agents"
       className="flex h-full min-h-0 flex-col bg-sidebar text-sidebar-foreground"
     >
-      <Tabs defaultValue="chat" className="min-h-0 flex-1 gap-0 flex flex-col">
+      <Tabs
+        value={tab}
+        onValueChange={(value) =>
+          setTab(value === "review" ? "review" : "chat")
+        }
+        className="min-h-0 flex-1 gap-0 flex flex-col"
+      >
         <header className="flex h-14 shrink-0 items-center border-b px-4">
           <TabsList className="shrink-0 w-full">
             <TabsTrigger
