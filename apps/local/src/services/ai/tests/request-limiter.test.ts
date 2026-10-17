@@ -7,6 +7,91 @@ afterEach(() => vi.useRealTimers());
 const pause = (milliseconds: number) =>
   new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
 
+test("streaming holds its request slot through consumption and releases on cancellation", async () => {
+  const limiter = createRequestLimiter({
+    initialConcurrency: 1,
+    maxConcurrency: 1,
+  });
+  let controller!: ReadableStreamDefaultController<string>;
+  const first = await limiter.runStream(async () => ({
+    stream: new ReadableStream<string>({
+      start(value) {
+        controller = value;
+      },
+    }),
+  }));
+  let admitted = false;
+  const second = limiter.run(async () => {
+    admitted = true;
+  });
+  await pause(5);
+  expect(admitted).toBe(false);
+  await first.stream.cancel();
+  await second;
+  expect(limiter.state().active).toBe(0);
+  expect(controller).toBeTruthy();
+});
+
+test.each(["generation", "stream"])(
+  "native %s can await nested context requests without deadlocking or running children in parallel",
+  async (mode) => {
+    const limiter = createRequestLimiter({
+      initialConcurrency: 1,
+      maxConcurrency: 1,
+      allowNestedRequests: true,
+    });
+    const abort = new AbortController();
+    const timer = setTimeout(() => abort.abort(), 1000);
+    let active = 0;
+    let peak = 0;
+    try {
+      const operation = async () =>
+        Promise.all(
+          [1, 2].map((value) =>
+            limiter.run(async () => {
+              active++;
+              peak = Math.max(peak, active);
+              await pause(5);
+              active--;
+              return value;
+            }, abort.signal),
+          ),
+        );
+      const result =
+        mode === "generation"
+          ? limiter.run(operation, abort.signal)
+          : (async () => {
+              const result = await limiter.runStream(
+                async () => ({
+                  stream: new ReadableStream<number[]>({
+                    start(controller) {
+                      void pause(5)
+                        .then(operation)
+                        .then((value) => {
+                          controller.enqueue(value);
+                          controller.close();
+                        })
+                        .catch((error) => controller.error(error));
+                    },
+                  }),
+                }),
+                abort.signal,
+              );
+              const reader = result.stream.getReader();
+              const first = await reader.read();
+              await reader.read();
+              return first.value;
+            })();
+      await expect(result).resolves.toEqual([1, 2]);
+      expect(peak).toBe(1);
+      expect(limiter.state().active).toBe(0);
+    } finally {
+      clearTimeout(timer);
+      abort.abort();
+    }
+  },
+);
+
 test("healthy queued requests probe higher concurrency without exceeding the ceiling", async () => {
   vi.useFakeTimers();
   const limiter = createRequestLimiter({

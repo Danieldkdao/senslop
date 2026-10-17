@@ -86,6 +86,96 @@ test("SDK React Chat consumes the native response and completion persists a UI m
   });
 });
 
+test("provider-executed tools remain visible and a final answer in the same step completes normally", async () => {
+  const saved: string[] = [];
+  const generation = streamText({
+    model: new MockLanguageModelV4({
+      doStream: async () => ({
+        stream: new ReadableStream({
+          start(controller) {
+            controller.enqueue({
+              type: "tool-call",
+              toolCallId: "native-read",
+              toolName: "mcp__senslop__readSource",
+              input: '{"path":"a.ts"}',
+              providerExecuted: true,
+              dynamic: true,
+            });
+            controller.enqueue({
+              type: "tool-result",
+              toolCallId: "native-read",
+              toolName: "mcp__senslop__readSource",
+              result: "captured source",
+              dynamic: true,
+            });
+            controller.enqueue({
+              type: "tool-call",
+              toolCallId: "native-extra",
+              toolName: "ToolSearch",
+              input: "{}",
+              providerExecuted: true,
+              dynamic: true,
+            });
+            controller.enqueue({
+              type: "tool-result",
+              toolCallId: "native-extra",
+              toolName: "ToolSearch",
+              result: "tool metadata",
+              dynamic: true,
+            });
+            controller.enqueue({ type: "text-start", id: "answer" });
+            controller.enqueue({
+              type: "text-delta",
+              id: "answer",
+              delta: "Final answer",
+            });
+            controller.enqueue({ type: "text-end", id: "answer" });
+            controller.enqueue({
+              type: "finish",
+              finishReason: { unified: "stop", raw: "stop" },
+              usage: {
+                inputTokens: {
+                  total: 1,
+                  noCache: 1,
+                  cacheRead: 0,
+                  cacheWrite: 0,
+                },
+                outputTokens: { total: 2, text: 2, reasoning: 0 },
+              },
+            });
+            controller.close();
+          },
+        }),
+      }),
+    }),
+    prompt: "Explain",
+    onError: () => {},
+  });
+  const response = agentStreamResponse(
+    generation.stream,
+    new AbortController(),
+    async (_message, status) => {
+      saved.push(status);
+    },
+  );
+  const chat = new Chat({
+    transport: new DefaultChatTransport({ fetch: async () => response }),
+  });
+  await chat.sendMessage({ text: "Explain" });
+  expect(chat.status).toBe("ready");
+  expect(saved).toEqual(["complete"]);
+  expect(chat.messages.at(-1)?.parts).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        type: "dynamic-tool",
+        toolName: "mcp__senslop__readSource",
+      }),
+      expect.objectContaining({ type: "dynamic-tool", toolName: "ToolSearch" }),
+      expect.objectContaining({ type: "text", text: "Final answer" }),
+    ]),
+  );
+});
+
 test("provider failure preserves partial output and reaches the SDK client as an error", async () => {
   const saved: { message: UIMessage; status: string }[] = [];
   const response = agentStreamResponse(

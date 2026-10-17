@@ -1,4 +1,5 @@
 import { APICallError } from "ai";
+import { AsyncLocalStorage } from "node:async_hooks";
 import {
   getAiErrorStatus,
   getAiProviderBackoff,
@@ -17,11 +18,13 @@ import type { ProviderRequestLimits } from "./types";
 export const createRequestLimiter = ({
   initialConcurrency = initialProviderConcurrency,
   maxConcurrency = maximumAnalysisConcurrency,
+  allowNestedRequests = false,
   limits = {},
   onChange,
 }: {
   initialConcurrency?: number;
   maxConcurrency?: number;
+  allowNestedRequests?: boolean;
   limits?: ProviderRequestLimits;
   onChange?: (state: {
     concurrency: number;
@@ -41,6 +44,10 @@ export const createRequestLimiter = ({
   const reservations: { startedAt: number; inputTokens: number }[] = [];
   const subscribers = new Set<() => void>();
   const demands = new Set<() => number>();
+  const execution = new AsyncLocalStorage<{
+    active: boolean;
+    run: typeof run;
+  }>();
   const state = () => ({ concurrency, active, queued: queue.length });
   const changed = (reason: string, delayMs: number) => {
     onChange?.({ ...state(), reason, delayMs });
@@ -130,6 +137,8 @@ export const createRequestLimiter = ({
       actualInputTokens?: (result: T) => number | undefined;
     } = {},
   ): Promise<T> => {
+    const parent = allowNestedRequests ? execution.getStore() : undefined;
+    if (parent?.active) return parent.run(operation, signal, budget);
     const inputTokens = Math.ceil(budget.inputTokens ?? 0);
     if (
       !Number.isFinite(inputTokens) ||
@@ -142,9 +151,23 @@ export const createRequestLimiter = ({
       );
     const { release, reservation } = await acquire(inputTokens, signal);
     const startedAt = Date.now();
+    let nestedRun: typeof run | undefined;
+    const scope = {
+      active: true,
+      // Native MCP calls await Context inside the parent request; serialize children in its slot.
+      run: ((operation, signal, budget) => {
+        nestedRun ??= createRequestLimiter({
+          initialConcurrency: 1,
+          maxConcurrency: 1,
+          limits,
+          allowNestedRequests: true,
+        }).run;
+        return nestedRun(operation, signal, budget);
+      }) as typeof run,
+    };
     try {
       signal?.throwIfAborted();
-      const result = await operation();
+      const result = await execution.run(scope, operation);
       const actualInputTokens = budget.actualInputTokens?.(result);
       if (
         actualInputTokens !== undefined &&
@@ -190,11 +213,85 @@ export const createRequestLimiter = ({
       }
       throw error;
     } finally {
+      scope.active = false;
       release();
     }
   };
+  const runStream = async <T extends { stream: ReadableStream<unknown> }>(
+    operation: () => PromiseLike<T>,
+    signal?: AbortSignal,
+    budget: { inputTokens?: number } = {},
+  ): Promise<T> => {
+    let resolveStarted!: (result: T) => void;
+    let rejectStarted!: (error: unknown) => void;
+    const started = {
+      promise: new Promise<T>((resolve, reject) => {
+        resolveStarted = resolve;
+        rejectStarted = reject;
+      }),
+      resolve: (result: T) => resolveStarted(result),
+      reject: (error: unknown) => rejectStarted(error),
+    };
+    let resolveEnded!: () => void;
+    let rejectEnded!: (error: unknown) => void;
+    const ended = {
+      promise: new Promise<void>((resolve, reject) => {
+        resolveEnded = resolve;
+        rejectEnded = reject;
+      }),
+      resolve: () => resolveEnded(),
+      reject: (error: unknown) => rejectEnded(error),
+    };
+    void ended.promise.catch(() => {});
+    void run(
+      async () => {
+        const result = await operation();
+        const reader = result.stream.getReader();
+        const abort = () => {
+          void reader.cancel().catch(() => {});
+          ended.reject(signal?.reason);
+        };
+        signal?.addEventListener("abort", abort, { once: true });
+        if (signal?.aborted) abort();
+        started.resolve({
+          ...result,
+          stream: new ReadableStream({
+            async pull(controller) {
+              try {
+                const part = await reader.read();
+                if (part.done) {
+                  controller.close();
+                  ended.resolve();
+                } else controller.enqueue(part.value);
+              } catch (error) {
+                controller.error(error);
+                ended.reject(error);
+              }
+            },
+            async cancel(reason) {
+              try {
+                await reader.cancel(reason);
+              } finally {
+                ended.resolve();
+              }
+            },
+          }),
+        });
+        try {
+          await ended.promise;
+          return result;
+        } finally {
+          signal?.removeEventListener("abort", abort);
+        }
+      },
+      signal,
+      budget,
+    ).catch(started.reject);
+    return started.promise;
+  };
   return {
     run,
+    runStream,
     state,
     subscribe: (listener: () => void) => {
       subscribers.add(listener);
@@ -217,6 +314,10 @@ export const getRequestLimiter = (key: string, provider: string) => {
   let limiter = limiters.get(key);
   if (!limiter) {
     limiter = createRequestLimiter({
+      ...(provider === "chatgpt-subscription" || provider === "claude-code"
+        ? { initialConcurrency: 1, maxConcurrency: 2 }
+        : {}),
+      allowNestedRequests: provider === "claude-code",
       limits: provider === "google" ? googleRequestLimits : {},
       onChange: (state) =>
         console.info("[senslop:ai-capacity]", { provider, ...state }),

@@ -23,6 +23,7 @@ export const agentStreamResponse = <Tools extends ToolSet>(
   const startedAt = Date.now();
   let thinkingEndedAt: number | undefined;
   let stepHasTools = false;
+  const nativeTools = new Set<string>();
   return createUIMessageStreamResponse({
     stream: toUIMessageStream({
       stream: stream.pipeThrough(
@@ -30,15 +31,20 @@ export const agentStreamResponse = <Tools extends ToolSet>(
           transform(part, controller) {
             if (part.type === "start-step") {
               stepHasTools = false;
+              nativeTools.clear();
               hasText = false;
               thinkingEndedAt = undefined;
             }
             if (part.type === "tool-call") {
-              stepHasTools = true;
+              if (part.providerExecuted) nativeTools.add(part.toolCallId);
+              else stepHasTools = true;
+              hasText = false;
               thinkingEndedAt = undefined;
             }
+            if (part.type === "tool-result" || part.type === "tool-error")
+              nativeTools.delete(part.toolCallId);
             if (part.type === "text-delta") {
-              if (!stepHasTools && part.text.trim())
+              if (!stepHasTools && !nativeTools.size && part.text.trim())
                 thinkingEndedAt ??= Date.now();
               length += part.text.length;
               hasText ||= !!part.text.trim();
@@ -50,7 +56,11 @@ export const agentStreamResponse = <Tools extends ToolSet>(
                 throw new AiServiceError(
                   "The model reached its response limit. Retry or choose another model.",
                 );
-              if (part.finishReason === "tool-calls" || stepHasTools)
+              if (
+                part.finishReason === "tool-calls" ||
+                stepHasTools ||
+                nativeTools.size
+              )
                 throw new AiServiceError(
                   "The agent stopped before its final answer. Retry when ready.",
                 );

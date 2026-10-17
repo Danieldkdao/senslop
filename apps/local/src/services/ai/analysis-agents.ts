@@ -5,6 +5,7 @@ import {
   type ToolSet,
   type ToolLoopAgentSettings,
   type PrepareStepFunction,
+  type LanguageModel,
 } from "ai";
 import { z } from "zod";
 import { groupingSchema } from "../../features/agents/schemas";
@@ -27,24 +28,39 @@ type AnalysisAgentSettings = ToolLoopAgentSettings<
 type AnalysisAgentConfiguration = Pick<
   AnalysisAgentSettings,
   "model" | "instructions" | "tools" | "providerOptions" | "maxRetries"
->;
+> & {
+  createModel?: (
+    tools: ToolSet,
+    maxTurns: number,
+    signal?: AbortSignal,
+  ) => Exclude<LanguageModel, string>;
+};
 
 const createAnalysisAgent = (
   id: string,
   schema: z.ZodType,
   settings: AnalysisAgentConfiguration,
-) =>
-  new ToolLoopAgent<
+) => {
+  const { createModel, ...agentSettings } = settings;
+  return new ToolLoopAgent<
     StructuredAnalysisCall,
     ToolSet,
     Record<string, unknown>,
     ReturnType<typeof Output.object>
   >({
-    ...settings,
+    ...agentSettings,
     id,
     output: Output.object({ schema }),
     prepareCall: ({ options, ...call }) => ({
       ...call,
+      ...(createModel
+        ? {
+            model: createModel(
+              options?.toolsEnabled ? (settings.tools ?? {}) : {},
+              options?.maxSteps ?? 1,
+            ),
+          }
+        : {}),
       // JSON-mode adapters may omit the schema on the wire; keep the contract visible to the model.
       instructions: [
         ...(typeof call.instructions === "string"
@@ -62,8 +78,8 @@ const createAnalysisAgent = (
       output: Output.object({ schema: options?.schema ?? schema }),
       maxOutputTokens: options?.maxOutputTokens ?? 8000,
       providerOptions: options?.providerOptions ?? call.providerOptions,
-      stopWhen: isStepCount(options?.maxSteps ?? 1),
-      tools: options?.toolsEnabled ? settings.tools : {},
+      stopWhen: isStepCount(createModel ? 1 : (options?.maxSteps ?? 1)),
+      tools: options?.toolsEnabled && !createModel ? settings.tools : {},
       prepareStep: async (step) => ({
         ...(await options?.prepareStep?.(step)),
         ...(!options?.toolsEnabled || step.stepNumber === options.maxSteps - 1
@@ -76,6 +92,7 @@ const createAnalysisAgent = (
       }),
     }),
   });
+};
 
 export const createGroupingAgent = (settings: AnalysisAgentConfiguration) =>
   createAnalysisAgent("senslop-grouping", groupingSchema, settings);

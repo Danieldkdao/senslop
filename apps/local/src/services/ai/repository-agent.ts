@@ -7,11 +7,11 @@ import {
   tool,
   isStepCount,
   type ModelMessage,
+  type ToolSet,
 } from "ai";
 import { z } from "zod";
 import type { SavedReviewSchema } from "@senslop/contracts";
-import { ProviderService } from "../../features/providers/lib/provider-service";
-import { osCredentials } from "../credentials/os-credentials";
+import { resolveProviderConnection } from "./provider-connection";
 import {
   AiServiceError,
   AiOutputLimitError,
@@ -106,8 +106,11 @@ export const createRepositoryAgent = async ({
   };
 }) => {
   const policy = { ...defaultAnalysisExecutionPolicy, ...executionPolicy };
-  const resolved = await new ProviderService(local, osCredentials).resolve(
+  const resolved = await resolveProviderConnection(
+    local,
     selection.connectionId,
+    selection.modelId,
+    signal,
   );
   const model = resolveLanguageModel(
     resolved.connection,
@@ -332,10 +335,12 @@ export const createRepositoryAgent = async ({
       const selection = assignedModel(settings, "context");
       if (!selection)
         throw new AiServiceError("Configure a Context model in AI settings.");
-      const connection = await new ProviderService(
+      const connection = await resolveProviderConnection(
         local,
-        osCredentials,
-      ).resolve(selection.connectionId);
+        selection.connectionId,
+        selection.modelId,
+        signal,
+      );
       const resolvedContext = resolveLanguageModel(
         connection.connection,
         connection.secret,
@@ -370,10 +375,13 @@ export const createRepositoryAgent = async ({
       );
       const result = await generateText({
         ...resolvedContext,
+        ...(resolvedContext.createModel
+          ? { model: resolvedContext.createModel(repositoryTools, 4, signal) }
+          : {}),
         instructions,
         prompt,
-        tools: repositoryTools,
-        stopWhen: isStepCount(4),
+        tools: resolvedContext.createModel ? {} : repositoryTools,
+        stopWhen: isStepCount(resolvedContext.createModel ? 1 : 4),
         maxOutputTokens: contextOutputTokens,
         maxRetries: 2,
         timeout: 120000,
@@ -447,6 +455,12 @@ export const createRepositoryAgent = async ({
   const chatStepLimit = 8;
   const options = {
     ...model,
+    ...(model.createModel
+      ? {
+          createModel: (tools: ToolSet, maxTurns: number) =>
+            model.createModel!(tools, maxTurns, signal),
+        }
+      : {}),
     instructions,
     tools: {
       ...repositoryTools,
@@ -983,6 +997,13 @@ export const createRepositoryAgent = async ({
     stream: (messages: ModelMessage[], explain = false) =>
       streamText({
         ...options,
+        ...(model.createModel
+          ? {
+              model: model.createModel(options.tools, chatStepLimit, signal),
+              tools: {},
+              stopWhen: isStepCount(1),
+            }
+          : {}),
         // Keep active answers alive across investigation steps; bound stalls separately.
         timeout: agentStreamTimeout,
         instructions: `${instructions}\n${explain ? "Explain the exact requested code and how it connects to the selected changes. Use the Context agent when necessary." : "Discuss the user's changes and use repository tools and the Context agent when helpful."}\nSnapshot: ${initial}`,

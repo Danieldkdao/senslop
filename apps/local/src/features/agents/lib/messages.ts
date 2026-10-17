@@ -43,16 +43,34 @@ export const getChatPresentation = (message: AgentMessage, busy: boolean) => {
     if (part.type === "step-start") stepStart = index;
   });
   const currentStep = parts.slice(stepStart + 1);
-  const hasTools = currentStep.some(isToolUIPart);
+  const tools = currentStep.filter(isToolUIPart);
+  const nativeToolsComplete =
+    tools.length > 0 &&
+    tools.every(
+      (part) =>
+        part.providerExecuted &&
+        ["output-available", "output-error", "output-denied"].includes(
+          part.state,
+        ),
+    );
+  const answerStart = nativeToolsComplete
+    ? parts.reduce(
+        (last, part, index) =>
+          index > stepStart && isToolUIPart(part) ? index : last,
+        stepStart,
+      )
+    : stepStart;
   const answerStarted =
-    currentStep.some((part) => part.type === "text" && !!part.text.trim()) &&
-    !hasTools;
+    parts
+      .slice(answerStart + 1)
+      .some((part) => part.type === "text" && !!part.text.trim()) &&
+    (!tools.length || nativeToolsComplete);
   const activity: ChatActivity[] = [];
   let answer = "";
   for (const [index, part] of parts.entries()) {
     const id = `${message.id}:${index}`;
     if (part.type === "text") {
-      if (answerStarted && index > stepStart) answer += part.text;
+      if (answerStarted && index > answerStart) answer += part.text;
       else if (part.text)
         activity.push({
           id,
