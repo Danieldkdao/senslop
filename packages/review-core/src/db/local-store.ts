@@ -90,27 +90,30 @@ export class LocalStore {
       : null;
   };
 
-  listReviews = (repository: string, search = "") => {
-    const existingReviews = this.database
-      .prepare(
-        "SELECT body FROM reviews WHERE repository = ? AND instr(lower(json_extract(body, '$.title')), lower(?)) > 0 ORDER BY rowid DESC",
-      )
-      .all(repository, search.trim().slice(0, 200));
-    return existingReviews.map((row) => {
-      const review = savedReviewSchema.parse(JSON.parse(String(row.body)));
-      return {
-        id: review.id,
-        round: review.round,
-        title: review.title,
-        createdAt: review.createdAt,
-        updatedAt: review.updatedAt,
-        hash: review.hash,
-        kind: review.source.kind,
-        fileCount: review.files.length,
-        noteCount: review.notes.length,
-        completedCount: review.completedPaths.length,
-      };
-    });
+  listReviews = (
+    repository: string,
+    search = "",
+    page?: { offset: number; limit: number },
+  ) => {
+    const query = `SELECT id, json_extract(body, '$.round') AS round, json_extract(body, '$.title') AS title, json_extract(body, '$.createdAt') AS created_at, json_extract(body, '$.updatedAt') AS updated_at, json_extract(body, '$.hash') AS hash, json_extract(body, '$.source.kind') AS kind, json_array_length(body, '$.files') AS file_count, json_array_length(body, '$.notes') AS note_count, json_array_length(body, '$.completedPaths') AS completed_count FROM reviews WHERE repository = ? AND instr(lower(json_extract(body, '$.title')), lower(?)) > 0 ORDER BY rowid DESC${page ? " LIMIT ? OFFSET ?" : ""}`;
+    const parameters = [
+      repository,
+      search.trim().slice(0, 200),
+      ...(page ? [page.limit, page.offset] : []),
+    ];
+    const existingReviews = this.database.prepare(query).all(...parameters);
+    return existingReviews.map((row) => ({
+      id: String(row.id),
+      round: Number(row.round ?? 1),
+      title: String(row.title),
+      createdAt: String(row.created_at),
+      updatedAt: String(row.updated_at),
+      hash: String(row.hash),
+      kind: String(row.kind),
+      fileCount: Number(row.file_count),
+      noteCount: Number(row.note_count),
+      completedCount: Number(row.completed_count),
+    }));
   };
 
   currentReview = (repository: string) => {
@@ -363,6 +366,23 @@ export class LocalStore {
         .prepare("UPDATE reviews SET body = ? WHERE repository = ? AND id = ?")
         .run(JSON.stringify(saved), repository, id);
       return saved;
+    });
+
+  enableGrouping = (repository: string, id: string) =>
+    this.transaction(() => {
+      const existingReview = this.getReview(repository, id);
+      if (!existingReview)
+        throw new Error("Saved review not found in this repository.");
+      if (existingReview.groupingEnabled !== false) return;
+      const updatedReview = {
+        ...existingReview,
+        groupingEnabled: true,
+        revision: existingReview.revision + 1,
+        updatedAt: new Date().toISOString(),
+      };
+      this.database
+        .prepare("UPDATE reviews SET body = ? WHERE repository = ? AND id = ?")
+        .run(JSON.stringify(updatedReview), repository, id);
     });
 
   deleteReview = (repository: string, id: string) => {

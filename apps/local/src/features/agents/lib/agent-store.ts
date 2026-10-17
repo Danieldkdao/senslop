@@ -71,6 +71,21 @@ export class AgentStore {
       : null;
   };
 
+  jobHistory = (snapshotId: string, offset = 0, limit = 50, search = "") => {
+    this.snapshot(snapshotId);
+    const existingJobs = this.local.database
+      .prepare(
+        "SELECT body FROM ai_jobs WHERE snapshot_id = ? AND instr(lower(body), lower(?)) > 0 ORDER BY rowid DESC LIMIT ? OFFSET ?",
+      )
+      .all(snapshotId, search.trim().slice(0, 200), limit + 1, offset);
+    return {
+      items: existingJobs
+        .slice(0, limit)
+        .map((row) => jobSchema.parse(JSON.parse(String(row.body)))),
+      next: existingJobs.length > limit ? offset + limit : null,
+    };
+  };
+
   renameReview = (id: string, title: string) =>
     this.local.transaction(() => {
       const existingJob = this.job(id);

@@ -12,6 +12,10 @@ import {
 } from "../../../services/inngest/functions";
 import { serverEnv } from "../../../data/env/server";
 import { inngest } from "../../../services/inngest/client";
+import {
+  fixAllPrompt,
+  findingFixPrompt,
+} from "../../../features/agents/lib/validate-results";
 
 export const GET = async (request: Request) => {
   if (!protectLocalRoute(request))
@@ -25,6 +29,37 @@ export const GET = async (request: Request) => {
     if (serverEnv.SENSLOP_LOCAL_STARTED_AT)
       agents.recoverForeground(serverEnv.SENSLOP_LOCAL_STARTED_AT);
     const snapshotId = new URL(request.url).searchParams.get("snapshotId");
+    const jobId = new URL(request.url).searchParams.get("jobId");
+    if (jobId) {
+      const existingJob = agents.job(jobId);
+      if (
+        existingJob?.kind === "review" &&
+        existingJob.result &&
+        "findings" in existingJob.result &&
+        new URL(request.url).searchParams.get("format") === "fix-prompts"
+      ) {
+        const result = existingJob.result;
+        return Response.json({
+          ...existingJob,
+          result: {
+            ...result,
+            fixAllPrompt: result.findings.length
+              ? fixAllPrompt(existingJob.snapshotId, result)
+              : "No fixes needed.",
+            findings: result.findings.map((finding) => ({
+              ...finding,
+              fixPrompt: findingFixPrompt(finding),
+            })),
+          },
+        });
+      }
+      return existingJob
+        ? Response.json(existingJob)
+        : Response.json(
+            { message: "Job not found in this repository." },
+            { status: 404 },
+          );
+    }
     const conversationId = new URL(request.url).searchParams.get(
       "conversationId",
     );
@@ -36,6 +71,26 @@ export const GET = async (request: Request) => {
     if (!snapshotId) throw new Error("Choose a snapshot.");
     const parameters = new URL(request.url).searchParams;
     const history = parameters.get("history");
+    if (history === "jobs") {
+      const offset = Number(parameters.get("offset") ?? 0);
+      const limit = Number(parameters.get("limit") ?? 50);
+      if (
+        !Number.isSafeInteger(offset) ||
+        offset < 0 ||
+        !Number.isSafeInteger(limit) ||
+        limit < 1 ||
+        limit > 100
+      )
+        throw new Error("Invalid history page.");
+      return Response.json(
+        agents.jobHistory(
+          snapshotId,
+          offset,
+          limit,
+          parameters.get("search") ?? "",
+        ),
+      );
+    }
     if (history === "reviews" || history === "conversations") {
       const offset = Number(parameters.get("offset") ?? "0");
       if (!Number.isSafeInteger(offset) || offset < 0)
@@ -96,6 +151,11 @@ export const POST = async (request: Request) => {
         }
         if (!assignedModel(agents.settings(), input.kind))
           throw new Error("Choose task models in Settings → AI first.");
+        if (input.kind === "grouping")
+          workspace.store.enableGrouping(
+            await workspace.root(),
+            input.snapshotId,
+          );
         const job = agents.createJob(input.snapshotId, input.kind);
         await dispatchJobs(input.snapshotId);
         return Response.json(job);

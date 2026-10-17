@@ -45,8 +45,14 @@ export class LocalWorkspace {
 
   repository = async () => readRepository(await this.root());
 
-  private groupingEnabled = (root: string, selected = true) => {
+  private groupingEnabled = (root: string, selected?: boolean) => {
     const settings = new AgentStore(this.store, root).settings();
+    if (selected === false) return false;
+    if (selected === true && !assignedModel(settings, "grouping"))
+      throw new Error(
+        "Choose a grouping model in Settings → AI, or create the review with --no-group.",
+      );
+    if (selected === true) return true;
     if (!assignedModel(settings, "grouping")) return false;
     switch (settings.groupingMode) {
       case "always":
@@ -54,7 +60,7 @@ export class LocalWorkspace {
       case "never":
         return false;
       case "ask":
-        return selected;
+        return true;
     }
   };
 
@@ -74,6 +80,7 @@ export class LocalWorkspace {
       .parse(input);
     if (!selection) throw new Error("Choose a supported Git selection.");
     const root = await this.root();
+    const groupingEnabled = this.groupingEnabled(root, group);
     const inspection = await inspectRepository(root, selection);
     const savedReview = this.store.saveReview(
       root,
@@ -83,7 +90,7 @@ export class LocalWorkspace {
         protocolVersion: PROTOCOL_VERSION,
       },
       inspection.fingerprint,
-      this.groupingEnabled(root, group),
+      groupingEnabled,
       { repositoryState: inspection.repository },
     );
     this.captureContext(root, savedReview);

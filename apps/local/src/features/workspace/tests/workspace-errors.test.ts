@@ -13,6 +13,7 @@ const state = vi.hoisted(() => ({
   resync: vi.fn(),
   inspect: vi.fn(),
   changeReview: vi.fn(),
+  getReview: vi.fn(),
   root: vi.fn().mockResolvedValue("/repository"),
   repository: vi.fn().mockResolvedValue({ fingerprint: "fresh" }),
   listReviews: vi.fn().mockReturnValue([]),
@@ -31,6 +32,7 @@ vi.mock(
       store: {
         listReviews: state.listReviews,
         changeReview: state.changeReview,
+        getReview: state.getReview,
       },
     }),
     protectLocalRoute: () => state.allowed,
@@ -39,6 +41,41 @@ vi.mock(
 afterEach(() => {
   vi.clearAllMocks();
   state.allowed = true;
+});
+
+test("CLI snapshot reads do not activate the snapshot or fetch Git metadata", async () => {
+  const id = "00000000-0000-4000-8000-000000000001";
+  state.getReview.mockReturnValueOnce({ id, title: "Saved" });
+  state.repository.mockClear();
+  const response = await getMetadata(
+    new Request(`http://localhost/api/workspace?id=${id}`),
+  );
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({ id, title: "Saved" });
+  expect(state.getReview).toHaveBeenCalledWith("/repository", id);
+  expect(state.repository).not.toHaveBeenCalled();
+});
+
+test("CLI history pagination is bounded and preserves repository scope", async () => {
+  state.listReviews.mockReturnValueOnce([{ id: "b" }, { id: "c" }]);
+  const response = await getMetadata(
+    new Request("http://localhost/api/workspace?history=1&offset=1&limit=1"),
+  );
+  expect(await response.json()).toMatchObject({
+    history: [{ id: "b" }],
+    next: 2,
+  });
+  expect(state.listReviews).toHaveBeenCalledWith("/repository", "", {
+    offset: 1,
+    limit: 2,
+  });
+  expect(
+    (
+      await getMetadata(
+        new Request("http://localhost/api/workspace?history=1&limit=999999"),
+      )
+    ).status,
+  ).toBe(400);
 });
 
 test("metadata polling loads saved history only on an explicit history request", async () => {

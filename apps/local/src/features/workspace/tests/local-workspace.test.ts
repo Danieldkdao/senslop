@@ -20,6 +20,38 @@ import { AgentStore } from "../../agents/lib/agent-store";
 import { LocalWorkspace } from "../lib/local-workspace";
 
 const directories: string[] = [];
+
+test("explicit grouping choices override defaults and missing models fail before saving a review", async () => {
+  const { workspace, repository } = await syncWorkspace();
+  try {
+    await expect(
+      workspace.inspect({ kind: "commit", commit: "HEAD" }, true),
+    ).rejects.toThrow(/grouping model/i);
+    expect(workspace.store.listReviews(repository)).toHaveLength(0);
+    const agents = new AgentStore(workspace.store, repository);
+    agents.saveSettings({
+      ...agents.settings(),
+      groupingMode: "never",
+      shared: {
+        connectionId: crypto.randomUUID(),
+        modelId: "test",
+        name: "Test",
+      },
+    });
+    const grouped = await workspace.inspect(
+      { kind: "commit", commit: "HEAD" },
+      true,
+    );
+    expect(grouped.groupingEnabled).toBe(true);
+    agents.saveSettings({ ...agents.settings(), groupingMode: "always" });
+    expect(
+      (await workspace.inspect({ kind: "commit", commit: "HEAD" }, false))
+        .groupingEnabled,
+    ).toBe(false);
+  } finally {
+    await workspace.close();
+  }
+});
 afterEach(async () => {
   await Promise.all(
     directories
@@ -112,7 +144,7 @@ test("browser inspection is repository-bound, restarts restore reviews, and term
   );
   expect(saved.groupingEnabled).toBe(false);
   agents.saveSettings({ ...agents.settings(), groupingMode: "never" });
-  const plain = await workspace.inspect({ kind: "working-tree" }, true);
+  const plain = await workspace.inspect({ kind: "working-tree" });
   expect(plain.groupingEnabled).toBe(false);
   expect(() => agents.createJob(plain.id, "grouping")).toThrow(/disabled/);
   agents.saveSettings({
@@ -538,8 +570,8 @@ test("each re-sync applies the current always, never and ask grouping preference
     await writeFile(join(repository, "a.ts"), "export const a = 1;\n");
     let round = await workspace.inspect({ kind: "working-tree" });
     for (const [index, mode, chosen, expected] of [
-      [2, "always", false, true],
-      [3, "never", true, false],
+      [2, "always", false, false],
+      [3, "never", true, true],
       [4, "ask", false, false],
       [5, "ask", true, true],
     ] as const) {
