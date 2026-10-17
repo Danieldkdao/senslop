@@ -59,6 +59,55 @@ const review = {
   completedCount: 1,
   kind: "commit",
 };
+
+test("history initially highlights the current review and search can select a different review", async () => {
+  Element.prototype.scrollIntoView = vi.fn();
+  const currentReview = {
+    ...review,
+    id: crypto.randomUUID(),
+    title: "Current review",
+  };
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string) => ({
+      ok: true,
+      json: async () => ({
+        history: url.endsWith("search=Fix")
+          ? [review]
+          : [review, currentReview],
+      }),
+    })),
+  );
+  const user = userEvent.setup();
+  const action = vi.fn().mockResolvedValue(true);
+  render(
+    <ReviewHistory
+      open
+      currentReviewId={currentReview.id}
+      onOpenChange={vi.fn()}
+      onAction={action}
+    />,
+    { wrapper: QueryProvider },
+  );
+  await screen.findByText(currentReview.title);
+  await waitFor(() =>
+    expect(
+      screen
+        .getByRole("option", { name: /Current review/ })
+        .getAttribute("aria-selected"),
+    ).toBe("true"),
+  );
+  await user.type(screen.getByLabelText("Search saved reviews"), "Fix");
+  await waitFor(() =>
+    expect(screen.queryByText(currentReview.title)).toBeNull(),
+  );
+  await screen.findByRole("option", { name: /Fix API/ });
+  await user.keyboard("{Enter}");
+  await waitFor(() =>
+    expect(action).toHaveBeenCalledWith({ action: "open", id: review.id }),
+  );
+});
+
 test("search fetches debounced database results; command rows retain details and Enter reopens", async () => {
   Element.prototype.scrollIntoView = vi.fn();
   const fetcher = vi

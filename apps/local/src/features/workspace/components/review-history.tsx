@@ -16,6 +16,7 @@ import { useConfirm } from "@/hooks/use-confirm";
 import { LoadingSwap } from "@/components/ui/loading-swap";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import type { SavedReviewSummary } from "../types";
 import { formatReviewSummary, formatSnapshot } from "../lib/formatters";
 import { useReviewHistory } from "../hooks/use-review-history";
@@ -27,6 +28,9 @@ export type RenameSchema = z.infer<typeof renameSchema>;
 
 type ReviewHistoryProps = {
   open: boolean;
+  currentReviewId?: string;
+  shortcutsEnabled?: boolean;
+  onShortcutsEnabledChange?: (enabled: boolean) => void;
   onOpenChange: (open: boolean) => void;
   onAction: (body: object) => Promise<boolean>;
 };
@@ -191,24 +195,46 @@ const ReviewHistoryItem = ({
 
 export const ReviewHistory = ({
   open,
+  currentReviewId,
+  shortcutsEnabled,
+  onShortcutsEnabledChange,
   onOpenChange,
   onAction,
 }: ReviewHistoryProps) => {
   const inputRef = useRef<HTMLInputElement>(null);
+  const shortcutsId = useId();
   const [search, setSearch] = useState("");
+  const [selection, setSelection] = useState<string>();
   const history = useReviewHistory(search, open);
   const reviews = history.data ?? [];
   const loading =
     history.isPending || history.isFetching || history.isDebouncing;
+  const selectedReview =
+    selection ??
+    (!search.trim() && reviews.some((review) => review.id === currentReviewId)
+      ? currentReviewId
+      : reviews[0]?.id) ??
+    "";
+  const changeOpen = (value: boolean) => {
+    if (!value) {
+      setSearch("");
+      setSelection(undefined);
+    }
+    onOpenChange(value);
+  };
   return (
     <CommandDialog
       open={open}
-      onOpenChange={onOpenChange}
+      onOpenChange={changeOpen}
       title="Saved reviews"
       description="Search reviews saved for this repository on this computer."
       className="sm:max-w-2xl"
     >
-      <Command shouldFilter={false}>
+      <Command
+        shouldFilter={false}
+        value={selectedReview}
+        onValueChange={setSelection}
+      >
         <CommandInput
           ref={inputRef}
           maxLength={200}
@@ -216,7 +242,10 @@ export const ReviewHistory = ({
           placeholder="Search saved reviews…"
           className="text-base"
           value={search}
-          onValueChange={setSearch}
+          onValueChange={(value) => {
+            setSearch(value);
+            setSelection(undefined);
+          }}
         />
         <CommandList className="max-h-[65dvh]">
           {history.error && !history.isFetching && !history.isDebouncing ? (
@@ -240,7 +269,7 @@ export const ReviewHistory = ({
                   void history.invalidate();
                   requestAnimationFrame(() => inputRef.current?.focus());
                 }}
-                onOpen={() => onOpenChange(false)}
+                onOpen={() => changeOpen(false)}
               />
             ))
           ) : (
@@ -248,6 +277,26 @@ export const ReviewHistory = ({
           )}
         </CommandList>
       </Command>
+      {onShortcutsEnabledChange && (
+        <div className="flex flex-col gap-2 border-t border-border p-3 text-base">
+          <label
+            htmlFor={shortcutsId}
+            className="flex items-center justify-between gap-3"
+          >
+            Review keyboard shortcuts
+            <Switch
+              id={shortcutsId}
+              checked={shortcutsEnabled}
+              onCheckedChange={onShortcutsEnabledChange}
+            />
+          </label>
+          <p className="text-muted-foreground">
+            R opens this list. [ opens the previous review; ] opens the next.
+            Reviews are ordered newest first. Shortcuts pause while typing or
+            using a dialog.
+          </p>
+        </div>
+      )}
     </CommandDialog>
   );
 };

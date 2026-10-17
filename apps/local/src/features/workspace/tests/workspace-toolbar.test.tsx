@@ -1,6 +1,12 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { LivePreview } from "../../review/types";
 import { toast } from "@/components/ui/toast";
@@ -59,6 +65,269 @@ const metadata = {
   },
   history: [],
 };
+
+const shortcutReviews = ["Newest", "Middle", "Oldest"].map((title, index) => ({
+  id: `00000000-0000-4000-8000-00000000000${index}`,
+  title,
+  createdAt: "2026-10-17",
+  updatedAt: "2026-10-17",
+  hash: "a".repeat(64),
+  kind: "commit",
+  fileCount: 1,
+  noteCount: 0,
+  completedCount: 0,
+}));
+
+const setupReviewShortcuts = () => {
+  Element.prototype.scrollIntoView = vi.fn();
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    },
+  );
+  const initialPreview = {
+    id: shortcutReviews[1]!.id,
+    status: "ready",
+    files: [],
+    excluded: [],
+    source: { kind: "commit", base: metadata.repository.head },
+  } as unknown as LivePreview;
+  context.preview = initialPreview;
+  const fetcher = vi.fn(async (_url: string, options?: RequestInit) => {
+    if (options?.method === "POST") {
+      const body = JSON.parse(String(options.body));
+      context.preview = { ...initialPreview, ...context.preview, id: body.id };
+    }
+    return {
+      ok: true,
+      json: async () => ({ ...metadata, history: shortcutReviews }),
+    };
+  });
+  vi.stubGlobal("fetch", fetcher);
+  return fetcher;
+};
+
+test("R opens saved reviews with focused search; list arrows and Enter open a review", async () => {
+  const fetcher = setupReviewShortcuts();
+  context.preview = null;
+  const user = userEvent.setup();
+  render(<WorkspaceToolbar />, { wrapper: QueryProvider });
+  fireEvent.keyDown(document, { key: "r" });
+  const search = await screen.findByLabelText("Search saved reviews");
+  await waitFor(() => expect(document.activeElement).toBe(search));
+  await screen.findByText("Newest");
+  await user.type(search, "r[BracketLeft][BracketRight]");
+  expect(
+    fetcher.mock.calls.some(([, options]) => options?.method === "POST"),
+  ).toBe(false);
+  await user.clear(search);
+  await waitFor(() =>
+    expect(screen.queryByText("Searching local reviews…")).toBeNull(),
+  );
+  await user.keyboard("{ArrowDown}{Enter}");
+  await waitFor(() =>
+    expect(fetcher).toHaveBeenCalledWith(
+      "/api/workspace",
+      expect.objectContaining({
+        body: JSON.stringify({ action: "open", id: shortcutReviews[1]!.id }),
+      }),
+    ),
+  );
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  fireEvent.keyDown(document, { key: "r" });
+  await screen.findByRole("dialog");
+  await user.keyboard("{Escape}");
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+});
+
+test("brackets switch through fresh history in list order and stop at both ends", async () => {
+  const fetcher = setupReviewShortcuts();
+  render(<WorkspaceToolbar />, { wrapper: QueryProvider });
+  const openedIds = () =>
+    fetcher.mock.calls
+      .filter(([, options]) => options?.method === "POST")
+      .map(([, options]) => JSON.parse(String(options?.body)).id);
+  fireEvent.keyDown(document, { key: "[" });
+  await waitFor(() => expect(openedIds()).toEqual([shortcutReviews[0]!.id]));
+  await waitFor(() => expect(context.refresh).toHaveBeenCalledTimes(1));
+  fireEvent.keyDown(document, { key: "[" });
+  await waitFor(() =>
+    expect(
+      fetcher.mock.calls.filter(([url]) => url.includes("history=1")),
+    ).toHaveLength(2),
+  );
+  expect(openedIds()).toHaveLength(1);
+  fireEvent.keyDown(document, { key: "]" });
+  await waitFor(() => expect(openedIds()).toHaveLength(2));
+  await waitFor(() => expect(context.refresh).toHaveBeenCalledTimes(2));
+  fireEvent.keyDown(document, { key: "]" });
+  await waitFor(() =>
+    expect(openedIds()).toEqual([
+      shortcutReviews[0]!.id,
+      shortcutReviews[1]!.id,
+      shortcutReviews[2]!.id,
+    ]),
+  );
+  await waitFor(() => expect(context.refresh).toHaveBeenCalledTimes(3));
+  fireEvent.keyDown(document, { key: "]" });
+  await waitFor(() =>
+    expect(
+      fetcher.mock.calls.filter(([url]) => url.includes("history=1")),
+    ).toHaveLength(5),
+  );
+  expect(openedIds()).toHaveLength(3);
+});
+
+test.each([
+  { ctrlKey: true },
+  { metaKey: true },
+  { altKey: true },
+  { shiftKey: true },
+  { isComposing: true },
+  { repeat: true },
+])(
+  "review shortcuts ignore reserved modifiers, composition, and held keys: %j",
+  async (options) => {
+    const fetcher = setupReviewShortcuts();
+    render(<WorkspaceToolbar />, { wrapper: QueryProvider });
+    await waitFor(() => expect(fetcher).toHaveBeenCalled());
+    for (const key of ["r", "[", "]"]) {
+      const event = new KeyboardEvent("keydown", {
+        bubbles: true,
+        cancelable: true,
+        key,
+        ...options,
+      });
+      document.dispatchEvent(event);
+      expect(event.defaultPrevented).toBe(false);
+    }
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(fetcher.mock.calls.some(([url]) => url.includes("history=1"))).toBe(
+      false,
+    );
+  },
+);
+
+test("review shortcuts leave editable controls, shadow-root inputs, overlays, and handled events alone", async () => {
+  const fetcher = setupReviewShortcuts();
+  render(<WorkspaceToolbar />, { wrapper: QueryProvider });
+  await waitFor(() => expect(fetcher).toHaveBeenCalled());
+  const host = document.createElement("div");
+  document.body.append(host);
+  for (const target of [
+    document.createElement("input"),
+    document.createElement("textarea"),
+    document.createElement("select"),
+    document.createElement("div"),
+  ]) {
+    if (target.tagName === "DIV")
+      target.setAttribute("contenteditable", "true");
+    host.append(target);
+    for (const key of ["r", "[", "]"]) fireEvent.keyDown(target, { key });
+  }
+  const shadowInput = document.createElement("textarea");
+  host.attachShadow({ mode: "open" }).append(shadowInput);
+  for (const key of ["r", "[", "]"])
+    fireEvent.keyDown(shadowInput, { key, composed: true });
+  for (const role of ["dialog", "menu", "listbox"]) {
+    host.setAttribute("role", role);
+    for (const key of ["r", "[", "]"]) fireEvent.keyDown(document, { key });
+  }
+  host.removeAttribute("role");
+  host.setAttribute("data-slot", "popover-content");
+  for (const key of ["r", "[", "]"]) fireEvent.keyDown(document, { key });
+  host.remove();
+  const handled = new KeyboardEvent("keydown", {
+    key: "r",
+    bubbles: true,
+    cancelable: true,
+  });
+  handled.preventDefault();
+  document.dispatchEvent(handled);
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(fetcher.mock.calls.some(([url]) => url.includes("history=1"))).toBe(
+    false,
+  );
+});
+
+test("review shortcuts can be disabled while the saved reviews button remains usable", async () => {
+  const fetcher = setupReviewShortcuts();
+  const user = userEvent.setup();
+  render(<WorkspaceToolbar />, { wrapper: QueryProvider });
+  fireEvent.keyDown(document, { key: "r" });
+  await user.click(
+    await screen.findByRole("switch", { name: "Review keyboard shortcuts" }),
+  );
+  await user.keyboard("{Escape}");
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  const before = fetcher.mock.calls.length;
+  for (const key of ["r", "[", "]"]) fireEvent.keyDown(document, { key });
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(fetcher).toHaveBeenCalledTimes(before);
+  await user.click(screen.getByRole("button", { name: "Saved reviews" }));
+  await screen.findByRole("dialog");
+  await user.click(
+    screen.getByRole("switch", { name: "Review keyboard shortcuts" }),
+  );
+  await user.keyboard("{Escape}");
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  fireEvent.keyDown(document, { key: "r" });
+  expect(await screen.findByRole("dialog")).toBeTruthy();
+});
+
+test("a pending review switch blocks overlapping keys and failures show a retryable toast", async () => {
+  const fetcher = setupReviewShortcuts();
+  let finish!: (value: Awaited<ReturnType<typeof fetcher>>) => void;
+  fetcher.mockImplementation(async (_url, options) => {
+    if (options?.method === "POST")
+      return new Promise((resolve) => {
+        finish = resolve;
+      });
+    return {
+      ok: true,
+      json: async () => ({ ...metadata, history: shortcutReviews }),
+    };
+  });
+  render(<WorkspaceToolbar />, { wrapper: QueryProvider });
+  fireEvent.keyDown(document, { key: "]" });
+  fireEvent.keyDown(document, { key: "[" });
+  await waitFor(() => expect(finish).toBeTypeOf("function"));
+  fireEvent.keyDown(document, { key: "]" });
+  fireEvent.keyDown(document, { key: "r" });
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(
+    fetcher.mock.calls.filter(([, options]) => options?.method === "POST"),
+  ).toHaveLength(1);
+  finish({
+    ok: false,
+    json: async () => ({
+      ...metadata,
+      history: shortcutReviews,
+      message: "Saved review not found. Retry.",
+    }),
+  });
+  await waitFor(() =>
+    expect(toast.error).toHaveBeenCalledWith("Saved review not found. Retry."),
+  );
+  fireEvent.keyDown(document, { key: "r" });
+  expect(await screen.findByRole("dialog")).toBeTruthy();
+});
+
+test("review shortcuts stop after unmount", () => {
+  setupReviewShortcuts();
+  const view = render(<WorkspaceToolbar />, { wrapper: QueryProvider });
+  view.unmount();
+  const event = new KeyboardEvent("keydown", {
+    key: "r",
+    bubbles: true,
+    cancelable: true,
+  });
+  document.dispatchEvent(event);
+  expect(event.defaultPrevented).toBe(false);
+});
 test("browser inspection defaults to uncommitted changes and latest commit uses local HEAD", async () => {
   const fetcher = vi
     .fn()
