@@ -95,7 +95,26 @@ Subscription connections use `providers sign-in chatgpt-subscription` or `provid
 
 Secrets use macOS Keychain, Windows Credential Manager, or Linux Secret Service through the existing credential abstraction. An unavailable or locked store blocks saving; there is no plaintext fallback. Linux requires a session D-Bus and an unlocked Secret Service. Nonsecret preferences and reviews live in the OS application-data directory, outside repositories. `SENSLOP_DATA_DIRECTORY` can select an isolated data directory for testing; use the same absolute path in both app and command terminals.
 
-## Help and output
+## Agent skill and help
+
+```sh
+senslop skills
+senslop skills install --agent agents --scope project
+senslop skills install --agent claude --scope project
+senslop skills install --agent agents --scope user
+senslop skills install --agent claude --scope user
+senslop skills install --all
+senslop skills install --all --symlink --json
+senslop skills install --all --no-symlink --json
+senslop help --json
+senslop reviews create --help
+```
+
+The CLI archive includes the same `senslop-review` skill for Claude and all other agents. It teaches agents to select changes, discover the app, prepare and open a review, verify readiness, and sync later edits. `--agent agents`, labeled "all other agents", writes `.agents/skills/senslop-review/SKILL.md` for agents using that convention, including Codex. `--agent claude` writes `.claude/skills/senslop-review/SKILL.md`. Use `--all` to install for both targets and go directly to the symlink question. `--agent` accepts only `agents` or `claude` and installs only that target. `--scope user` uses the corresponding directory in the user's home instead of the repository root. Installation is explicit, idempotent, and refuses to overwrite a different existing skill. It does not modify AGENTS.md, CLAUDE.md, or unrelated skills.
+
+Running `senslop skills` or `senslop skills install` without target flags opens a Clack multiselect. Use Space to toggle Claude and all other agents, then Enter to confirm. No options are preselected; submitting an empty selection installs both by default. Canceling exits without writing files. Automated commands require an explicit `--agent` or `--all`.
+
+When both targets are selected, an interactive terminal asks whether to share one file through a symlink. Yes creates a relative link from `.claude/skills/senslop-review/SKILL.md` to the real file in `.agents/skills/senslop-review/SKILL.md`; no creates two independent files. Automation must choose `--symlink` or `--no-symlink` explicitly. Matching bundled copies can switch between these modes; custom skills and unrelated or broken symlinks are preserved. If the operating system cannot create a symlink, retry with `--no-symlink`.
 
 Help and accepted options share one command catalog. Every command supports scoped `--help`; `help --json` exposes command/option descriptions, provider IDs, and exit codes. Use the installed help as the authoritative command reference.
 
@@ -105,6 +124,6 @@ Machine-oriented commands write undecorated JSON to stdout and structured errors
 
 Run `pnpm dev:local` in the repository to start the source app and worker. Use `node --import tsx packages/cli/src/index.ts COMMAND` from another terminal for source CLI commands, or pass `--repo PATH`. UI edits use Fast Refresh; CLI calls load current source on each invocation. Restart the app terminal after changing launcher logic. Installed users run the bundled production app.
 
-Build the local app before the CLI with the package build commands. The archive includes standalone Next.js, shared assets, native runtime dependencies; it excludes source workspaces and real environment files. The package remains private and is not published.
+Build the local app before the CLI with the package build commands. The archive includes standalone Next.js, shared assets, native runtime dependencies, and the skill; it excludes source workspaces and real environment files. The package remains private and is not published.
 
 Run the ordinary suite with `pnpm test`. `SENSLOP_AGENT_TEST=1 pnpm exec vitest run packages/cli/tests/agent-workflow.test.ts` exercises the production bundle and real local engine through independent CLI processes, using an isolated repository/data directory and deterministic loopback provider. This checks orchestration rather than real model quality. Existing opt-in development, installed-package, subscription, and OS credential tests remain available in their test files.

@@ -7,6 +7,11 @@ const source = fileURLToPath(
   new URL("../../../apps/local/.next/", import.meta.url),
 );
 const target = fileURLToPath(new URL("../dist/local-app/", import.meta.url));
+await cp(
+  fileURLToPath(new URL("../skills/", import.meta.url)),
+  fileURLToPath(new URL("../dist/skills/", import.meta.url)),
+  { recursive: true },
+);
 await access(join(source, "standalone/apps/local/server.js"));
 await rm(target, { recursive: true, force: true });
 // npm drops symlinks; copy the app separately and flatten pnpm's traced runtime aliases.

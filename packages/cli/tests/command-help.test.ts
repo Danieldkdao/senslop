@@ -60,3 +60,37 @@ test("top-level and group help expose the same live command catalog", () => {
     help: true,
   });
 });
+
+test("skill installation help labels Claude and all other agents with their destinations", () => {
+  const help = formatCommandHelp("skills install");
+  expect(help).toContain("all other agents");
+  expect(help).toContain("claude");
+  expect(help).toContain(".claude");
+  expect(help).toContain(".agents");
+  expect(help).toContain("--all");
+  expect(help).toContain("both");
+  expect(help).toContain("--symlink");
+  expect(help).toContain("--no-symlink");
+  expect(help).not.toContain("codex");
+});
+
+test("bare skills and skills install accept the same explicit installation flags and show actionable help", () => {
+  for (const args of [["skills"], ["skills", "install"]]) {
+    expect(
+      parseCliCommand([...args, "--all", "--no-symlink", "--json"]),
+    ).toMatchObject({ values: { all: true, "no-symlink": true, json: true } });
+    const help = formatCommandHelp(args.join(" "));
+    for (const flag of [
+      "--agent",
+      "--all",
+      "--symlink",
+      "--no-symlink",
+      "--scope",
+    ])
+      expect(help).toContain(flag);
+  }
+  expect(formatCommandHelp("skills")).toContain("Space");
+  expect(formatCommandHelp("skills")).toContain("Enter");
+  expect(formatCommandHelp("skills")).toContain("none");
+  expect(() => parseCliCommand(["reviews", "list", "--all"])).toThrow();
+});

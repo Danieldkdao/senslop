@@ -17,6 +17,7 @@ import { stringOption } from "./features/commands/input.js";
 import { executeReviewCommand } from "./features/reviews/commands.js";
 import { executeSettingsCommand } from "./features/settings/commands.js";
 import { executeProviderCommand } from "./features/providers/commands.js";
+import { executeSkillCommand } from "./features/skills/commands.js";
 import { requireCredentials } from "./features/auth/credentials.js";
 import { fetchStatus } from "./features/connection/fetch-status.js";
 import { login } from "./features/auth/login.js";
@@ -166,6 +167,15 @@ export const main = async (args = process.argv.slice(2)) => {
         "Account status unavailable. Check the service or sign in again.",
       );
     console.log(formatCommandResult(result, !!values.json));
+    return;
+  }
+  if (name === "skills" || name === "skills install") {
+    console.log(
+      formatCommandResult(
+        await executeSkillCommand(command, repository),
+        !!values.json,
+      ),
+    );
     return;
   }
   if (

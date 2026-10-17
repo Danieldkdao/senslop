@@ -145,6 +145,30 @@ export const optionDefinitions: Record<
     type: "string",
     description: "Export one finding's fix prompt by its 1-based index.",
   },
+  agent: {
+    type: "string",
+    description:
+      "Install only agents (all other agents, .agents) or claude (Claude, .claude). Omit to select interactively, or use --all.",
+  },
+  all: {
+    type: "boolean",
+    description:
+      "Install for all targets, including Claude; skip target selection and ask about a symlink.",
+  },
+  symlink: {
+    type: "boolean",
+    description:
+      "When installing both targets, link Claude's SKILL.md to the shared .agents skill without prompting.",
+  },
+  "no-symlink": {
+    type: "boolean",
+    description:
+      "When installing both targets, install two independent skill files without prompting.",
+  },
+  scope: {
+    type: "string",
+    description: "Skill installation scope: project or user; default project.",
+  },
   url: {
     type: "string",
     description: "Hosted Senslop origin for account sign-in.",
@@ -167,6 +191,14 @@ export const preparationOptions = [
   "timeout",
 ];
 export const globalOptions = ["repo", "json", "help", "version"];
+
+const skillInstallationOptions = [
+  "agent",
+  "all",
+  "scope",
+  "symlink",
+  "no-symlink",
+];
 
 export const commandDefinitions: CommandDefinition[] = [
   {
@@ -526,6 +558,18 @@ export const commandDefinitions: CommandDefinition[] = [
     name: "providers cleanup",
     description: "Retry pending OS credential cleanup.",
     options: [],
+  },
+  {
+    name: "skills",
+    description:
+      "Install review skills. Space selects targets and Enter confirms; selecting none installs both. --agent selects one; --all skips to the symlink question.",
+    options: skillInstallationOptions,
+  },
+  {
+    name: "skills install",
+    description:
+      "Alias for skills. Select targets interactively, use --agent for one target, or --all for both. Installing both asks about a symlink.",
+    options: skillInstallationOptions,
   },
   {
     name: "help",
