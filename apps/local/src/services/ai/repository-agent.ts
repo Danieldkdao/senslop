@@ -23,6 +23,7 @@ import {
   consolidateReviewLimitations,
   staticReviewLimitation,
 } from "../../features/agents/lib/review-limitations";
+import { generateReviewSummary } from "./review-summary";
 import { mergeIncrementalGrouping } from "./incremental-grouping";
 import { sourceTools } from "../analysis/snapshot-analysis";
 import type { AnalysisContext } from "../analysis/types";
@@ -1011,6 +1012,24 @@ export const createRepositoryAgent = async ({
         },
         snapshot,
       );
+      const summaryGeneration = getGenerationOptions(
+        resolved.connection,
+        limit,
+        1024,
+      );
+      validated.summary = await generateReviewSummary({
+        findings: validated.findings,
+        model: model.model,
+        createModel: model.createModel,
+        providerOptions: {
+          ...model.providerOptions,
+          ...getGenerationOptions(resolved.connection, limit, 1024)
+            .providerOptions,
+        },
+        signal,
+        contextWindow: limit,
+        maxOutputTokens: summaryGeneration.maxOutputTokens,
+      });
       return validated;
     },
     stream: (messages: ModelMessage[], explain = false) =>

@@ -71,6 +71,56 @@ test("header keeps the add-note action and removes the notes browser", () => {
   expect(screen.queryByRole("button", { name: "Browse notes" })).toBeNull();
 });
 
+test("completed review summaries appear between review metadata and the combined fix prompt", async () => {
+  const summary = "Fix the startup crash before merging.";
+  const job = {
+    id: "review",
+    snapshotId: "snapshot",
+    kind: "review",
+    status: "completed",
+    title: "Reviewed changes",
+    createdAt: "2026-10-16T20:00:00Z",
+    settings: { separate: false, shared: { name: "Review model" } },
+    result: {
+      summary,
+      findings: [
+        {
+          severity: "high",
+          title: "Missing guard",
+          problem: "An empty input crashes startup. Guard the input.",
+          path: "a.ts",
+          side: "after",
+          start: 1,
+          end: 1,
+          code: "input.value",
+          fixPrompt: "Guard the input.",
+        },
+      ],
+      limitations: [],
+      fixAllPrompt: "Verify the input guard.",
+    },
+  };
+  render(
+    <AgentPanel
+      snapshotId="snapshot"
+      agents={{ state: { data: { jobs: [job] } } } as never}
+      onEvidence={vi.fn()}
+    />,
+  );
+  await userEvent.setup().click(screen.getByRole("tab", { name: "Review" }));
+  const metadata = screen.getByText("Reviewed changes");
+  const description = screen.getByText(summary);
+  const prompt = screen.getByRole("button", { name: "Fix with agent prompt" });
+  expect(
+    metadata.compareDocumentPosition(description) &
+      Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+  expect(
+    description.compareDocumentPosition(prompt) &
+      Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+});
+
 test("code reviews cannot start until a Review model is assigned", async () => {
   const act = vi.fn();
   const { rerender } = render(

@@ -135,6 +135,27 @@ test("opening a prompt previews Markdown without copying; only its copy button w
     /For each issue above, determine whether it is valid and should be fixed. If so, fix it directly.$/,
   );
 });
+test("a summary appears only for a review with findings", () => {
+  const summary = "Fix the input failures before merging.";
+  const { rerender } = render(
+    <ReviewResults
+      job={{ ...job, result: { ...job.result!, summary } } as JobSchema}
+    />,
+  );
+  expect(screen.getByText(summary)).toBeTruthy();
+  rerender(
+    <ReviewResults
+      job={
+        {
+          ...job,
+          result: { findings: [], limitations: [], fixAllPrompt: "", summary },
+        } as JobSchema
+      }
+    />,
+  );
+  expect(screen.queryByText(summary)).toBeNull();
+});
+
 test("review evidence receives only snapshot contents belonging to that job's hash and round", async () => {
   const user = userEvent.setup();
   const file = { path: finding.path } as PreviewFileSchema;

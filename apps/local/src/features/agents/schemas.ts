@@ -265,6 +265,16 @@ export const findingSchema = z.object({
 });
 export type FindingSchema = z.infer<typeof findingSchema>;
 export const correctnessSchema = z.object({
+  summary: z
+    .string()
+    .trim()
+    .min(1)
+    .max(400)
+    .optional()
+    .catch(undefined)
+    .describe(
+      "Optional single short sentence summarizing what should be fixed before merging. Omit when no issues exist. A missing summary must not invalidate findings.",
+    ),
   fixAllPrompt: z
     .string()
     .max(20000)

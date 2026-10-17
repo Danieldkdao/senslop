@@ -831,6 +831,12 @@ test("large reviews validate merged evidence and remove duplicate findings acros
   state.model = new MockLanguageModelV4({
     doGenerate: async (options) => {
       requests.push(options);
+      if (
+        JSON.stringify(options.prompt).includes(
+          "Summarize the supplied code review findings",
+        )
+      )
+        return response({ summary: "Fix the changed value before merging." });
       const finding = {
         severity: "high",
         title: "Value changed incorrectly",
@@ -854,6 +860,7 @@ test("large reviews validate merged evidence and remove duplicate findings acros
   const result = await (await agent()).review();
   expect(requests.length).toBeGreaterThan(1);
   expect(result.findings).toHaveLength(1);
+  expect(result.summary).toBe("Fix the changed value before merging.");
   expect(result.findings[0]!.fixPrompt).toContain("Path: 0.ts");
   expect(result.findings[0]!.fixPrompt).toContain("Restore zero");
   for (const request of requests)

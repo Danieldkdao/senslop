@@ -98,6 +98,7 @@ export const validateReview = (
     if (formatPrompts) finding.fixPrompt = findingFixPrompt(finding);
     return true;
   });
+  if (!result.findings.length) result.summary = undefined;
   return result;
 };
 

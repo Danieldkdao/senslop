@@ -128,3 +128,32 @@ test("legacy saved prompts keep their actual fix guidance without nested wrapper
   expect(combined).not.toContain("Evidence:");
   expect(combined).not.toContain("Old preamble");
 });
+test("optional summaries never invalidate evidence and are discarded for empty reviews", () => {
+  for (const summary of [
+    undefined,
+    17,
+    { unexpected: true },
+    "x".repeat(1000),
+  ]) {
+    expect(
+      validateReview({ findings: [issue], limitations: [], summary }, snapshot)
+        .findings,
+    ).toHaveLength(1);
+  }
+  expect(
+    validateReview(
+      { findings: [], limitations: [], summary: "Fix issues." },
+      snapshot,
+    ).summary,
+  ).toBeUndefined();
+  expect(
+    validateReview(
+      {
+        findings: [issue],
+        limitations: [],
+        summary: "Fix the null input failure.",
+      },
+      snapshot,
+    ).summary,
+  ).toBe("Fix the null input failure.");
+});

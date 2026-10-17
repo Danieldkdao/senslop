@@ -39,6 +39,9 @@ export const ReviewResults = ({
       : [];
   return (
     <div className="flex flex-col gap-6 p-4">
+      {!!result.findings.length && result.summary && (
+        <p className="text-base text-foreground">{result.summary}</p>
+      )}
       {!!result.findings.length && (
         <FixPrompt prompt={fixAllPrompt(job.snapshotId, result)} />
       )}
