@@ -10,8 +10,8 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { startLocalJobs, availablePort, workspacePort } from "./local-jobs.js";
-import { homedir, tmpdir } from "node:os";
-import { dirname, isAbsolute, join } from "node:path";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { setTimeout as sleep } from "node:timers/promises";
 import {
@@ -22,7 +22,12 @@ import {
 } from "@senslop/contracts";
 
 import { resolveRepository } from "@senslop/review-core/git";
-import { serverEnv } from "../../data/env/server.js";
+import { applicationDataDirectory } from "./runtime-paths.js";
+import {
+  publishWorkspaceSession,
+  removeWorkspaceSession,
+} from "./workspace-session.js";
+export { applicationDataDirectory } from "./runtime-paths.js";
 
 type LocalAppOptions = {
   repository?: string;
@@ -33,25 +38,6 @@ type LocalAppOptions = {
   signal?: AbortSignal;
   startupTimeout?: number;
   jobs?: boolean;
-};
-
-export const applicationDataDirectory = () => {
-  switch (process.platform) {
-    case "darwin":
-      return join(homedir(), "Library", "Application Support", "Senslop");
-    case "win32":
-      return join(
-        serverEnv.LOCALAPPDATA ?? join(homedir(), "AppData", "Local"),
-        "Senslop",
-      );
-    default:
-      return join(
-        serverEnv.XDG_DATA_HOME && isAbsolute(serverEnv.XDG_DATA_HOME)
-          ? serverEnv.XDG_DATA_HOME
-          : join(homedir(), ".local", "share"),
-        "senslop",
-      );
-  }
 };
 
 export const startLocalApp = async ({
@@ -106,6 +92,13 @@ export const startLocalApp = async ({
     throw error;
   }
   const origin = `http://127.0.0.1:${port}`;
+  const session = {
+    version: 1 as const,
+    repository: repositoryRoot,
+    origin,
+    token,
+    pid: process.pid,
+  };
   // A runtime launcher must construct process env; never pass cloud secrets or ambient Node hooks.
   const env = Object.fromEntries(
     [
@@ -157,13 +150,13 @@ export const startLocalApp = async ({
       SENSLOP_LOCAL_DATABASE: join(userData, "reviews.sqlite"),
     },
     execArgv: ["--import", pathToFileURL(parentModule).href],
-    stdio: ["ignore", development ? "pipe" : "ignore", "pipe", "ipc"],
+    stdio: ["ignore", "pipe", "pipe", "ipc"],
   });
   child.stdout?.on("data", (chunk) => process.stderr.write(chunk));
   let stderr = "";
   child.stderr?.on("data", (chunk) => {
     stderr = (stderr + chunk.toString()).slice(-2000);
-    if (development) process.stderr.write(chunk);
+    process.stderr.write(chunk);
   });
   let stopping = false;
   let ended = false;
@@ -181,6 +174,7 @@ export const startLocalApp = async ({
     signal?.removeEventListener("abort", onAbort);
     await engine?.stop().catch(() => {});
     await write.catch(() => {});
+    await removeWorkspaceSession(userData, session);
     await rm(directory, { recursive: true, force: true });
     if (error) fail(error);
     else finish();
@@ -277,6 +271,7 @@ export const startLocalApp = async ({
               "Could not register the local AI worker. Restart Senslop to retry.",
             );
         }
+        await publishWorkspaceSession(userData, session);
         return {
           origin,
           url: `${origin}/api/session?token=${token}`,

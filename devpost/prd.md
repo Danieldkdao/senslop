@@ -5,6 +5,10 @@ status: approved
 
 # Senslop — Product Requirements
 
+## Agent-operated local reviews
+
+The owner approved app/CLI separation and full agent-oriented parity for saved reviews, grouping, correctness runs, syncing, notes, progress, provider configuration, and settings. One terminal owns the local app and worker; short CLI commands discover it by canonical repository and update the open UI automatically. Preparing and opening a human review is the primary workflow. Explicit grouping overrides saved defaults and requires a configured model; ordinary ungrouped review remains available. Saved snapshots and AI runs retain separate identities. Include generated command help, structured JSON/errors, and confirmation for destructive commands. Preserve standalone inspect JSON output. AI chat and terminal diff UI are outside this change. This instruction supersedes the earlier same-terminal command menu.
+
 ## Persistent connection feedback and editor preview — October 9, 2026
 
 The owner authorized these two refinements to the existing settings flow. Earlier sections remain historical context.
