@@ -14,6 +14,7 @@ import { SettingsDialog } from "./settings-dialog";
 import type { SettingsSection } from "../types";
 import { EditorDiffPreview } from "./editor-diff-preview";
 import { ReviewPreferences } from "./review-preferences";
+import { BuddySettings } from "../../buddy/components/buddy-settings";
 
 type ReviewSettingsProps = {
   open?: boolean;
@@ -60,12 +61,15 @@ export const ReviewSettings = ({
           {
             id: "appearance",
             label: "Appearance",
-            keywords: `appearance theme light dark system ${applicationThemes.map(formatApplicationTheme).join(" ")}`,
+            keywords: `appearance theme light dark system buddy pip mascot show hide animations position size preview ${applicationThemes.map(formatApplicationTheme).join(" ")}`,
             content: (
-              <ApplicationThemeSelect
-                disabled={preferencesLoading || !!preferencesError}
-                onChange={onApplicationThemeChange}
-              />
+              <div className="flex flex-col gap-5">
+                <ApplicationThemeSelect
+                  disabled={preferencesLoading || !!preferencesError}
+                  onChange={onApplicationThemeChange}
+                />
+                <BuddySettings />
+              </div>
             ),
           },
           {

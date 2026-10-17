@@ -17,6 +17,18 @@ import { parseDiffFromFile } from "@pierre/diffs";
 import type { MultiFileDiffProps } from "@pierre/diffs/react";
 import type { ProviderId, PublicConnectionSchema } from "@senslop/contracts";
 
+vi.mock("../hooks/use-ui-preferences", async () => {
+  const { defaultUiPreferences } = await import("../constants");
+  return {
+    useUiPreferences: () => ({
+      values: defaultUiPreferences,
+      preferences: { data: defaultUiPreferences },
+      saving: false,
+      save: vi.fn(),
+    }),
+  };
+});
+
 vi.mock("../hooks/use-review-preferences", () => ({
   useReviewPreferences: () => ({
     preferences: { data: { autoAdvance: false } },
