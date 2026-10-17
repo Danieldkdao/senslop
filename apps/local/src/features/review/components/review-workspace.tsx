@@ -59,6 +59,7 @@ import {
   SheetDescription,
 } from "@/components/ui/sheet";
 import { WorkspaceToolbar } from "../../workspace/components/workspace-toolbar";
+import { useWorkspaceBuddy } from "../../buddy/hooks/use-workspace-buddy";
 
 type ReviewWorkspaceProps = { children: ReactNode };
 
@@ -121,6 +122,15 @@ export const ReviewWorkspace = ({ children }: ReviewWorkspaceProps) => {
     "groups" in groupingRun.result
       ? groupingRun.result
       : null;
+  useWorkspaceBuddy({
+    preview,
+    jobs: agents.state.data?.jobs ?? [],
+    jobsLoaded: !!agents.state.data,
+    grouping,
+    error,
+    requestedJobs: agents.requestedJobs,
+    operation: reviewOperation,
+  });
   const preparing =
     !!preview?.files.length &&
     preview.groupingEnabled !== false &&

@@ -8,6 +8,7 @@ import {
 } from "@tanstack/react-query";
 import { useDebouncedValue } from "@tanstack/react-pacer/debouncer";
 import { toast } from "@/components/ui/toast";
+import { useBuddy } from "../../buddy/components/buddy-provider";
 import {
   agentHistorySchema,
   type HistoryKind,
@@ -17,6 +18,7 @@ import {
 } from "../schemas";
 
 export const useAgentState = (snapshotId?: string) => {
+  const report = useBuddy();
   const client = useQueryClient();
   const [requestedJobs, setRequestedJobs] = useState<string[]>([]);
   const state = useQuery({
@@ -40,6 +42,14 @@ export const useAgentState = (snapshotId?: string) => {
     networkMode: "always",
   });
   const act = async (action: AgentActionSchema) => {
+    const activityId =
+      action.action === "job" ? `request:${crypto.randomUUID()}` : null;
+    if (activityId && action.action === "job")
+      report({
+        type: "activity",
+        id: activityId,
+        activity: action.kind === "grouping" ? "grouping" : "working",
+      });
     try {
       const response = await fetch("/api/agents", {
         method: "POST",
@@ -55,8 +65,18 @@ export const useAgentState = (snapshotId?: string) => {
       await client.invalidateQueries({ queryKey: ["agent-history"] });
       return data as unknown;
     } catch (error) {
+      if (activityId)
+        report({
+          type: "reaction",
+          id: `${activityId}:failed`,
+          mood: "cry",
+          message: "That task could not start. We can retry.",
+        });
       toast.error((error as Error).message);
       throw error;
+    } finally {
+      if (activityId)
+        report({ type: "activity", id: activityId, activity: null });
     }
   };
   return { state, act, requestedJobs };

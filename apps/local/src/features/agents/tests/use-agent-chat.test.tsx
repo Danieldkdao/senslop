@@ -4,9 +4,14 @@ import { afterEach, expect, test, vi } from "vitest";
 import { createUIMessageStreamResponse, type UIMessageChunk } from "ai";
 import { useAgentChat } from "../hooks/use-agent-chat";
 import type { ConversationSchema } from "../schemas";
+const buddy = vi.hoisted(() => vi.fn());
+vi.mock("../../buddy/components/buddy-provider", () => ({
+  useBuddy: () => buddy,
+}));
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  buddy.mockReset();
 });
 const saved = (id: string, content: string) =>
   ({
@@ -25,7 +30,38 @@ test("switching histories replaces SDK messages without leaking the previous con
   expect(result.current.messages).toHaveLength(1);
 });
 
-test("a truncated response is retained as interrupted", async () => {
+test("failed chat generation clears thinking and reacts sadly without celebrating", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => {
+      throw new Error("Provider unavailable.");
+    }),
+  );
+  const { result } = renderHook(() => useAgentChat(undefined, vi.fn()));
+  await act(async () => {
+    await expect(
+      result.current.send(
+        "conversation",
+        { connectionId: "provider", modelId: "model", name: "Model" },
+        "Question",
+      ),
+    ).rejects.toThrow("Provider unavailable.");
+  });
+  expect(buddy).toHaveBeenCalledWith(
+    expect.objectContaining({ type: "reaction", mood: "cry" }),
+  );
+  expect(buddy.mock.calls.at(-1)?.[0]).toMatchObject({
+    type: "activity",
+    activity: null,
+  });
+  expect(
+    buddy.mock.calls.some(
+      ([event]) => event.type === "reaction" && event.mood === "happy",
+    ),
+  ).toBe(false);
+});
+
+test("a truncated response cannot produce a success reaction", async () => {
   vi.stubGlobal(
     "fetch",
     vi.fn(async () =>
@@ -50,6 +86,11 @@ test("a truncated response is retained as interrupted", async () => {
       ),
     ).rejects.toThrow(/interrupted/i);
   });
+  expect(
+    buddy.mock.calls.some(
+      ([event]) => event.type === "reaction" && event.mood === "happy",
+    ),
+  ).toBe(false);
 });
 
 test("stopping an SDK request retains partial output and refreshes the correct conversation", async () => {
@@ -109,6 +150,14 @@ test("stopping an SDK request retains partial output and refreshes the correct c
     expect.objectContaining({ text: "Partial answer" }),
   );
   expect(result.current.busy).toBe(false);
+  expect(buddy).toHaveBeenCalledWith(
+    expect.objectContaining({ type: "activity", activity: "thinking" }),
+  );
+  expect(
+    buddy.mock.calls.some(
+      ([event]) => event.type === "reaction" && event.mood === "happy",
+    ),
+  ).toBe(false);
   await act(async () => {
     await result.current.send(
       "conversation",
@@ -119,5 +168,10 @@ test("stopping an SDK request retains partial output and refreshes the correct c
   expect(requests[1]?.messageId).toBe(requests[0]?.messageId);
   expect(
     result.current.messages.filter((message) => message.role === "user"),
+  ).toHaveLength(1);
+  expect(
+    buddy.mock.calls.filter(
+      ([event]) => event.type === "reaction" && event.mood === "happy",
+    ),
   ).toHaveLength(1);
 });
