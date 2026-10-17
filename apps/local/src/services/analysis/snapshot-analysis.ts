@@ -11,6 +11,10 @@ import type {
   SourceSymbol,
 } from "./types";
 
+import { frozenCompiler } from "./frozen-compiler";
+
+export const snapshotAnalysisVersion = 3;
+
 const scriptPath = (path: string) => /\.[cm]?[jt]sx?$/.test(path);
 const virtualRoot = "/senslop-frozen/";
 const validPath = (path: string) =>
@@ -66,58 +70,12 @@ export const analyzeSources = async (
   if (Object.keys(sources).some((path) => !validPath(path)))
     throw new Error("Invalid frozen source path.");
   const limitations: string[] = [
-    "Diagnostics use captured source and TypeScript 5.9.3. Missing external declarations, nested or extended tsconfig settings, project references, and dynamic runtime edges may be unresolved.",
+    "Diagnostics use frozen source and captured project configurations with TypeScript 5.9.3. External dependency declarations and generated project-reference outputs are not captured; dynamic runtime behavior is not verified.",
   ];
   const files = Object.keys(sources).filter(scriptPath);
-  const readConfig = (path: string) => {
-    const parsed = ts.parseConfigFileTextToJson(path, sources[path] ?? "{}");
-    return parsed.config?.compilerOptions ?? {};
-  };
-  const raw = readConfig("tsconfig.json");
-  const parsedOptions = ts.convertCompilerOptionsFromJson(
-    raw,
-    virtualRoot,
-  ).options;
-  const options: ts.CompilerOptions = {
-    ...parsedOptions,
-    noEmit: true,
-    allowJs: true,
-    checkJs: true,
-    skipLibCheck: true,
-    jsx: parsedOptions.jsx ?? ts.JsxEmit.ReactJSX,
-    module: ts.ModuleKind.ESNext,
-    moduleResolution: ts.ModuleResolutionKind.Bundler,
-    target: ts.ScriptTarget.ESNext,
-  };
-  const bundled = ts.createCompilerHost(options);
-  const libraryRoot = dirname(ts.getDefaultLibFilePath(options));
-  const isLibrary = (path: string) =>
-    path.startsWith(`${libraryRoot}/`) && /lib\..*\.d\.ts$/.test(path);
-  const read = (path: string) =>
-    path.startsWith(virtualRoot)
-      ? sources[path.slice(virtualRoot.length)]
-      : isLibrary(path)
-        ? bundled.readFile(path)
-        : undefined;
-  const host: ts.CompilerHost = {
-    ...bundled,
-    getCurrentDirectory: () => virtualRoot,
-    readFile: read,
-    fileExists: (path) => read(path) !== undefined,
-    directoryExists: (path) =>
-      Object.keys(sources).some((file) =>
-        `${virtualRoot}${file}`.startsWith(`${path.replace(/\/$/, "")}/`),
-      ),
-    getDirectories: () => [],
-    realpath: (path) => path,
-    getSourceFile: (path, languageVersion) => {
-      const text = read(path);
-      return text === undefined
-        ? undefined
-        : ts.createSourceFile(path, text, languageVersion, true);
-    },
-    writeFile: () => {},
-  };
+  const compiler = frozenCompiler(sources, virtualRoot);
+  const { host, optionsForFile, configForFile } = compiler;
+  const options = optionsForFile(virtualRoot + "index.ts");
   const program = ts.createProgram(
     files.map((path) => virtualRoot + path),
     options,
@@ -137,12 +95,14 @@ export const analyzeSources = async (
         ts.isStringLiteral(node.moduleSpecifier)
       ) {
         const specifier = node.moduleSpecifier.text;
-        const resolved = ts.resolveModuleName(
-          specifier,
+        const resolved = host.resolveModuleNameLiterals?.(
+          [node.moduleSpecifier],
           source.fileName,
-          options,
-          host,
-        ).resolvedModule?.resolvedFileName;
+          undefined,
+          optionsForFile(source.fileName),
+          source,
+          undefined,
+        )[0]?.resolvedModule?.resolvedFileName;
         edges.push({
           from: path,
           to: resolved?.startsWith(virtualRoot)
@@ -207,15 +167,44 @@ export const analyzeSources = async (
     const resolved = declarations.get(symbol);
     if (resolved) symbol.references = references.get(resolved) ?? [];
   }
-  const diagnostics = [
-    ...program.getSyntacticDiagnostics(),
-    ...program.getSemanticDiagnostics(),
-  ]
+  const projects = new Map<string, string[]>();
+  for (const path of files) {
+    const key = configForFile(virtualRoot + path);
+    const members = projects.get(key) ?? [];
+    members.push(path);
+    projects.set(key, members);
+  }
+  const seenDiagnostics = new Set<string>();
+  const diagnostics = [...projects.values()]
+    .flatMap((members) => {
+      if (!members.some((path) => changed.includes(path))) return [];
+      const project = ts.createProgram(
+        members.map((path) => virtualRoot + path),
+        optionsForFile(virtualRoot + members[0]!),
+        host,
+      );
+      return [
+        ...project.getSyntacticDiagnostics(),
+        ...project.getSemanticDiagnostics(),
+      ];
+    })
     .filter(
       (item) =>
         item.file?.fileName.startsWith(virtualRoot) &&
         changed.includes(item.file.fileName.slice(virtualRoot.length)),
     )
+    .filter((item) => {
+      const key = JSON.stringify([
+        item.file?.fileName,
+        item.start,
+        item.code,
+        item.category,
+        ts.flattenDiagnosticMessageText(item.messageText, " "),
+      ]);
+      if (seenDiagnostics.has(key)) return false;
+      seenDiagnostics.add(key);
+      return true;
+    })
     .slice(0, 200)
     .map((item) => ({
       path: item.file!.fileName.slice(virtualRoot.length),
@@ -244,7 +233,7 @@ export const analyzeSources = async (
         maxDepth: 2,
       },
       {},
-      { tsConfig: { options: { ...parsedOptions, baseUrl: staging } } },
+      { tsConfig: { options: { baseUrl: staging } } },
     );
     if (typeof result.output !== "string") {
       for (const entry of result.output.modules)
@@ -272,9 +261,14 @@ export const analyzeSources = async (
   } finally {
     await rm(staging, { recursive: true, force: true });
   }
-  for (const path of changed.filter((path) => !scriptPath(path)))
-    limitations.push(`${path}: text analysis only; no compiler diagnostics.`);
+  const textOnly = changed.filter((path) => !scriptPath(path));
+  if (textOnly.length)
+    limitations.push(
+      `Non-JavaScript/TypeScript files receive text-only review, without compiler diagnostics (${textOnly.length} files).`,
+    );
+  limitations.push(...compiler.limitations);
   return {
+    version: snapshotAnalysisVersion,
     edges,
     symbols,
     diagnostics,

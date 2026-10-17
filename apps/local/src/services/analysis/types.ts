@@ -23,6 +23,7 @@ export type SourceDiagnostic = {
   severity: "error" | "warning";
 };
 export type Analysis = {
+  version?: number;
   edges: DependencyEdge[];
   symbols: SourceSymbol[];
   diagnostics: SourceDiagnostic[];
