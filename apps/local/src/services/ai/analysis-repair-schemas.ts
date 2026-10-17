@@ -14,7 +14,7 @@ export type GroupingRepairGroupSchema = z.infer<
 export const groupingRepairFileSchema =
   groupingSchema.shape.groups.element.shape.files.element.extend({
     groupIndex: z.number().int().min(0).max(1999),
-    beforePath: z.string().max(4096).nullable().default(null),
+    beforePath: z.string().max(4096).nullable(),
   });
 export type GroupingRepairFileSchema = z.infer<typeof groupingRepairFileSchema>;
 export const groupingRepairSchema = z.object({

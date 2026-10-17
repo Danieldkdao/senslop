@@ -2,11 +2,13 @@ import { expect, test, vi } from "vitest";
 import { generateText, isStepCount, Output, tool } from "ai";
 import { z } from "zod";
 import { resolveLanguageModel } from "../provider-runtime";
+import { repairGroupingResult } from "../analysis-repairs";
+import { createGroupingAgent } from "../analysis-agents";
+import type { SavedReviewSchema } from "@senslop/contracts";
 
 vi.mock("server-only", () => ({}));
 
-const events = (complete = true) => {
-  const text = '{"answer":"valid"}';
+const events = (complete = true, text = '{"answer":"valid"}') => {
   const values = [
     {
       type: "response.created",
@@ -221,3 +223,100 @@ test("ChatGPT executes a namespaced snapshot tool and sends its result on the ne
   expect(calls).toBe(2);
   expect(result.text).toContain("valid");
 });
+
+test.each([true, false])(
+  "ChatGPT subscription repairs a missing file through a provider-valid request, prepared=%s",
+  async (prepared) => {
+    const path = "packages/cli/scripts/bundle-local-app.mjs";
+    const summary = { path, summary: "Bundle the local app", related: [] };
+    const runtime = resolveLanguageModel(
+      {
+        provider: "chatgpt-subscription",
+        name: "ChatGPT",
+        baseURL: "https://api.openai.com/v1",
+        contextWindow: null,
+        model: "",
+      },
+      "fixture-access",
+      "gpt-5.6-luna",
+      async (_url, init) => {
+        const body = JSON.parse(String(init?.body));
+        expect(body.model).toBe("gpt-5.6-luna");
+        expect(body.text.format.strict).toBe(true);
+        const schema = body.text?.format?.schema;
+        const problems: string[] = [];
+        const inspect = (value: unknown, location = "schema") => {
+          if (!value || typeof value !== "object") return;
+          const node = value as Record<string, unknown>;
+          if (node.type === "object" && node.properties) {
+            for (const key of Object.keys(node.properties))
+              if (!Array.isArray(node.required) || !node.required.includes(key))
+                problems.push(`${location}.${key} must be required`);
+          }
+          for (const [key, child] of Object.entries(node)) {
+            if (Array.isArray(child))
+              child.forEach((entry, index) =>
+                inspect(entry, `${location}.${key}.${index}`),
+              );
+            else inspect(child, `${location}.${key}`);
+          }
+        };
+        inspect(schema);
+        if (problems.length)
+          return Response.json(
+            {
+              error: {
+                message: problems.join("; "),
+                type: "invalid_request_error",
+                code: "invalid_json_schema",
+                param: "text.format.schema",
+              },
+            },
+            { status: 400 },
+          );
+        return events(
+          true,
+          JSON.stringify({
+            groups: [],
+            files: [
+              {
+                ...(prepared ? { path } : summary),
+                groupIndex: 0,
+                beforePath: null,
+              },
+            ],
+          }),
+        );
+      },
+    );
+    const result = await repairGroupingResult(
+      { groups: [{ title: "Build", rationale: "Runtime setup", files: [] }] },
+      {
+        snapshot: { files: [{ path, binary: false }] } as SavedReviewSchema,
+        members: [path],
+        changes: [],
+        context: "Captured build dependencies",
+        signal: new AbortController().signal,
+        ...(prepared ? { preparedFiles: [summary] } : {}),
+        generate: async (schema, prompt) =>
+          (
+            await createGroupingAgent({
+              ...runtime,
+              instructions: "Frozen source only",
+              tools: {},
+              maxRetries: 0,
+            }).generate({
+              prompt,
+              options: {
+                schema,
+                maxSteps: 1,
+                maxOutputTokens: 16000,
+                toolsEnabled: false,
+              },
+            })
+          ).output,
+      },
+    );
+    expect(result.groups[0]?.files).toEqual([summary]);
+  },
+);

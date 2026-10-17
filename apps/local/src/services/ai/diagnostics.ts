@@ -4,6 +4,7 @@ import {
   getAiErrorStatus,
   isRetryableAiError,
   isAiSchemaComplexityError,
+  isAiSchemaValidationError,
 } from "./errors";
 import type {
   AiDiagnosticContext,
@@ -122,6 +123,7 @@ export const getAiErrorDiagnostics = (error: unknown) => {
     statusCode: getAiErrorStatus(error),
     retryable: isRetryableAiError(error),
     schemaComplexity: isAiSchemaComplexityError(error),
+    schemaRejected: isAiSchemaValidationError(error),
     providerAttempts: retry?.errors.length,
     retryReason: retry?.reason,
     ...(APICallError.isInstance(lastError)

@@ -1,4 +1,4 @@
-import { RetryError } from "ai";
+import { APICallError, RetryError } from "ai";
 import { ZodError } from "zod";
 
 export class AiServiceError extends Error {
@@ -86,6 +86,35 @@ export const isAiSchemaComplexityError = (error: unknown): boolean => {
       )
     )
       return true;
+    current = RetryError.isInstance(current)
+      ? current.lastError
+      : current.cause;
+  }
+  return false;
+};
+
+export const isAiSchemaValidationError = (error: unknown): boolean => {
+  if (getAiErrorStatus(error) !== 400) return false;
+  let current = error;
+  for (let depth = 0; current instanceof Error && depth < 6; depth++) {
+    if (
+      /\b(?:invalid|unsupported)\s+(?:json\s+|response\s+)?schema\b/i.test(
+        current.message,
+      )
+    )
+      return true;
+    if (APICallError.isInstance(current)) {
+      const data = current.data;
+      const details =
+        data && typeof data === "object" && "error" in data ? data.error : data;
+      if (
+        details &&
+        typeof details === "object" &&
+        "code" in details &&
+        details.code === "invalid_json_schema"
+      )
+        return true;
+    }
     current = RetryError.isInstance(current)
       ? current.lastError
       : current.cause;
@@ -237,6 +266,10 @@ export const formatAiError = (error: unknown) => {
   const status = getAiErrorStatus(error);
   if (isAiSchemaComplexityError(error))
     return "The provider rejected the response schema as too complex. Retry with a smaller review or choose another model.";
+  if (isAiSchemaValidationError(error))
+    return "The provider rejected the structured response schema. Update Senslop and retry; if it persists, report the request diagnostics.";
+  if (status === 400)
+    return "The provider rejected an invalid request (HTTP 400). Check model compatibility and retry.";
   if (status !== null && status >= 500 && status <= 599)
     return "The model provider is temporarily unavailable. Try again later or choose another model.";
   if (status === 401 || status === 403)
