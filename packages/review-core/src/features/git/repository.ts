@@ -14,7 +14,12 @@ import {
   readBlobBatch,
 } from "./snapshot";
 
-export { collectSnapshot, resyncSnapshot, SNAPSHOT_LIMITS } from "./snapshot";
+export {
+  collectSnapshot,
+  resyncSnapshot,
+  SNAPSHOT_LIMITS,
+  SnapshotLimitError,
+} from "./snapshot";
 export type { FrozenSnapshot, GitSource, SnapshotFile } from "./snapshot";
 
 export const resolveRepository = async (cwd: string) =>

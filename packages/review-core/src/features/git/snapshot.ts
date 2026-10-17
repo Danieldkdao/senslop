@@ -21,6 +21,15 @@ export const SNAPSHOT_LIMITS = {
   totalBytes: MAX_SNAPSHOT_BYTES,
 } as const;
 
+export class SnapshotLimitError extends Error {}
+
+const checkFileSize = (size: number, path: string, limit: number) => {
+  if (size > limit)
+    throw new SnapshotLimitError(
+      `${path} exceeds the ${limit / (1024 * 1024)} MiB file limit; nothing was truncated.`,
+    );
+};
+
 export type GitSource = SourceSelectionSchema;
 export type SnapshotFile = {
   path: string;
@@ -139,7 +148,7 @@ const parseChanges = (value: Buffer) => {
       });
   }
   if (Buffer.byteLength(JSON.stringify(result), "utf8") > MAX_SNAPSHOT_BYTES)
-    throw new Error(
+    throw new SnapshotLimitError(
       "Serialized snapshot exceeds the 20 MiB upload limit, including diffs and metadata; nothing was truncated.",
     );
   return result;
@@ -148,6 +157,7 @@ export const blob = async (
   cwd: string,
   ref: string,
   path: string,
+  byteLimit: number = SNAPSHOT_LIMITS.fileBytes,
 ): Promise<{
   bytes: Buffer | null;
   unsupported: string | null;
@@ -160,10 +170,7 @@ export const blob = async (
   if (type !== "blob")
     return { bytes: null, unsupported: "submodule or unsupported Git entry" };
   const size = Number((await git(cwd, ["cat-file", "-s", id!])).toString());
-  if (size > SNAPSHOT_LIMITS.fileBytes)
-    throw new Error(
-      `${path} exceeds the 1 MiB file limit; nothing was truncated.`,
-    );
+  checkFileSize(size, path, byteLimit);
   return {
     bytes: await git(cwd, ["cat-file", "blob", id!]),
     unsupported: null,
@@ -238,7 +245,11 @@ export const readBlobBatch = async (
   return { sources, unavailable, limited };
 };
 
-export const localBytes = async (root: string, path: string) => {
+export const localBytes = async (
+  root: string,
+  path: string,
+  byteLimit: number = SNAPSHOT_LIMITS.fileBytes,
+) => {
   const absolute = resolve(root, path);
   if (
     isAbsolute(relative(root, absolute)) ||
@@ -274,16 +285,10 @@ export const localBytes = async (root: string, path: string) => {
       };
     if (!stat.isFile())
       return { bytes: null, unsupported: "unsupported filesystem entry" };
-    if (stat.size > SNAPSHOT_LIMITS.fileBytes)
-      throw new Error(
-        `${path} exceeds the 1 MiB file limit; nothing was truncated.`,
-      );
+    checkFileSize(stat.size, path, byteLimit);
     handle = await open(absolute, constants.O_RDONLY | constants.O_NOFOLLOW);
     const bytes = await handle.readFile();
-    if (bytes.length > SNAPSHOT_LIMITS.fileBytes)
-      throw new Error(
-        `${path} exceeds the 1 MiB file limit; nothing was truncated.`,
-      );
+    checkFileSize(bytes.length, path, byteLimit);
     return { bytes, unsupported: null };
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT")
@@ -394,12 +399,13 @@ export const collectSnapshot = async ({
       excluded.push({ path: change.path, reason: secret });
       continue;
     }
+    // Binary contents are hashed locally; only text is subject to the 1 MiB limit.
     const before = change.oldPath
-      ? await blob(root, base, change.oldPath)
+      ? await blob(root, base, change.oldPath, SNAPSHOT_LIMITS.totalBytes)
       : { bytes: null, unsupported: null };
     const after = head
-      ? await blob(root, head, change.path)
-      : await localBytes(root, change.path);
+      ? await blob(root, head, change.path, SNAPSHOT_LIMITS.totalBytes)
+      : await localBytes(root, change.path, SNAPSHOT_LIMITS.totalBytes);
     if (before.unsupported || after.unsupported) {
       excluded.push({
         path: change.path,
@@ -409,11 +415,23 @@ export const collectSnapshot = async ({
     }
     total += (before.bytes?.length ?? 0) + (after.bytes?.length ?? 0);
     if (total > SNAPSHOT_LIMITS.totalBytes)
-      throw new Error(
+      throw new SnapshotLimitError(
         "Selected before/after contents exceed the 20 MiB snapshot limit; nothing was truncated.",
       );
     const beforeText = textContent(before.bytes);
     const afterText = textContent(after.bytes);
+    if (beforeText !== null)
+      checkFileSize(
+        before.bytes!.length,
+        change.oldPath ?? change.path,
+        SNAPSHOT_LIMITS.fileBytes,
+      );
+    if (afterText !== null)
+      checkFileSize(
+        after.bytes!.length,
+        change.path,
+        SNAPSHOT_LIMITS.fileBytes,
+      );
     const binary =
       (before.bytes !== null && beforeText === null) ||
       (after.bytes !== null && afterText === null);
@@ -444,7 +462,11 @@ export const collectSnapshot = async ({
         "Working tree changed during collection. Retry to create one consistent frozen snapshot.",
       );
     for (const file of files) {
-      const current = await localBytes(root, file.path);
+      const current = await localBytes(
+        root,
+        file.path,
+        SNAPSHOT_LIMITS.totalBytes,
+      );
       if (
         current.unsupported ||
         (current.bytes ? digest(current.bytes) : null) !== file.afterHash
@@ -480,7 +502,7 @@ export const collectSnapshot = async ({
     JSON.stringify({ source: result.source, files, excluded }),
   );
   if (Buffer.byteLength(JSON.stringify(result), "utf8") > MAX_SNAPSHOT_BYTES)
-    throw new Error(
+    throw new SnapshotLimitError(
       "Serialized snapshot exceeds the 20 MiB upload limit, including diffs and metadata; nothing was truncated.",
     );
   return result;
@@ -527,7 +549,7 @@ export const resyncSnapshot = async (
   }
   const paths = [...new Set([...before.keys(), ...after.keys()])].sort();
   if (paths.length > 2000)
-    throw new Error(
+    throw new SnapshotLimitError(
       "Re-sync exceeds the 2,000-file snapshot limit; nothing was truncated.",
     );
   const excluded = new Set(current.excluded.map((file) => file.path));
@@ -540,12 +562,19 @@ export const resyncSnapshot = async (
       binary: false,
     };
     if (!before.has(path) || !after.has(path)) {
-      const result = await blob(root, current.source.base, path);
+      const result = await blob(
+        root,
+        current.source.base,
+        path,
+        SNAPSHOT_LIMITS.totalBytes,
+      );
       if (result.unsupported)
         throw new Error(
           `Re-sync cannot capture ${path}: ${result.unsupported}.`,
         );
       const text = textContent(result.bytes);
+      if (text !== null)
+        checkFileSize(result.bytes!.length, path, SNAPSHOT_LIMITS.fileBytes);
       original = {
         text,
         hash: result.bytes ? digest(result.bytes) : null,
@@ -587,7 +616,7 @@ export const resyncSnapshot = async (
     }),
   );
   if (Buffer.byteLength(JSON.stringify(snapshot)) > MAX_SNAPSHOT_BYTES)
-    throw new Error(
+    throw new SnapshotLimitError(
       "Re-sync exceeds the 20 MiB snapshot limit; nothing was truncated.",
     );
   return snapshot;

@@ -1,4 +1,5 @@
 import { afterEach, expect, test, vi } from "vitest";
+import { SnapshotLimitError } from "@senslop/review-core/git";
 import { GET } from "../../../app/api/preview/route";
 import {
   GET as getMetadata,
@@ -41,6 +42,33 @@ vi.mock(
 afterEach(() => {
   vi.clearAllMocks();
   state.allowed = true;
+});
+
+test("inspection limits report the actionable cause while unexpected save errors remain private", async () => {
+  const request = () =>
+    new Request("http://localhost/api/workspace", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "inspect",
+        source: { kind: "working-tree" },
+      }),
+    });
+  const message =
+    "large.ts exceeds the 1 MiB file limit; nothing was truncated.";
+  state.inspect.mockRejectedValueOnce(new SnapshotLimitError(message));
+  const limited = await postWorkspace(request());
+  expect(limited.status).toBe(422);
+  expect(await limited.json()).toEqual({ message });
+  state.inspect.mockRejectedValueOnce(
+    new Error("SQL failure at /private/database.sqlite"),
+  );
+  const failed = await postWorkspace(request());
+  expect(failed.status).toBe(422);
+  expect(await failed.json()).toEqual({
+    message:
+      "Local save failed. Your saved reviews are retained. Check application-data directory permissions and retry.",
+  });
 });
 
 test("CLI snapshot reads do not activate the snapshot or fetch Git metadata", async () => {

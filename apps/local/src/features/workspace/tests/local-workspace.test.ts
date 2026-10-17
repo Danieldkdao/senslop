@@ -215,6 +215,29 @@ const syncWorkspace = async () => {
   return { workspace, repository, git };
 };
 
+test("new reviews save alongside large artwork without replacing previously saved reviews", async () => {
+  const { workspace, repository } = await syncWorkspace();
+  try {
+    const first = await workspace.inspect(
+      { kind: "commit", commit: "HEAD" },
+      false,
+    );
+    await writeFile(join(repository, "pip.png"), Buffer.alloc(1024 * 1024 + 1));
+    await writeFile(join(repository, "a.ts"), "export const a = 1;\n");
+    const second = await workspace.inspect({ kind: "working-tree" }, false);
+    expect(second.id).not.toBe(first.id);
+    expect(second.files.find((file) => file.path === "pip.png")).toMatchObject({
+      binary: true,
+      before: null,
+      after: null,
+    });
+    expect(workspace.store.getReview(repository, first.id)).toEqual(first);
+    expect(workspace.store.getReview(repository, second.id)).toEqual(second);
+  } finally {
+    await workspace.close();
+  }
+});
+
 test("re-sync advances the captured baseline across rounds without changing Git, and retains reviewed rounds and notes", async () => {
   const { workspace, repository, git } = await syncWorkspace();
   try {

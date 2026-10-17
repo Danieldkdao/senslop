@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { SnapshotLimitError } from "@senslop/review-core/git";
 import { scheduleGrouping } from "../../../services/inngest/functions";
 import {
   reviewChangeSchema,
@@ -191,6 +192,7 @@ export const POST = async (request: Request) => {
         ? "Check the Git selection and retry."
         : (error as Error).message;
     const safe =
+      error instanceof SnapshotLimitError ||
       /Diff generation|Git|snapshot|ancestor|selection|changed|changes|revision|not found|does not belong|line does not match|repository root|Re-sync/.test(
         message,
       );
