@@ -1020,6 +1020,8 @@ test.each([
     state.jobs = [
       {
         id: "old-grouping",
+        retryAt: null,
+        fallbackAt: null,
         snapshotId: state.preview.id,
         generation: 1,
         settings: defaultAiSettings,
@@ -1167,4 +1169,138 @@ test("rapid D and next-file navigation queues completion for each file instead o
     "src/first.ts",
     "src/second.tsx",
   ]);
+});
+
+test("automatic retries count down against the worker deadline and wait for actual restart", async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date("2026-10-17T12:00:00Z"));
+  try {
+    setNavigationPreview();
+    state.preview!.groupingEnabled = true;
+    state.jobs = [
+      {
+        id: "retry",
+        kind: "grouping",
+        status: "running",
+        error: "Provider temporarily unavailable",
+        updatedAt: new Date().toISOString(),
+        retryAt: new Date(Date.now() + 30000).toISOString(),
+      } as JobSchema,
+    ];
+    const mounted = render(<ReviewWorkspace>Setup</ReviewWorkspace>);
+    expect(screen.getByRole("alert").textContent).toContain(
+      "Provider temporarily unavailable",
+    );
+    expect(screen.getByRole("timer").textContent).toBe(
+      "Retrying grouping in 30 seconds.",
+    );
+    expect(screen.queryByRole("button", { name: "Retry grouping" })).toBeNull();
+    await act(() => vi.advanceTimersByTimeAsync(5000));
+    expect(screen.getByRole("timer").textContent).toBe(
+      "Retrying grouping in 25 seconds.",
+    );
+    mounted.rerender(<ReviewWorkspace>Polling update</ReviewWorkspace>);
+    expect(screen.getByRole("timer").textContent).toBe(
+      "Retrying grouping in 25 seconds.",
+    );
+    await act(() => vi.advanceTimersByTimeAsync(25000));
+    expect(screen.getByRole("timer").textContent).toBe(
+      "Waiting for the local worker to retry grouping…",
+    );
+    expect(screen.queryByText(/Diff for/)).toBeNull();
+    state.jobs[0] = { ...state.jobs[0]!, retryAt: null, error: null };
+    mounted.rerender(<ReviewWorkspace>Retry started</ReviewWorkspace>);
+    expect(screen.queryByRole("timer")).toBeNull();
+    expect(screen.getByText("Preparing your review")).toBeTruthy();
+    mounted.unmount();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("terminal failure explains the fallback then opens every original file without AI ordering", async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date("2026-10-17T12:00:00Z"));
+  try {
+    setNavigationPreview();
+    state.preview!.groupingEnabled = true;
+    state.jobs = [
+      {
+        id: "final-failure",
+        kind: "grouping",
+        status: "failed",
+        error: "Model returned invalid groups",
+        updatedAt: new Date().toISOString(),
+        fallbackAt: new Date(Date.now() + 15000).toISOString(),
+      } as JobSchema,
+    ];
+    const mounted = render(<ReviewWorkspace>Setup</ReviewWorkspace>);
+    expect(screen.getByRole("alert").textContent).toContain(
+      "Model returned invalid groups",
+    );
+    expect(
+      screen.getByText(
+        /couldn’t group this review.*without AI grouping or ordering/i,
+      ),
+    ).toBeTruthy();
+    expect(screen.getByRole("timer").textContent).toBe(
+      "Opening the file review in 15 seconds.",
+    );
+    await act(() => vi.advanceTimersByTimeAsync(14000));
+    expect(screen.queryByText(/Diff for/)).toBeNull();
+    expect(screen.getByRole("timer").textContent).toBe(
+      "Opening the file review in 1 second.",
+    );
+    await act(() => vi.advanceTimersByTimeAsync(1000));
+    expect(screen.getByText("Diff for src/first.ts")).toBeTruthy();
+    expect(screen.getByLabelText("Changed files").textContent).toContain(
+      "first.ts",
+    );
+    expect(screen.getByLabelText("Changed files").textContent).toContain(
+      "second.tsx",
+    );
+    expect(state.preview!.files.map((file) => file.path)).toEqual([
+      "src/first.ts",
+      "src/second.tsx",
+    ]);
+    expect(state.act).not.toHaveBeenCalled();
+    mounted.unmount();
+    render(<ReviewWorkspace>Reopened</ReviewWorkspace>);
+    expect(screen.getByText("Diff for src/first.ts")).toBeTruthy();
+    cleanup();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("a fresh manual grouping attempt supersedes an old fallback deadline", async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date("2026-10-17T12:00:00Z"));
+  try {
+    setNavigationPreview();
+    state.preview!.groupingEnabled = true;
+    const failed = {
+      id: "old",
+      kind: "grouping",
+      status: "failed",
+      error: "Old error",
+      updatedAt: new Date().toISOString(),
+      fallbackAt: new Date(Date.now() + 15000).toISOString(),
+    } as JobSchema;
+    state.jobs = [failed];
+    const mounted = render(<ReviewWorkspace>Setup</ReviewWorkspace>);
+    await act(() => vi.advanceTimersByTimeAsync(5000));
+    state.jobs = [
+      { ...failed, id: "new", status: "queued", error: null, fallbackAt: null },
+      failed,
+    ];
+    mounted.rerender(<ReviewWorkspace>New attempt</ReviewWorkspace>);
+    await act(() => vi.advanceTimersByTimeAsync(15000));
+    expect(screen.queryByText(/Diff for/)).toBeNull();
+    expect(screen.getByText("Preparing your review")).toBeTruthy();
+    expect(screen.queryByRole("timer")).toBeNull();
+    mounted.unmount();
+  } finally {
+    vi.useRealTimers();
+  }
 });

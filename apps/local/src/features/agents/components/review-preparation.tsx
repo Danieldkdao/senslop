@@ -5,12 +5,14 @@ import { useConfirm } from "@/hooks/use-confirm";
 import { LoadingSwap } from "@/components/ui/loading-swap";
 import { CircleAlert, LoaderCircle, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { formatGroupingCountdown } from "../lib/formatters";
 import type { JobSchema } from "../schemas";
 
 export const ReviewPreparation = ({
   job,
   error,
   configured,
+  remainingSeconds,
   onRetry,
   onConfigure,
   onDiscard,
@@ -19,6 +21,7 @@ export const ReviewPreparation = ({
   job?: JobSchema;
   error?: string;
   configured: boolean;
+  remainingSeconds?: number | null;
   onRetry: () => Promise<unknown>;
   onConfigure: () => void;
   onDiscard: () => Promise<void>;
@@ -45,6 +48,8 @@ export const ReviewPreparation = ({
   const stopped = job?.status === "canceled";
   const running = job?.status === "queued" || job?.status === "running";
   const failed = job?.status === "failed";
+  const retryScheduled = running && !!job?.retryAt;
+  const fallbackScheduled = failed && !!job?.fallbackAt;
   const failure =
     error ??
     job?.error ??
@@ -90,12 +95,29 @@ export const ReviewPreparation = ({
                     ? "Configure a model in AI settings to group and summarize this review."
                     : "Organizing changed files and writing summaries. Your review will open when everything is ready."))}
             </p>
+            {fallbackScheduled && (
+              <p className="text-muted-foreground">
+                We couldn’t group this review. Automatic attempts have ended.
+                We’ll open every original file without AI grouping or ordering
+                so you can still review your changes.
+              </p>
+            )}
             {!failure && !stopped && !needsModel && (
               <p className="text-muted-foreground">
                 {job?.progress ?? "Starting local grouping…"}
               </p>
             )}
           </div>
+          {(retryScheduled || fallbackScheduled) &&
+            remainingSeconds != null && (
+              <p
+                role="timer"
+                aria-live="off"
+                className="text-base text-muted-foreground tabular-nums"
+              >
+                {formatGroupingCountdown(remainingSeconds, fallbackScheduled)}
+              </p>
+            )}
           <div className="flex flex-wrap justify-center gap-2">
             {running && (
               <Button
@@ -111,7 +133,9 @@ export const ReviewPreparation = ({
                 </LoadingSwap>
               </Button>
             )}
-            {(failure || stopped || (!job && configured)) && (
+            {((failure && !retryScheduled) ||
+              stopped ||
+              (!job && configured)) && (
               <Button
                 className="text-base"
                 variant="outline"

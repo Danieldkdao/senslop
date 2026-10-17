@@ -1,5 +1,6 @@
 import { inngest } from "./client";
 import { executeJob } from "./jobs";
+import { analysisRetryDelaysMs } from "../../features/agents/constants";
 import { AgentStore } from "../../features/agents/lib/agent-store";
 import { matchesJobSnapshot } from "../../features/agents/lib/job-snapshots";
 import { getWorkspace } from "../../features/workspace/lib/server-workspace";
@@ -16,7 +17,7 @@ export const analysisJob = inngest.createFunction(
   {
     id: "analyze-changes",
     triggers: { event: "senslop/analysis.requested" },
-    retries: 2,
+    retries: analysisRetryDelaysMs.length,
     concurrency: [
       { limit: 2 },
       { limit: 1, key: "event.data.snapshotId + '-' + event.data.kind" },
@@ -32,16 +33,12 @@ export const analysisJob = inngest.createFunction(
         ...getAiErrorDiagnostics(error),
       });
       if (typeof jobId === "string")
-        (await store()).updateJob(jobId, {
-          status: "failed",
-          progress: "Failed — retry available",
-          error: formatAiError(error),
-        });
+        (await store()).failJob(jobId, formatAiError(error));
     },
   },
-  async ({ event, step, runId }) => {
+  async ({ event, step, runId, attempt }) => {
     if (typeof event.data.jobId !== "string") return;
-    await executeJob(await store(), event.data.jobId, runId, step);
+    await executeJob(await store(), event.data.jobId, runId, step, attempt);
   },
 );
 

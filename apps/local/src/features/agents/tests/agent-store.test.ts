@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import { randomUUID } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -381,6 +381,81 @@ test("another tab cannot replace a streaming answer after three minutes", async 
     expect(() =>
       otherTab.beginTurn(conversation.id, "second question", model),
     ).not.toThrow();
+  } finally {
+    local.close();
+  }
+});
+
+test("terminal grouping failure persists one fallback deadline and preserves the snapshot across restart", async () => {
+  const { local, review, agents, databasePath } = await fixture();
+  const job = agents.createJob(review.id, "grouping");
+  const now = Date.parse("2026-10-17T12:00:00Z");
+  const clock = vi.spyOn(Date, "now").mockReturnValue(now);
+  try {
+    agents.updateJob(job.id, { retryAt: new Date(now + 30000).toISOString() });
+    agents.failJob(job.id, "Provider unavailable");
+    expect(agents.job(job.id)).toMatchObject({
+      status: "failed",
+      error: "Provider unavailable",
+      retryAt: null,
+      fallbackAt: new Date(now + 15000).toISOString(),
+      result: null,
+    });
+    clock.mockReturnValue(now + 5000);
+    agents.failJob(job.id, "Duplicate failure");
+    expect(agents.job(job.id)?.fallbackAt).toBe(
+      new Date(now + 15000).toISOString(),
+    );
+    expect(agents.snapshot(review.id).files).toEqual(review.files);
+    local.close();
+    const reopened = new LocalStore(databasePath);
+    try {
+      const restored = new AgentStore(reopened, "/repo");
+      expect(restored.job(job.id)?.fallbackAt).toBe(
+        new Date(now + 15000).toISOString(),
+      );
+      const retry = restored.createJob(review.id, "grouping");
+      expect(retry).toMatchObject({ retryAt: null, fallbackAt: null });
+    } finally {
+      reopened.close();
+    }
+  } finally {
+    clock.mockRestore();
+    if (local.database.isOpen) local.close();
+  }
+});
+
+test("failure callbacks never schedule fallback for canceled, completed, or correctness jobs", async () => {
+  const { local, review, agents } = await fixture();
+  try {
+    const canceled = agents.createJob(review.id, "grouping");
+    agents.updateJob(canceled.id, { status: "canceled" });
+    agents.failJob(canceled.id, "late");
+    expect(agents.job(canceled.id)).toMatchObject({
+      status: "canceled",
+      fallbackAt: null,
+    });
+    const completed = agents.createJob(review.id, "grouping");
+    agents.publish(completed.id, {
+      groups: [
+        {
+          title: "Changes",
+          rationale: "All files",
+          files: [{ path: "file.ts", summary: "Change", related: [] }],
+        },
+      ],
+    });
+    agents.failJob(completed.id, "late");
+    expect(agents.job(completed.id)).toMatchObject({
+      status: "completed",
+      fallbackAt: null,
+    });
+    const correctness = agents.createJob(review.id, "review");
+    agents.failJob(correctness.id, "unavailable");
+    expect(agents.job(correctness.id)).toMatchObject({
+      status: "failed",
+      fallbackAt: null,
+    });
   } finally {
     local.close();
   }

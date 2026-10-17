@@ -18,6 +18,7 @@ import { FileSummary } from "../../agents/components/file-summary";
 import { ReviewPreparation } from "../../agents/components/review-preparation";
 import { assignedModel } from "../../agents/lib/model-selection";
 import { useAiSettings } from "../../agents/hooks/use-ai-settings";
+import { useGroupingCountdown } from "../../agents/hooks/use-grouping-countdown";
 import { useAgentState } from "../../agents/hooks/use-agent-state";
 import type { FindingSchema } from "../../agents/schemas";
 import { FileSearchDialog } from "./file-search-dialog";
@@ -111,6 +112,7 @@ export const ReviewWorkspace = ({ children }: ReviewWorkspaceProps) => {
         !!preview &&
         matchesJobSnapshot(job, preview),
     ) ?? [];
+  const groupingCountdown = useGroupingCountdown(groupingJobs[0]);
   const groupingRun =
     groupingJobs[0]?.status === "completed" ? groupingJobs[0] : null;
   const grouping =
@@ -123,6 +125,7 @@ export const ReviewWorkspace = ({ children }: ReviewWorkspaceProps) => {
     !!preview?.files.length &&
     preview.groupingEnabled !== false &&
     !grouping &&
+    !groupingCountdown.fallbackReady &&
     (aiSettings.isPending || groupingConfigured);
   const orderedFiles = grouping
     ? grouping.groups
@@ -162,7 +165,9 @@ export const ReviewWorkspace = ({ children }: ReviewWorkspaceProps) => {
       orderedFiles.length === preview.files.length &&
       new Set(orderedFiles.map((file) => file.path)).size ===
         preview.files.length &&
-      (preview.groupingEnabled === false || !!grouping),
+      (preview.groupingEnabled === false ||
+        !!grouping ||
+        groupingCountdown.fallbackReady),
   });
   const selectedIndex =
     orderedFiles.findIndex((file) => file.path === selectedFile?.path) ?? -1;
@@ -546,6 +551,7 @@ export const ReviewWorkspace = ({ children }: ReviewWorkspaceProps) => {
         {preparing ? (
           <ReviewPreparation
             job={groupingJobs[0]}
+            remainingSeconds={groupingCountdown.seconds}
             error={
               agents.state.error?.message ??
               aiSettings.error?.message ??

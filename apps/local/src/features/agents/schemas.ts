@@ -60,6 +60,7 @@ export const aiSettingsSchema = z.object({
     ),
 });
 export type AiSettingsSchema = z.infer<typeof aiSettingsSchema>;
+
 export const aiSettingsPatchSchema = aiSettingsSchema
   .partial()
   .extend({ roles: aiSettingsSchema.shape.roles.partial().optional() })
@@ -376,6 +377,20 @@ export const jobSchema = z.object({
     .string()
     .nullable()
     .describe("Sanitized failure details, or null when no error is recorded."),
+  retryAt: z.iso
+    .datetime()
+    .nullable()
+    .default(null)
+    .describe(
+      "Earliest automatic retry time, or null when no retry is scheduled.",
+    ),
+  fallbackAt: z.iso
+    .datetime()
+    .nullable()
+    .default(null)
+    .describe(
+      "Time to open the original file review after terminal grouping failure.",
+    ),
   createdAt: z.iso
     .datetime()
     .describe("ISO timestamp when the job was created."),

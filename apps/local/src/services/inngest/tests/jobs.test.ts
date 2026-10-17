@@ -284,13 +284,13 @@ test("transient provider failures retain safe availability feedback across job e
   const error = await executeJob(store as never, "job", "run", {
     run: async (_key: string, operation: () => Promise<unknown>) => operation(),
   } as never).catch((error) => error);
-  expect(error.name).toBe("AiTransientError");
+  expect(error.name).toBe("RetryAfterError");
   expect(isFatalAiError(error)).toBe(false);
   expect(JSON.stringify(error)).not.toMatch(/TEST_PRIVATE/);
   const serializedError = Object.assign(new Error(error.message), {
     name: error.name,
   });
-  expect(formatAiError(serializedError)).toContain("temporarily unavailable");
+  expect(serializedError.message).toContain("temporarily unavailable");
   expect(store.updateJob).toHaveBeenCalledWith(
     "job",
     expect.objectContaining({
@@ -299,4 +299,123 @@ test("transient provider failures retain safe availability feedback across job e
     }),
   );
   expect(store.publish).not.toHaveBeenCalled();
+});
+
+test.each([0, 1, 2])(
+  "analysis attempt %i advertises only real remaining retries",
+  async (attempt) => {
+    vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-10-17T12:00:00Z"));
+    vi.mocked(createRepositoryAgent).mockResolvedValueOnce({
+      grouping: async () => {
+        throw new APICallError({
+          message: "private",
+          url: "https://example.test",
+          requestBodyValues: {},
+          statusCode: 503,
+          isRetryable: true,
+        });
+      },
+    } as never);
+    const store = {
+      job: () => ({
+        id: "job",
+        snapshotId: "snapshot",
+        hash: "hash",
+        kind: "grouping",
+        status: "queued",
+        settings: defaultAiSettings,
+      }),
+      snapshot: () => ({ id: "snapshot", hash: "hash" }),
+      updateJob: vi.fn(),
+      publish: vi.fn(),
+      repository: "/repo",
+      local: {},
+    };
+    const error = await executeJob(
+      store as never,
+      "job",
+      "run",
+      {
+        run: async (_key: string, operation: () => Promise<unknown>) =>
+          operation(),
+      } as never,
+      attempt,
+    ).catch((error) => error);
+    if (attempt < 2) {
+      const retryAt = new Date(
+        Date.now() + (attempt === 0 ? 30000 : 60000),
+      ).toISOString();
+      expect(error).toMatchObject({
+        name: "RetryAfterError",
+        retryAfter: retryAt,
+      });
+      expect(store.updateJob).toHaveBeenCalledWith(
+        "job",
+        expect.objectContaining({
+          retryAt,
+          error: expect.stringContaining("temporarily unavailable"),
+        }),
+      );
+    } else {
+      expect(error).toMatchObject({ name: "NonRetriableError" });
+      expect(store.updateJob).not.toHaveBeenCalledWith(
+        "job",
+        expect.objectContaining({ retryAt: expect.any(String) }),
+      );
+    }
+    expect(store.publish).not.toHaveBeenCalled();
+  },
+);
+
+test("publication failure also schedules a visible retry without rerunning completed analysis", async () => {
+  const result = {
+    groups: [
+      {
+        title: "Flow",
+        rationale: "why",
+        files: [{ path: "a.ts", summary: "change", related: [] }],
+      },
+    ],
+  };
+  const store = {
+    job: () => ({
+      id: "job",
+      snapshotId: "snapshot",
+      hash: "hash",
+      kind: "grouping",
+      status: "running",
+      settings: defaultAiSettings,
+      result,
+    }),
+    snapshot: () => ({ id: "snapshot", hash: "hash" }),
+    updateJob: vi.fn(),
+    publish: vi.fn(() => {
+      throw new Error("Database temporarily unavailable");
+    }),
+    repository: "/repo",
+    local: {},
+  };
+  const error = await executeJob(store as never, "job", "run", {
+    run: async (_key: string, operation: () => Promise<unknown>) => operation(),
+  } as never).catch((error) => error);
+  expect(error.name).toBe("RetryAfterError");
+  expect(store.updateJob).toHaveBeenCalledWith(
+    "job",
+    expect.objectContaining({
+      retryAt: error.retryAfter,
+      error: expect.any(String),
+    }),
+  );
+  expect(createRepositoryAgent).not.toHaveBeenCalled();
+});
+
+test("terminally failed work is never restarted by a late worker delivery", async () => {
+  const store = {
+    job: () => ({ status: "failed" }),
+    snapshot: vi.fn(),
+    updateJob: vi.fn(),
+  };
+  await executeJob(store as never, "job", "run", { run: vi.fn() } as never);
+  expect(store.snapshot).not.toHaveBeenCalled();
+  expect(store.updateJob).not.toHaveBeenCalled();
 });

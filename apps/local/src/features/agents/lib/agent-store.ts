@@ -12,7 +12,7 @@ import {
   type ModelSelectionSchema,
   type MessageStatus,
 } from "../schemas";
-import { defaultAiSettings } from "../constants";
+import { defaultAiSettings, groupingFallbackDelayMs } from "../constants";
 import { matchesJobSnapshot } from "./job-snapshots";
 
 export class AgentStore {
@@ -142,6 +142,8 @@ export class AgentStore {
           dispatched: false,
           runId: null,
           progress: "Resuming after workspace restart",
+          retryAt: null,
+          fallbackAt: null,
           error: null,
         });
         snapshots.add(job.snapshotId);
@@ -192,7 +194,14 @@ export class AgentStore {
     patch: Partial<
       Pick<
         JobSchema,
-        "status" | "progress" | "error" | "runId" | "dispatched" | "result"
+        | "status"
+        | "progress"
+        | "error"
+        | "runId"
+        | "dispatched"
+        | "result"
+        | "retryAt"
+        | "fallbackAt"
       >
     >,
   ) => {
@@ -216,6 +225,29 @@ export class AgentStore {
 
   updateJob = (id: string, patch: Parameters<AgentStore["writeJob"]>[1]) =>
     this.local.transaction(() => this.writeJob(id, patch));
+
+  failJob = (id: string, error: string) =>
+    this.local.transaction(() => {
+      const existingJob = this.job(id);
+      if (
+        !existingJob ||
+        ["canceled", "completed", "failed"].includes(existingJob.status)
+      )
+        return existingJob;
+      return this.writeJob(id, {
+        status: "failed",
+        progress:
+          existingJob.kind === "grouping"
+            ? "Grouping failed — opening original files shortly"
+            : "Failed — retry available",
+        error,
+        retryAt: null,
+        fallbackAt:
+          existingJob.kind === "grouping"
+            ? new Date(Date.now() + groupingFallbackDelayMs).toISOString()
+            : null,
+      });
+    });
 
   readCheckpoint = (id: string, key: string): unknown => {
     const existingJob = this.job(id);
@@ -317,6 +349,8 @@ export class AgentStore {
       this.writeJob(id, {
         status: "completed",
         progress: "Complete",
+        retryAt: null,
+        fallbackAt: null,
         error: null,
         result: jobSchema.shape.result.parse(result),
       });
