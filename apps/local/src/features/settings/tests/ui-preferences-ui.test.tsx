@@ -19,6 +19,10 @@ import { defaultUiPreferences } from "../constants";
 import { mergeUiPreferences } from "../lib/ui-preferences";
 import type { ReactNode } from "react";
 
+vi.mock("../../workspace/hooks/use-workspace-updates", () => ({
+  useWorkspaceUpdates: vi.fn(),
+}));
+
 const feedback = vi.hoisted(() => ({ error: vi.fn() }));
 vi.mock("@/components/ui/toast", () => ({
   toast: feedback,

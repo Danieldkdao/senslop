@@ -39,7 +39,8 @@ export const ProviderKeyForm = ({
     formState: { errors, isSubmitting },
   } = useForm<SaveConnectionSchema>({
     resolver: zodResolver(saveConnectionSchema),
-    defaultValues: {
+    resetOptions: { keepDirtyValues: true },
+    values: {
       provider,
       id: connection?.id,
       name: connection?.name ?? info.label,

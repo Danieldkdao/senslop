@@ -4,8 +4,10 @@ import { useEffect, useRef, type ReactNode } from "react";
 import { useTheme } from "next-themes";
 import { applicationThemes } from "@/lib/constants";
 import { useUiPreferences } from "../hooks/use-ui-preferences";
+import { useWorkspaceUpdates } from "../../workspace/hooks/use-workspace-updates";
 
 export const LocalPreferences = ({ children }: { children: ReactNode }) => {
+  useWorkspaceUpdates();
   const { theme, setTheme } = useTheme();
   const { preferences, values, save } = useUiPreferences();
   const migrated = useRef(false);

@@ -32,8 +32,15 @@ export const ConnectionForm = ({
   const id = useId();
   const info = formatProvider(provider);
   const pending = useRef(false);
-  const [connection, setConnection] = useState(initialConnection);
-  const { entries, refresh } = useProviderModels();
+  const [savedConnection, setConnection] = useState(initialConnection);
+  const { settings, entries, refresh } = useProviderModels();
+  const existingConnection = settings?.data?.connections.find(
+    (connection) => connection.id === savedConnection?.id,
+  );
+  const connection =
+    (existingConnection?.revision ?? -1) > (savedConnection?.revision ?? -1)
+      ? existingConnection
+      : savedConnection;
   const [saveError, setSaveError] = useState<string | null>(null);
   const entry = entries.find((entry) => entry.connection.id === connection?.id);
   const {
@@ -42,12 +49,13 @@ export const ConnectionForm = ({
     handleSubmit,
     control,
     setValue,
-    resetField,
+    reset,
     setError,
     formState: { errors, isSubmitting },
   } = useForm<SaveConnectionSchema>({
     resolver: zodResolver(saveConnectionSchema),
-    defaultValues: {
+    resetOptions: { keepDirtyValues: true },
+    values: {
       provider,
       id: connection?.id,
       name: connection?.name ?? info.label,
@@ -75,10 +83,16 @@ export const ConnectionForm = ({
           action: "save",
           connection: values,
         });
-        setValue("id", saved.connection.id);
         setConnection(saved.connection);
-        setValue("removeKey", false);
-        resetField("apiKey", { defaultValue: "" });
+        reset(
+          {
+            ...values,
+            id: saved.connection.id,
+            apiKey: "",
+            removeKey: false,
+          },
+          { keepDirtyValues: false },
+        );
         if (saved.warning) toast.error(saved.warning);
         else toast.success("Connection saved locally.");
         await refresh();
