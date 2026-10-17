@@ -26,6 +26,21 @@ export const protectLocalRoute = (request: Request) => {
   );
 };
 
+export const getLocalRequestUrl = (request: Request) => {
+  const origin = serverEnv.SENSLOP_LOCAL_ORIGIN;
+  if (!origin)
+    throw new Error("Start the local workspace using the Senslop CLI.");
+  const canonical = new URL(origin);
+  if (request.headers.get("host") !== canonical.host)
+    throw new Error("Invalid local host.");
+  // NextRequest normalizes numeric loopback hosts; OAuth must retain the CLI's exact origin.
+  const incoming = new URL(request.url);
+  canonical.pathname = incoming.pathname;
+  canonical.search = incoming.search;
+  canonical.hash = "";
+  return canonical;
+};
+
 export const readLocalBody = async (request: Request) => {
   if (!request.headers.get("content-type")?.startsWith("application/json"))
     throw new Error("Use a JSON request.");

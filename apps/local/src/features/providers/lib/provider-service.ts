@@ -5,6 +5,9 @@ import {
   storedConnectionSchema,
   publicConnectionSchema,
   type StoredConnectionSchema,
+  type SubscriptionProvider,
+  type ProviderAccountSchema,
+  isSubscriptionProvider,
 } from "@senslop/contracts";
 import type { LocalStore } from "@senslop/review-core/storage";
 import type { CredentialStore } from "../../../services/credentials/types";
@@ -51,6 +54,8 @@ export class ProviderService {
       id: connection.id,
       configured,
       credentialError: error,
+      ...(connection.account ? { account: connection.account } : {}),
+      revision: connection.revision,
     });
   };
 
@@ -81,6 +86,8 @@ export class ProviderService {
 
   save = async (input: unknown) => {
     const values = saveConnectionSchema.parse(input);
+    if (isSubscriptionProvider(values.provider))
+      throw new Error("Sign in to connect this subscription provider.");
     const existingConnection = values.id ? this.stored(values.id) : null;
     if (values.id && !existingConnection)
       throw new Error("Connection not found. Refresh settings and retry.");
@@ -175,6 +182,83 @@ export class ProviderService {
     return {
       connection: await this.publicConnection(savedConnection),
       warning,
+    };
+  };
+
+  saveSubscription = async (
+    provider: SubscriptionProvider,
+    account: ProviderAccountSchema,
+    secret: string,
+    id?: string,
+    signal?: AbortSignal,
+  ) => {
+    const existingConnection = id ? this.stored(id) : null;
+    if (id && (!existingConnection || existingConnection.provider !== provider))
+      throw new Error("Connection not found. Refresh settings and retry.");
+    if (
+      !existingConnection &&
+      Number(
+        this.store.database
+          .prepare("SELECT COUNT(*) AS count FROM connections")
+          .get()?.count,
+      ) >= 100
+    )
+      throw new Error(
+        "Remove an unused connection before adding more than 100 connections.",
+      );
+    signal?.throwIfAborted();
+    const credentialRef = randomUUID();
+    const info = formatProvider(provider);
+    const savedConnection = storedConnectionSchema.parse({
+      provider,
+      name: info.label,
+      baseURL: info.baseURL,
+      model: "",
+      contextWindow: null,
+      id: id ?? randomUUID(),
+      credentialRef,
+      revision: (existingConnection?.revision ?? -1) + 1,
+      account,
+    });
+    try {
+      await this.credentials.set(credentialRef, secret);
+      if ((await this.credentials.get(credentialRef)) !== secret)
+        throw credentialError();
+      signal?.throwIfAborted();
+    } catch {
+      await this.credentials
+        .delete(credentialRef)
+        .catch(() => this.queueCleanup(credentialRef));
+      throw credentialError();
+    }
+    try {
+      this.store.transaction(() => {
+        signal?.throwIfAborted();
+        if (
+          existingConnection &&
+          this.stored(existingConnection.id)?.revision !==
+            existingConnection.revision
+        )
+          throw new Error(
+            "Connection was edited elsewhere. Refresh and retry.",
+          );
+        this.store.database
+          .prepare(
+            "INSERT INTO connections VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET body = excluded.body",
+          )
+          .run(savedConnection.id, JSON.stringify(savedConnection));
+        if (existingConnection?.credentialRef)
+          this.queueCleanup(existingConnection.credentialRef);
+      });
+    } catch (error) {
+      await this.credentials
+        .delete(credentialRef)
+        .catch(() => this.queueCleanup(credentialRef));
+      throw error;
+    }
+    return {
+      connection: await this.publicConnection(savedConnection),
+      warning: await this.cleanup(),
     };
   };
 

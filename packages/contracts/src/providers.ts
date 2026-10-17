@@ -3,6 +3,8 @@ import { z } from "zod";
 export const providerIds = [
   "openrouter",
   "chatgpt",
+  "chatgpt-subscription",
+  "claude-code",
   "google",
   "anthropic",
   "grok",
@@ -15,6 +17,24 @@ export const providerIds = [
   "opencode",
 ] as const;
 export type ProviderId = (typeof providerIds)[number];
+
+export const subscriptionProviders = [
+  "chatgpt-subscription",
+  "claude-code",
+] as const;
+export type SubscriptionProvider = (typeof subscriptionProviders)[number];
+
+export const isSubscriptionProvider = (
+  provider: ProviderId,
+): provider is SubscriptionProvider =>
+  provider === "chatgpt-subscription" || provider === "claude-code";
+
+export const providerAccountSchema = z.object({
+  email: z.string().min(1).max(320),
+  subject: z.string().min(1).max(500),
+  plan: z.string().max(100).nullable(),
+});
+export type ProviderAccountSchema = z.infer<typeof providerAccountSchema>;
 
 export const isLocalEndpoint = (value: string) => {
   try {
@@ -70,6 +90,7 @@ export const storedConnectionSchema = providerConfigSchema
     id: z.uuid(),
     credentialRef: z.uuid().nullable(),
     revision: z.number().int().nonnegative(),
+    account: providerAccountSchema.optional(),
   })
   .strict();
 export type StoredConnectionSchema = z.infer<typeof storedConnectionSchema>;
@@ -78,5 +99,7 @@ export const publicConnectionSchema = providerConfigSchema.extend({
   id: z.uuid(),
   configured: z.boolean(),
   credentialError: z.string().nullable(),
+  account: providerAccountSchema.optional(),
+  revision: z.number().int().nonnegative().optional(),
 });
 export type PublicConnectionSchema = z.infer<typeof publicConnectionSchema>;

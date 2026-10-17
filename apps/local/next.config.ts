@@ -10,15 +10,25 @@ const nextConfig: NextConfig = {
     "@napi-rs/keyring",
     "dependency-cruiser",
     "typescript",
+    "ai-sdk-provider-claude-code",
+    "@anthropic-ai/claude-agent-sdk",
+    "oauth4webapi",
   ],
   logging: {
     // Keep snapshot polling and session capabilities out of the interactive terminal logs.
     incomingRequests: {
-      ignore: [/^\/api\/(?:preview|health|session|inngest|agents)(?:\/|\?|$)/],
+      ignore: [
+        /^\/api\/(?:preview|health|session|inngest|agents)(?:\/|\?|$)/,
+        /^\/auth\/callback(?:\?|$)/,
+      ],
     },
   },
   outputFileTracingIncludes: {
-    "/*": ["./src/app/fonts/cascadia-code-license.txt"],
+    "/*": [
+      "./src/app/fonts/cascadia-code-license.txt",
+      "./node_modules/@anthropic-ai/claude-agent-sdk/**/*",
+      "../../node_modules/.pnpm/@anthropic-ai+claude-agent-sdk*/node_modules/@anthropic-ai/claude-agent-sdk*/**/*",
+    ],
     "/file-icons/*": [
       "./node_modules/material-icon-theme/package.json",
       "./node_modules/material-icon-theme/icons/*.svg",

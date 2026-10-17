@@ -1,4 +1,19 @@
-import { isLocalEndpoint, type ProviderId } from "@senslop/contracts";
+import {
+  isLocalEndpoint,
+  type ProviderId,
+  type SubscriptionProvider,
+} from "@senslop/contracts";
+
+export const formatSubscriptionRequirements = (
+  provider: SubscriptionProvider,
+) => {
+  switch (provider) {
+    case "chatgpt-subscription":
+      return "Requires a paid ChatGPT Plus or ChatGPT Pro subscription and an eligible workspace.";
+    case "claude-code":
+      return "Requires a paid Claude Pro or Max subscription, or a Claude Team or Enterprise account.";
+  }
+};
 
 export const formatProvider = (provider: ProviderId) => {
   switch (provider) {
@@ -30,6 +45,24 @@ export const formatProvider = (provider: ProviderId) => {
         keyRequired: true,
         contextWindow: false,
         description: "Connect to the Gemini API with a Google AI API key.",
+      };
+    case "chatgpt-subscription":
+      return {
+        label: "ChatGPT Subscription",
+        icon: "OpenAI" as const,
+        baseURL: "https://api.openai.com/v1",
+        keyRequired: true,
+        contextWindow: false,
+        description: formatSubscriptionRequirements(provider),
+      };
+    case "claude-code":
+      return {
+        label: "Claude Code",
+        icon: "Claude" as const,
+        baseURL: "https://api.anthropic.com/v1",
+        keyRequired: true,
+        contextWindow: false,
+        description: formatSubscriptionRequirements(provider),
       };
     case "anthropic":
       return {

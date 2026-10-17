@@ -1,6 +1,7 @@
-import { access, cp, rm, writeFile } from "node:fs/promises";
+import { access, cp, readFile, rm, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
-import { basename, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 
 const source = fileURLToPath(
   new URL("../../../apps/local/.next/", import.meta.url),
@@ -25,6 +26,30 @@ await cp(
     filter: (path) => !/^sharp(?:-|$)/.test(basename(path)),
   },
 );
+// pnpm keeps optional native executables beside the SDK rather than in its flattened aliases.
+const localRequire = createRequire(
+  new URL("../../../apps/local/package.json", import.meta.url),
+);
+const sdkDirectory = dirname(
+  localRequire.resolve("@anthropic-ai/claude-agent-sdk"),
+);
+const sdkRequire = createRequire(join(sdkDirectory, "sdk.mjs"));
+const sdkPackage = JSON.parse(
+  await readFile(join(sdkDirectory, "package.json"), "utf8"),
+);
+for (const name of Object.keys(sdkPackage.optionalDependencies)) {
+  let packagePath;
+  try {
+    packagePath = sdkRequire.resolve(`${name}/package.json`);
+  } catch (error) {
+    if (error.code === "MODULE_NOT_FOUND") continue;
+    throw error;
+  }
+  await cp(dirname(packagePath), join(target, "node_modules", name), {
+    recursive: true,
+    dereference: true,
+  });
+}
 await cp(
   join(source, "standalone/apps/local/node_modules/material-icon-theme"),
   join(target, "apps/local/node_modules/material-icon-theme"),
