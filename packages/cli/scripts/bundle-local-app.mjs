@@ -70,6 +70,11 @@ await cp(join(source, "static"), join(target, "apps/local/.next/static"), {
   recursive: true,
 });
 await cp(
+  fileURLToPath(new URL("../../../apps/local/public/", import.meta.url)),
+  join(target, "apps/local/public"),
+  { recursive: true },
+);
+await cp(
   fileURLToPath(
     new URL("../src/features/workspace/parent-monitor.mjs", import.meta.url),
   ),
