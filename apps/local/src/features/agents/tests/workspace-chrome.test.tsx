@@ -7,10 +7,17 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { beforeEach, afterEach, expect, test, vi } from "vitest";
+import { defaultUiPreferences } from "../../settings/constants";
 import { AgentPanel } from "../components/agent-panel";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { NoteControls } from "../../review/components/note-controls";
 import userEvent from "@testing-library/user-event";
+vi.mock("../../settings/hooks/use-ui-preferences", () => ({
+  useUiPreferences: () => ({ values: defaultUiPreferences }),
+}));
+vi.mock("../../review/hooks/use-diff-highlighter", () => ({
+  useDiffHighlighter: () => ({ ready: false, error: false, retry: vi.fn() }),
+}));
 const models = vi.hoisted(() => ({ review: false, fingerprint: "current" }));
 vi.mock("../../workspace/hooks/use-workspace-metadata", () => ({
   useWorkspaceMetadata: () => ({
@@ -379,7 +386,6 @@ test.each([
             severity: "high",
             title: "Old issue",
             problem: "Old contents",
-            rationale: "Old caller",
             path: "a.ts",
             side: "after",
             start: 1,

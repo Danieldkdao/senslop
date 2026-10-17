@@ -2,18 +2,44 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
+import type { PreviewFileSchema } from "@senslop/contracts";
+import type { LivePreview } from "../../review/types";
 import type { JobSchema } from "../schemas";
 import { ReviewResults } from "../components/review-results";
 
 vi.mock("../components/agent-markdown", () => ({
   AgentMarkdown: ({ children }: { children: string }) => <p>{children}</p>,
 }));
+const evidenceState = vi.hoisted(() => ({
+  file: undefined as PreviewFileSchema | undefined,
+}));
+vi.mock("../components/finding-evidence", () => ({
+  FindingEvidence: ({
+    finding,
+    onEvidence,
+    file,
+  }: {
+    finding: import("../schemas").FindingSchema;
+    file?: PreviewFileSchema;
+    onEvidence?: (finding: unknown) => void;
+  }) => {
+    evidenceState.file = file;
+    return (
+      <div>
+        <button onClick={() => onEvidence?.(finding)}>{finding.path}</button>
+        <pre>{finding.code}</pre>
+      </div>
+    );
+  },
+}));
+vi.mock("@senslop/ui/hooks/use-highlighted-code", () => ({
+  useHighlightedCode: (value: string) => value.split("\n"),
+}));
 afterEach(cleanup);
 const finding = {
   severity: "high" as const,
   title: "Missing guard",
   problem: "An empty input causes a crash.",
-  rationale: "The caller passes an empty input.",
   path: "a.ts",
   side: "after" as const,
   start: 2,
@@ -42,7 +68,12 @@ test("findings expand independently and keep evidence actions out of the title t
   expect(first.getAttribute("aria-expanded")).toBe("true");
   expect(second.getAttribute("aria-expanded")).toBe("false");
   expect(screen.getByText(finding.problem)).toBeTruthy();
-  expect(screen.getByText(finding.rationale)).toBeTruthy();
+  expect(
+    screen
+      .getByText(finding.problem)
+      .closest('[data-slot="collapsible-content"]')
+      ?.querySelectorAll("p"),
+  ).toHaveLength(1);
   expect(screen.getByText(finding.code)).toBeTruthy();
   await user.click(screen.getByRole("button", { name: /a.ts/ }));
   expect(evidence).toHaveBeenCalledWith(finding);
@@ -78,4 +109,56 @@ test("analysis limitations start collapsed and can be toggled without opening fi
     screen.queryByText("Compiler diagnostics were unavailable."),
   ).toBeNull();
   expect(screen.queryByText(/reviewed-file checklist/)).toBeNull();
+});
+
+test("opening a prompt previews Markdown without copying; only its copy button writes the exact prompt", async () => {
+  const user = userEvent.setup();
+  const write = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue();
+  const { container } = render(<ReviewResults job={job} />);
+  expect(container.querySelector('[data-slot="code-block"]')).toBeNull();
+  await user.click(
+    screen.getByRole("button", { name: "Fix with agent prompt" }),
+  );
+  expect(write).not.toHaveBeenCalled();
+  expect(container.querySelector('[data-slot="code-block-header"]')).toBeNull();
+  expect(
+    container
+      .querySelector('[data-slot="code-block-content"]')
+      ?.hasAttribute("data-numbered"),
+  ).toBe(false);
+  expect(
+    container.querySelector('[data-slot="code-block-content"]')?.textContent,
+  ).toContain("### Issue 1");
+  await user.click(screen.getByRole("button", { name: "Copy" }));
+  expect(write).toHaveBeenCalledOnce();
+  expect(write.mock.calls[0]![0]).toMatch(
+    /For each issue above, determine whether it is valid and should be fixed. If so, fix it directly.$/,
+  );
+});
+test("review evidence receives only snapshot contents belonging to that job's hash and round", async () => {
+  const user = userEvent.setup();
+  const file = { path: finding.path } as PreviewFileSchema;
+  const snapshot = {
+    id: "snapshot",
+    hash: "current",
+    round: 2,
+    files: [file],
+  } as LivePreview;
+  const currentJob = { ...job, hash: "current", snapshotRound: 2 };
+  const { rerender } = render(
+    <ReviewResults job={currentJob} snapshot={snapshot} />,
+  );
+  await user.click(screen.getByRole("button", { name: "Missing guard" }));
+  expect(evidenceState.file).toBe(file);
+  rerender(
+    <ReviewResults
+      job={{ ...currentJob, snapshotRound: 1 }}
+      snapshot={snapshot}
+    />,
+  );
+  expect(evidenceState.file).toBeUndefined();
+  rerender(
+    <ReviewResults job={{ ...currentJob, hash: "old" }} snapshot={snapshot} />,
+  );
+  expect(evidenceState.file).toBeUndefined();
 });

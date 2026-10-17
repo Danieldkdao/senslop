@@ -13,6 +13,18 @@ vi.mock("@/components/file-icon", () => ({ FileIcon: () => <span /> }));
 vi.mock("@/components/ui/toast", () => ({
   toast: { success: vi.fn(), error: vi.fn() },
 }));
+vi.mock("../components/finding-evidence", () => ({
+  FindingEvidence: ({
+    finding,
+    onEvidence,
+  }: {
+    finding: import("../schemas").FindingSchema;
+    onEvidence?: (finding: unknown) => void;
+  }) => <button onClick={() => onEvidence?.(finding)}>{finding.path}</button>,
+}));
+vi.mock("@senslop/ui/hooks/use-highlighted-code", () => ({
+  useHighlightedCode: (value: string) => value.split("\n"),
+}));
 afterEach(cleanup);
 const grouping = {
   groups: [
@@ -64,7 +76,6 @@ test("saved review findings navigate to their exact evidence and expose copyable
         severity: "high",
         title: "Missing guard",
         problem: "Null input throws",
-        rationale: "Caller passes null",
         path: "a.ts",
         side: "after",
         start: 2,
@@ -90,8 +101,9 @@ test("saved review findings navigate to their exact evidence and expose copyable
   expect(onEvidence).toHaveBeenCalledWith(
     expect.objectContaining({ path: "a.ts", start: 2 }),
   );
-  expect(screen.getByRole("button", { name: "Fix with AI" })).toBeTruthy();
-  expect(screen.getByRole("button", { name: "Fix all with AI" })).toBeTruthy();
+  expect(
+    screen.getAllByRole("button", { name: "Fix with agent prompt" }),
+  ).toHaveLength(2);
 });
 
 test("completed groups start collapsed even when their selected file is inside the group", async () => {

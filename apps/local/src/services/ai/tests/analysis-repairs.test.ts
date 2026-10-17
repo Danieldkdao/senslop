@@ -40,7 +40,6 @@ const finding = (path: string, code = "new") => ({
   severity: "high",
   title: "Bug",
   problem: "Trigger and consequence",
-  rationale: "Evidence",
   path,
   side: "after",
   start: 1,

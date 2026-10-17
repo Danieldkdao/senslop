@@ -834,7 +834,6 @@ test("large reviews validate merged evidence and remove duplicate findings acros
         severity: "high",
         title: "Value changed incorrectly",
         problem: "Caller requires zero",
-        rationale: "Verified",
         path: "0.ts",
         side: "after",
         start: 1,
@@ -854,7 +853,7 @@ test("large reviews validate merged evidence and remove duplicate findings acros
   const result = await (await agent()).review();
   expect(requests.length).toBeGreaterThan(1);
   expect(result.findings).toHaveLength(1);
-  expect(result.findings[0]!.fixPrompt).toContain("Evidence:");
+  expect(result.findings[0]!.fixPrompt).toContain("Path: 0.ts");
   expect(result.findings[0]!.fixPrompt).toContain("Restore zero");
   for (const request of requests)
     expect(Buffer.byteLength(text(request))).toBeLessThan(100000);
@@ -906,7 +905,7 @@ test("reviews preserve all batch and context limitations and can restore them fr
   expect(requests).toHaveLength(calls);
 });
 
-test("merged reviews retain more than one response's finding limit and persist source-enriched prompts", async () => {
+test("merged reviews retain more than one response's finding limit and persist Markdown prompts with verified locations", async () => {
   state.model = new MockLanguageModelV4({
     doGenerate: async (options) =>
       response({
@@ -916,7 +915,6 @@ test("merged reviews retain more than one response's finding limit and persist s
             severity: "high",
             title: `Verified issue ${index}`,
             problem: "Caller requires zero",
-            rationale: "Verified",
             path,
             side: "after",
             start: 1,
@@ -936,7 +934,9 @@ test("merged reviews retain more than one response's finding limit and persist s
     result.findings.some((finding) => finding.fixPrompt.length > 10000),
   ).toBe(true);
   expect(
-    result.findings.every((finding) => finding.fixPrompt.includes("Evidence:")),
+    result.findings.every((finding) =>
+      finding.fixPrompt.includes("**Suggested fix**"),
+    ),
   ).toBe(true);
   expect(correctnessSchema.parse(result)).toEqual(result);
 });
@@ -998,7 +998,6 @@ test("review requests name the exact expected paths and finding repairs accept e
                   severity: "high",
                   title: "Unsupported",
                   problem: "Unsupported",
-                  rationale: "Unsupported",
                   path,
                   side: "after",
                   start: 1,
@@ -1284,7 +1283,6 @@ test("invalid review evidence receives bounded repair and explicit limitations w
               severity: "high",
               title: "Invented issue",
               problem: "Unsupported",
-              rationale: "Unsupported",
               path: file.path,
               side: "after",
               start: 1,

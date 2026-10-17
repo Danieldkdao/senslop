@@ -220,13 +220,7 @@ export const findingSchema = z.object({
     .min(1)
     .max(5000)
     .describe(
-      "Concrete trigger, incorrect behavior, and consequence caused by the selected changes; do not report speculative or unrelated pre-existing issues.",
-    ),
-  rationale: z
-    .string()
-    .max(5000)
-    .describe(
-      "Evidence from source, callers, types, dependencies, or tests that supports this finding; distinguish compiler facts from inference.",
+      "One concise Markdown paragraph, ideally 40–80 words: explain the concrete trigger, incorrect behavior and impact, then end with one short sentence suggesting a targeted fix. Include essential supporting evidence here. No headings, lists or paragraph breaks. Use code spans for identifiers; avoid speculative or unrelated pre-existing bugs.",
     ),
   path: z
     .string()
@@ -266,7 +260,7 @@ export const findingSchema = z.object({
     .min(1)
     .max(10000)
     .describe(
-      "Copyable instructions for an AI to verify the issue against current source, make a focused fix, and run relevant tests; this does not execute changes.",
+      "Short, targeted Markdown fix guidance: 1–2 sentences describing the smallest appropriate change and relevant verification. Do not repeat the problem, path, source excerpt or surrounding review. The application adds location, issue context and an instruction to determine whether the issue is valid before fixing it.",
     ),
 });
 export type FindingSchema = z.infer<typeof findingSchema>;
@@ -281,7 +275,7 @@ export const correctnessSchema = z.object({
   findings: z
     .array(
       findingSchema.extend({
-        // Saved prompts include the verified source excerpt and location.
+        // Saved prompts include Markdown context and the verified location.
         fixPrompt: z
           .string()
           .min(1)

@@ -258,6 +258,7 @@ export const AgentPanel = ({
                 )}
                 <ReviewResults
                   job={displayed}
+                  snapshot={snapshot}
                   onEvidence={olderResult ? undefined : onEvidence}
                 />
               </>
