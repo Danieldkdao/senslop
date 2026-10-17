@@ -25,6 +25,33 @@ test("switching histories replaces SDK messages without leaking the previous con
   expect(result.current.messages).toHaveLength(1);
 });
 
+test("a truncated response is retained as interrupted", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () =>
+      createUIMessageStreamResponse({
+        stream: new ReadableStream<UIMessageChunk>({
+          start(controller) {
+            controller.enqueue({ type: "start", messageId: "assistant" });
+            controller.enqueue({ type: "finish", finishReason: "length" });
+            controller.close();
+          },
+        }),
+      }),
+    ),
+  );
+  const { result } = renderHook(() => useAgentChat(undefined, vi.fn()));
+  await act(async () => {
+    await expect(
+      result.current.send(
+        "conversation",
+        { connectionId: "provider", modelId: "model", name: "Model" },
+        "Question",
+      ),
+    ).rejects.toThrow(/interrupted/i);
+  });
+});
+
 test("stopping an SDK request retains partial output and refreshes the correct conversation", async () => {
   const requests: { messageId: string }[] = [];
   vi.stubGlobal("fetch", (_url: string, options: RequestInit) =>

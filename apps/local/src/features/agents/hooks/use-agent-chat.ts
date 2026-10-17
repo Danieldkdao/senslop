@@ -32,11 +32,17 @@ export const useAgentChat = (
     onError: (error) => {
       outcome.current.error = error;
     },
-    onFinish: ({ message, isAbort, isDisconnect, isError }) => {
+    onFinish: ({ message, isAbort, isDisconnect, isError, finishReason }) => {
       outcome.current = {
         ...outcome.current,
         messageId: message.id,
-        interrupted: isAbort || isDisconnect || isError,
+        interrupted:
+          isAbort ||
+          isDisconnect ||
+          isError ||
+          finishReason === "length" ||
+          finishReason === "content-filter" ||
+          finishReason === "error",
       };
     },
   });
