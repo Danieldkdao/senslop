@@ -1,7 +1,7 @@
 "use client";
 
 import { useId, useRef, useState, type BaseSyntheticEvent } from "react";
-import { Controller, useForm, useWatch } from "react-hook-form";
+import { Controller, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
   saveConnectionSchema,
@@ -10,11 +10,10 @@ import {
   type ProviderId,
 } from "@senslop/contracts";
 import { ProviderIcon } from "../../../components/provider-icon";
-import { formatEndpointLocation, formatProvider } from "../lib/formatters";
+import { formatProvider } from "../lib/formatters";
 import { providerRequest } from "../lib/requests";
-import { useConnectionCheck } from "../hooks/use-connection-check";
-import type { ConnectionFeedback } from "../types";
-import { cn } from "@/lib/utils";
+import { useProviderModels } from "../hooks/use-provider-models";
+import { ProviderModelStatus } from "./provider-model-status";
 import { LoadingSwap } from "@/components/ui/loading-swap";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -24,26 +23,19 @@ import { toast } from "@/components/ui/toast";
 type ConnectionFormProps = {
   provider: ProviderId;
   connection?: PublicConnectionSchema;
-  onSaved: () => Promise<void>;
-  initialFeedback?: ConnectionFeedback | null;
-  onFeedback?: (id: string, feedback: ConnectionFeedback | null) => void;
 };
 
 export const ConnectionForm = ({
   provider,
   connection: initialConnection,
-  onSaved,
-  initialFeedback,
-  onFeedback,
 }: ConnectionFormProps) => {
   const id = useId();
   const info = formatProvider(provider);
   const pending = useRef(false);
   const [connection, setConnection] = useState(initialConnection);
-  const { feedback, checking, checkConnection } = useConnectionCheck({
-    initialFeedback,
-    onFeedback,
-  });
+  const { entries, refresh } = useProviderModels();
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const entry = entries.find((entry) => entry.connection.id === connection?.id);
   const {
     register,
     getValues,
@@ -66,7 +58,6 @@ export const ConnectionForm = ({
       removeKey: false,
     },
   });
-  const endpoint = useWatch({ control, name: "baseURL" });
   const submit = (event?: BaseSyntheticEvent) =>
     handleSubmit(async (values) => {
       if (pending.current) return;
@@ -75,6 +66,7 @@ export const ConnectionForm = ({
         return;
       }
       pending.current = true;
+      setSaveError(null);
       try {
         const saved = await providerRequest<{
           connection: PublicConnectionSchema;
@@ -89,10 +81,9 @@ export const ConnectionForm = ({
         resetField("apiKey", { defaultValue: "" });
         if (saved.warning) toast.error(saved.warning);
         else toast.success("Connection saved locally.");
-        await checkConnection(saved.connection.id);
-        await onSaved();
+        await refresh();
       } catch (error) {
-        setError("root", { message: (error as Error).message });
+        setSaveError((error as Error).message);
         toast.error((error as Error).message);
       } finally {
         pending.current = false;
@@ -121,22 +112,32 @@ export const ConnectionForm = ({
       noValidate
       onSubmit={submit}
       className="flex flex-col gap-5 text-base"
-      aria-busy={isSubmitting || checking}
+      aria-busy={isSubmitting}
     >
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         <ProviderIcon
           aria-hidden="true"
           name={info.icon}
           size={28}
           className="text-muted-foreground"
         />
-        <p className="text-muted-foreground">{info.description}</p>
+        <p className="min-w-0 flex-1 text-muted-foreground">
+          {info.description}
+        </p>
+        <ProviderModelStatus
+          provider={provider}
+          connection={connection}
+          entry={entry}
+          status={{ busy: isSubmitting, error: saveError }}
+          onRefresh={async () => {
+            setSaveError(null);
+            if (entry) await entry.refetch();
+            else await refresh();
+          }}
+        />
       </div>
       {field("baseURL", "API base URL", "url")}
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-muted-foreground">
-          {formatEndpointLocation(endpoint)}
-        </p>
+      <div className="flex items-center justify-end gap-2">
         <Button
           type="button"
           variant="ghost"
@@ -239,45 +240,13 @@ export const ConnectionForm = ({
         Saving checks the connection automatically using metadata only; no
         repository source is sent.
       </p>
-      {checking && <p role="status">Checking connection…</p>}
-      {feedback && (
-        <p
-          role={feedback.failed ? "alert" : "status"}
-          className={cn(
-            "rounded-md border bg-muted p-3",
-            feedback.failed && "text-destructive",
-          )}
-        >
-          {feedback.message}
-        </p>
-      )}
-      {feedback?.failed && (
-        <Button
-          type="button"
-          variant="outline"
-          disabled={isSubmitting || checking}
-          onClick={() => {
-            const connectionId = getValues("id");
-            if (connectionId) void checkConnection(connectionId);
-          }}
-        >
-          Retry connection check
-        </Button>
-      )}
-      {errors.root && (
-        <p role="alert" className="text-destructive">
-          {errors.root.message} Your input is retained; retry saving when ready.
-        </p>
-      )}
       <Button
         type="submit"
         aria-label="Save connection"
-        aria-busy={isSubmitting || checking}
-        disabled={isSubmitting || checking}
+        aria-busy={isSubmitting}
+        disabled={isSubmitting}
       >
-        <LoadingSwap isLoading={isSubmitting || checking}>
-          Save connection
-        </LoadingSwap>
+        <LoadingSwap isLoading={isSubmitting}>Save connection</LoadingSwap>
       </Button>
     </form>
   );

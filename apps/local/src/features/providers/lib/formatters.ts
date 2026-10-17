@@ -1,8 +1,5 @@
-import {
-  isLocalEndpoint,
-  type ProviderId,
-  type SubscriptionProvider,
-} from "@senslop/contracts";
+import type { ProviderId, SubscriptionProvider } from "@senslop/contracts";
+import type { ModelCatalogSchema } from "../model-schemas";
 
 export const formatSubscriptionRequirements = (
   provider: SubscriptionProvider,
@@ -151,11 +148,6 @@ export const formatProvider = (provider: ProviderId) => {
   }
 };
 
-export const formatEndpointLocation = (endpoint: string) =>
-  isLocalEndpoint(endpoint)
-    ? "Local endpoint, inference server on this computer"
-    : "Remote endpoint, compatible does not mean local";
-
 export const formatConnectionLabel = (connection: {
   provider: ProviderId;
   name: string;
@@ -214,3 +206,44 @@ export const formatModelOptionName = (
   connectionNumber?: number,
 ) =>
   `${name} (${connectionName}${connectionNumber ? ` ${connectionNumber}` : ""})`;
+
+export const formatProviderModelCheck = ({
+  checking,
+  error,
+  catalog,
+}: {
+  checking: boolean;
+  error?: string | null;
+  catalog?: ModelCatalogSchema;
+}) => {
+  if (checking)
+    return {
+      state: "checking" as const,
+      label: "checking models",
+      message: "Checking the saved connection for available models…",
+      className: "text-muted-foreground animate-spin",
+    };
+  const count = catalog?.models.filter((model) => model.available).length ?? 0;
+  const failure =
+    error ||
+    (catalog?.source !== "live"
+      ? (catalog?.message ??
+        "Live model discovery is unavailable. Refresh the saved connection to retry.")
+      : !count
+        ? (catalog.message ??
+          "No available models were found. Check your provider or server and retry.")
+        : null);
+  if (failure)
+    return {
+      state: "failed" as const,
+      label: "model check failed",
+      message: failure,
+      className: "text-destructive",
+    };
+  return {
+    state: "success" as const,
+    label: "models available",
+    message: `${count} ${count === 1 ? "model found" : "models found"} using the saved connection.${catalog?.message ? ` ${catalog.message}` : ""}`,
+    className: "text-success",
+  };
+};

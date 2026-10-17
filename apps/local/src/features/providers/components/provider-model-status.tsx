@@ -1,44 +1,89 @@
 "use client";
 
+import { Check, Loader2, RefreshCw, X } from "lucide-react";
+import type { ProviderId, PublicConnectionSchema } from "@senslop/contracts";
 import { Button } from "@/components/ui/button";
+import { TooltipWrapper } from "@/components/ui/tooltip-wrapper";
 import { cn } from "@/lib/utils";
 import type { useProviderModels } from "../hooks/use-provider-models";
-import { formatProvider } from "../lib/formatters";
+import { formatProvider, formatProviderModelCheck } from "../lib/formatters";
+import type { ProviderConnectionStatus } from "../types";
 
 type ProviderModelStatusProps = {
-  entry: ReturnType<typeof useProviderModels>["entries"][number];
+  provider?: ProviderId;
+  connection?: PublicConnectionSchema;
+  entry?: ReturnType<typeof useProviderModels>["entries"][number];
+  status?: ProviderConnectionStatus;
+  onRefresh?: () => Promise<unknown> | void;
 };
 
-export const ProviderModelStatus = ({ entry }: ProviderModelStatusProps) => {
-  const message = entry.error?.message ?? entry.catalog?.message;
+export const ProviderModelStatus = ({
+  provider,
+  connection: savedConnection,
+  entry,
+  status,
+  onRefresh,
+}: ProviderModelStatusProps) => {
+  const connection = savedConnection ?? entry?.connection;
+  if (!connection && !status?.busy && !status?.error) return null;
+  const providerId = connection?.provider ?? provider;
+  const label = providerId ? formatProvider(providerId).label : "Provider";
+  const error =
+    status?.error ?? connection?.credentialError ?? entry?.error?.message;
+  const checking =
+    !!status?.busy ||
+    !!entry?.fetching ||
+    (!error && (!!entry?.pending || !entry));
+  const presentation = formatProviderModelCheck({
+    checking,
+    error,
+    catalog: entry?.catalog,
+  });
+  const refresh = onRefresh ?? entry?.refetch;
   return (
-    <div className="flex flex-col gap-2 text-base">
-      <p className="font-medium">Model discovery</p>
-      {entry.pending ? (
-        <p role="status" className="text-muted-foreground">
-          Loading models…
-        </p>
-      ) : (
-        <>
-          <p
-            role={entry.error ? "alert" : "status"}
-            className={cn(
-              entry.error ? "text-destructive" : "text-muted-foreground",
-            )}
-          >
-            {message ??
-              `${entry.catalog?.models.length ?? 0} models available.`}
-          </p>
-          <Button
-            variant="outline"
-            className="self-start text-base"
-            onClick={() => void entry.refetch()}
-          >
-            {message ? "Retry" : "Refresh"}{" "}
-            {formatProvider(entry.connection.provider).label} models
-          </Button>
-        </>
-      )}
-    </div>
+    <span
+      className="inline-flex shrink-0 items-center gap-1"
+      aria-busy={checking}
+    >
+      <TooltipWrapper content={presentation.message}>
+        <div
+          className="size-7 cursor-default flex items-center justify-center"
+          aria-label={`${label}: ${presentation.label}`}
+          aria-description={presentation.message}
+        >
+          {presentation.state === "checking" ? (
+            <Loader2
+              aria-hidden="true"
+              className={cn("size-4", presentation.className)}
+            />
+          ) : presentation.state === "failed" ? (
+            <X
+              aria-hidden="true"
+              className={cn("size-4", presentation.className)}
+            />
+          ) : (
+            <Check
+              aria-hidden="true"
+              className={cn("size-4", presentation.className)}
+            />
+          )}
+        </div>
+      </TooltipWrapper>
+      <TooltipWrapper
+        content={`Refresh ${label} models using the saved connection.`}
+      >
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="size-7 text-muted-foreground"
+          disabled={checking || !connection || !refresh}
+          aria-label={`Refresh ${label} models`}
+          onClick={() => void refresh?.()}
+        >
+          <RefreshCw aria-hidden="true" className="size-4" />
+        </Button>
+      </TooltipWrapper>
+    </span>
   );
 };

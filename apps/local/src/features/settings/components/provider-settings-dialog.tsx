@@ -17,17 +17,12 @@ export const getProviderSettingsSection = (
   content: (
     <ProviderSettings
       search={query}
-      onConfigure={(provider, connection, reload, feedback) =>
+      onConfigure={(provider, connection) =>
         navigation.navigate({
           id: connection?.id ?? provider,
           label: formatProvider(provider).label,
           content: (
-            <ConnectionForm
-              provider={provider}
-              connection={connection}
-              {...feedback}
-              onSaved={reload}
-            />
+            <ConnectionForm provider={provider} connection={connection} />
           ),
         })
       }
