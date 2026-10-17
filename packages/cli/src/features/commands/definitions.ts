@@ -111,6 +111,36 @@ export const optionDefinitions: Record<
     type: "string",
     description: "Last inclusive line; defaults to --start.",
   },
+  section: {
+    type: "string",
+    description: "Settings section: ai, review, or ui; default ai.",
+  },
+  "value-file": {
+    type: "string",
+    description: "Read a string setting from a UTF-8 file, or - for stdin.",
+  },
+  provider: {
+    type: "string",
+    description: "Provider identifier; list supported IDs with help --json.",
+  },
+  endpoint: {
+    type: "string",
+    description: "Provider base URL; defaults to the provider preset.",
+  },
+  id: {
+    type: "string",
+    description: "Existing provider connection ID to update.",
+  },
+  "context-window": {
+    type: "string",
+    description: "Local model context-window override.",
+  },
+  "key-stdin": {
+    type: "boolean",
+    description:
+      "Read a replacement API key from stdin; keys never appear in output.",
+  },
+  "remove-key": { type: "boolean", description: "Remove the saved API key." },
   finding: {
     type: "string",
     description: "Export one finding's fix prompt by its 1-based index.",
@@ -392,6 +422,110 @@ export const commandDefinitions: CommandDefinition[] = [
     minArgs: 2,
     maxArgs: 2,
     options: ["yes"],
+  },
+  {
+    name: "settings show",
+    description: "Read saved settings for --section ai, review, or ui.",
+    options: ["section"],
+  },
+  {
+    name: "settings set",
+    description:
+      "Patch one dotted KEY using a JSON scalar/object or text VALUE. Alternatively --file reads a JSON object patch; --value-file reads a string. Preserves unrelated settings.",
+    arguments: "[KEY] [VALUE]",
+    maxArgs: 2,
+    options: ["section", "file", "value-file"],
+  },
+  {
+    name: "providers list",
+    description: "List configured connections and defaults, without secrets.",
+    options: [],
+  },
+  {
+    name: "providers save",
+    description:
+      "Create/update a connection using flags or --file JSON. Interactive API keys use a hidden prompt; automation uses --key-stdin.",
+    options: [
+      "file",
+      "provider",
+      "endpoint",
+      "id",
+      "context-window",
+      "key-stdin",
+      "remove-key",
+    ],
+  },
+  {
+    name: "providers delete",
+    description:
+      "Remove a provider connection and its credential; requires confirmation.",
+    arguments: "CONNECTION_ID",
+    minArgs: 1,
+    maxArgs: 1,
+    options: ["yes"],
+  },
+  {
+    name: "providers default",
+    description: "Choose a default connection, or none to clear it.",
+    arguments: "CONNECTION_ID",
+    minArgs: 1,
+    maxArgs: 1,
+    options: [],
+  },
+  {
+    name: "providers test",
+    description: "Check a saved connection using metadata only.",
+    arguments: "CONNECTION_ID",
+    minArgs: 1,
+    maxArgs: 1,
+    options: [],
+  },
+  {
+    name: "providers models",
+    description: "Discover exact model identifiers for a saved connection.",
+    arguments: "CONNECTION_ID",
+    minArgs: 1,
+    maxArgs: 1,
+    options: [],
+  },
+  {
+    name: "providers sign-in",
+    description:
+      "Connect an existing chatgpt-subscription or claude-code subscription. Returns a sign-in request; --wait waits for browser approval.",
+    arguments: "PROVIDER",
+    minArgs: 1,
+    maxArgs: 1,
+    options: ["open", "wait", "timeout"],
+  },
+  {
+    name: "providers sign-in-status",
+    description: "Read the state of a subscription sign-in request.",
+    arguments: "REQUEST_ID",
+    minArgs: 1,
+    maxArgs: 1,
+    options: [],
+  },
+  {
+    name: "providers cancel-sign-in",
+    description: "Cancel a pending subscription sign-in request.",
+    arguments: "REQUEST_ID",
+    minArgs: 1,
+    maxArgs: 1,
+    options: [],
+  },
+  {
+    name: "providers sign-out",
+    description:
+      "Disconnect a saved subscription connection; requires confirmation.",
+    arguments: "CONNECTION_ID",
+    minArgs: 1,
+    maxArgs: 1,
+    options: ["yes"],
+  },
+  {
+    name: "providers cleanup",
+    description: "Retry pending OS credential cleanup.",
+    options: [],
   },
   {
     name: "help",

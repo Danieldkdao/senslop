@@ -59,23 +59,47 @@ senslop runs list --review current --json
 
 `--timeout SECONDS` bounds waits; default analysis timeout is 600 seconds. A timeout retains the saved job so an agent can reconnect with `runs watch`. Failed or canceled analysis returns an unsuccessful exit status; it is distinct from a completed review with no findings. AI requests may send captured code to the chosen provider and incur that provider's charges. Source access remains read-only.
 
-## Notes
+## Notes and settings
 
 ```sh
 senslop notes add current src/example.ts --body 'Check this behavior'
 senslop notes add current src/example.ts --side after --start 12 --end 14 --body-file comment.txt
 senslop notes list current --json
+senslop settings show --section ai --json
+senslop settings set groupingMode always
+senslop settings set autoAdvance true --section review
+senslop settings set view unified --section ui
+senslop settings set prompt --value-file grouping-instructions.txt
 ```
 
 Notes can be listed, edited, deleted, and filtered by file or text. Line comments use exact frozen source and validated coordinates. `--body-file -` reads stdin.
 
+Settings support `ai`, `review`, and `ui` sections. `settings set KEY VALUE` patches a dotted key; JSON values can represent booleans, numbers, null, models, or nested objects. `--file PATH` accepts a JSON object patch; `--value-file PATH` reads a string. Both accept `-` for stdin. Unrelated values are preserved. AI settings include a shared model or separate Grouping, Context, Review, and Explain assignments. Read `providers models CONNECTION_ID` to obtain exact model identifiers.
+
 CLI writes automatically refresh the open browser's reviews, analysis, notes, completion, providers, and settings. Unsaved AI instruction drafts are preserved when settings refresh. Existing keyboard shortcuts remain available in the browser.
+
+## Providers and credentials
+
+`providers list`, `providers save`, `providers default`, `providers test`, `providers models`, `providers delete`, and `providers cleanup` use the same services as the UI. For example:
+
+```sh
+senslop providers save --provider ollama
+senslop providers save --provider llama-cpp --endpoint http://localhost:8080/v1
+senslop providers models CONNECTION_ID --json
+senslop providers save --provider chatgpt --key-stdin < private-key.txt
+```
+
+Interactive API keys use hidden prompts. Automation uses stdin or a connection JSON input through `--file`; keys are never returned. Saves perform a metadata check and preserve the saved connection if that check fails. `--id` updates a connection; endpoint changes with saved credentials require a replacement key or explicit removal.
+
+Subscription connections use `providers sign-in chatgpt-subscription` or `providers sign-in claude-code`; `--open --wait` opens their browser approval flow and waits for it. Sign-in status and cancellation are available through their scoped commands. `providers sign-out` disconnects an existing subscription. Hosted Senslop `login`, `status`, and `logout` remain separate from provider connections and local review; hosted login/logout use human-readable feedback rather than JSON.
+
+Secrets use macOS Keychain, Windows Credential Manager, or Linux Secret Service through the existing credential abstraction. An unavailable or locked store blocks saving; there is no plaintext fallback. Linux requires a session D-Bus and an unlocked Secret Service. Nonsecret preferences and reviews live in the OS application-data directory, outside repositories. `SENSLOP_DATA_DIRECTORY` can select an isolated data directory for testing; use the same absolute path in both app and command terminals.
 
 ## Help and output
 
 Help and accepted options share one command catalog. Every command supports scoped `--help`; `help --json` exposes command/option descriptions, provider IDs, and exit codes. Use the installed help as the authoritative command reference.
 
-Machine-oriented commands write undecorated JSON to stdout and structured errors to stderr. Noninteractive commands never wait for prompts. Deletion requires `--yes` outside an interactive terminal. Exit codes are 0 for success, 1 for operation failure, 2 for invalid usage or standalone snapshot ineligibility, 3 for an unavailable app, 4 for failed/canceled analysis, and 5 for a wait timeout.
+Machine-oriented commands write undecorated JSON to stdout and structured errors to stderr. Noninteractive commands never wait for prompts. Deletion and provider sign-out require `--yes` outside an interactive terminal. Exit codes are 0 for success, 1 for operation failure, 2 for invalid usage or standalone snapshot ineligibility, 3 for an unavailable app, 4 for failed/canceled analysis, and 5 for a wait timeout.
 
 ## Development and verification
 
@@ -83,4 +107,4 @@ Run `pnpm dev:local` in the repository to start the source app and worker. Use `
 
 Build the local app before the CLI with the package build commands. The archive includes standalone Next.js, shared assets, native runtime dependencies; it excludes source workspaces and real environment files. The package remains private and is not published.
 
-Run the ordinary suite with `pnpm test`. Existing opt-in development, installed-package, subscription, and OS credential tests remain available in their test files.
+Run the ordinary suite with `pnpm test`. `SENSLOP_AGENT_TEST=1 pnpm exec vitest run packages/cli/tests/agent-workflow.test.ts` exercises the production bundle and real local engine through independent CLI processes, using an isolated repository/data directory and deterministic loopback provider. This checks orchestration rather than real model quality. Existing opt-in development, installed-package, subscription, and OS credential tests remain available in their test files.

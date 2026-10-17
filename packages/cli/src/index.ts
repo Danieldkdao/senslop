@@ -15,6 +15,8 @@ import { formatCommandResult } from "./features/commands/formatters.js";
 import { CliError } from "./features/commands/errors.js";
 import { stringOption } from "./features/commands/input.js";
 import { executeReviewCommand } from "./features/reviews/commands.js";
+import { executeSettingsCommand } from "./features/settings/commands.js";
+import { executeProviderCommand } from "./features/providers/commands.js";
 import { requireCredentials } from "./features/auth/credentials.js";
 import { fetchStatus } from "./features/connection/fetch-status.js";
 import { login } from "./features/auth/login.js";
@@ -83,6 +85,7 @@ export const main = async (args = process.argv.slice(2)) => {
         { value: "reviews list", label: "List saved reviews" },
         { value: "reviews sync current", label: "Sync the current review" },
         { value: "reviews run current", label: "Run an AI review" },
+        { value: "settings show", label: "Show AI settings" },
         { value: "app open", label: "Open the browser workspace" },
         { value: "app status", label: "Check the running app" },
         { value: "help", label: "Show all commands" },
@@ -226,7 +229,11 @@ export const main = async (args = process.argv.slice(2)) => {
     const client = await connectWorkspace(repository).catch((error: Error) => {
       throw new CliError(error.message, "app_unavailable", 3);
     });
-    result = await executeReviewCommand(client, command);
+    if (name.startsWith("settings "))
+      result = await executeSettingsCommand(client, command);
+    else if (name.startsWith("providers "))
+      result = await executeProviderCommand(client, command);
+    else result = await executeReviewCommand(client, command);
   }
   console.log(formatCommandResult(result, !!values.json));
 };
