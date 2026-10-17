@@ -3,6 +3,7 @@ import { MockLanguageModelV4 } from "ai/test";
 import { APICallError } from "ai";
 import { createRepositoryAgent } from "../repository-agent";
 import { defaultAiSettings } from "../../../features/agents/constants";
+import { staticReviewLimitation } from "../../../features/agents/lib/review-limitations";
 import { correctnessSchema } from "../../../features/agents/schemas";
 import type { AnalysisContext } from "../../analysis/types";
 import type { AnalysisExecutionPolicy } from "../types";
@@ -867,7 +868,10 @@ test("reviews preserve all batch and context limitations and can restore them fr
       saved.set(key, value);
     },
   };
-  const expected = new Set<string>(["Compiler context unavailable"]);
+  const expected = new Set<string>([
+    "Compiler context unavailable",
+    staticReviewLimitation,
+  ]);
   state.model = new MockLanguageModelV4({
     doGenerate: async (options) => {
       requests.push(options);
@@ -963,7 +967,7 @@ test("missing review assessments narrow into smaller requests instead of failing
   });
   const result = await (await agent(selected)).review();
   expect(result.findings).toEqual([]);
-  expect(result.limitations).toEqual([]);
+  expect(result.limitations).toEqual([staticReviewLimitation]);
   expect(singleFileCalls).toBeGreaterThan(0);
   expect(requests.length).toBeLessThan(80);
 });
@@ -1013,7 +1017,7 @@ test("review requests name the exact expected paths and finding repairs accept e
   });
   const result = await (await agent(selected)).review();
   expect(result.findings).toEqual([]);
-  expect(result.limitations).toEqual([]);
+  expect(result.limitations).toEqual([staticReviewLimitation]);
   expect(requests).toHaveLength(2);
 });
 
@@ -1046,7 +1050,7 @@ test("schema complexity rejections narrow the review without losing any file ass
   });
   const result = await (await agent(selected)).review();
   expect(result.findings).toEqual([]);
-  expect(result.limitations).toEqual([]);
+  expect(result.limitations).toEqual([staticReviewLimitation]);
   expect(assessed.sort()).toEqual(selected.map(({ path }) => path).sort());
   expect(requests.length).toBeLessThan(40);
 });

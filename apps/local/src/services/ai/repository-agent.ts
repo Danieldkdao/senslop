@@ -19,6 +19,10 @@ import {
   AiStructuredOutputError,
 } from "./errors";
 import { getGenerationOptions, resolveLanguageModel } from "./provider-runtime";
+import {
+  consolidateReviewLimitations,
+  staticReviewLimitation,
+} from "../../features/agents/lib/review-limitations";
 import { mergeIncrementalGrouping } from "./incremental-grouping";
 import { sourceTools } from "../analysis/snapshot-analysis";
 import type { AnalysisContext } from "../analysis/types";
@@ -402,15 +406,27 @@ export const createRepositoryAgent = async ({
               repositorySchemaTokens,
           }),
         onStepEnd: logger.stepCompleted,
-        prepareStep: ({ messages, instructions }) => {
-          const compact = messages;
+        prepareStep: ({ messages, instructions, stepNumber }) => {
+          const finalizing = !resolvedContext.createModel && stepNumber >= 3;
+          const stepInstructions = finalizing
+            ? `${typeof instructions === "string" ? instructions : ""}\nInvestigation is complete. Return a compact answer to the requested question now, citing captured paths and source lines. State any evidence gaps; do not call more tools.`
+            : instructions;
           assertContextBudget(
-            estimateTokens({ instructions, messages: compact }) +
-              repositorySchemaTokens,
+            estimateTokens({ instructions: stepInstructions, messages }) +
+              (finalizing ? 0 : repositorySchemaTokens),
             contextLimit,
             contextOutputTokens,
           );
-          return { messages: compact };
+          return {
+            messages,
+            ...(finalizing
+              ? {
+                  instructions: stepInstructions,
+                  activeTools: [],
+                  toolChoice: "none" as const,
+                }
+              : {}),
+          };
         },
       }).catch((error) => {
         logger.failed(error);
@@ -420,7 +436,11 @@ export const createRepositoryAgent = async ({
         steps: result.steps.length,
         textCharacters: result.text.length,
       });
-      const text = result.text.slice(0, 12000);
+      const text = result.text.trim().slice(0, 12000);
+      if (!text) {
+        logger.info("empty-result", { finishReason: result.finishReason });
+        return "Context retrieval returned no final answer. No additional evidence was established; use repository source tools directly.";
+      }
       cachedContext.set(query, text);
       return text;
     },
@@ -903,7 +923,7 @@ export const createRepositoryAgent = async ({
     },
     review: async () => {
       const schema = reviewBatchSchema;
-      const prompt = `Review this batch of selected changes for concrete correctness bugs. Use the Context agent and repository tools to verify relevant callers, declarations and tests across the snapshot. Read captured diagnostics for files with nonzero diagnosticCounts and distinguish compiler facts from inference. Offset/total identifies part of a large diff; use readDiff and readSource when more evidence is needed. No speculative findings. Each finding needs an exact contiguous source excerpt, side before/after, 1-based start/end line and a useful fix prompt. Return one files assessment per batch path, including findings: [] when no bug is established. Write each problem as one concise paragraph, ideally 40–80 words, explaining the trigger, failure, impact and essential evidence, ending with one short sentence suggesting a focused fix. Do not generate additional description paragraphs. Use Markdown code spans for identifiers. Each fixPrompt is short Markdown guidance with the targeted change and relevant verification in 1–2 sentences. Do not repeat the problem, location or excerpt in fixPrompt; the application wraps it in a review comment and adds: For this issue, determine whether it is valid and should be fixed. If so, fix it directly. Style example — problem: If another program takes the saved workspace port between sessions, \`workspacePort\` keeps returning that occupied port. The availability check fails without replacing it. Every retry uses the same port, so the repository cannot reopen. When no workspace owns the repository, choose and save another available port. Fix guidance: When no workspace owns the repository, choose and save another available port; test startup with the saved port occupied. This example illustrates writing style only and is not evidence of an issue in this snapshot. Omit unrelated pre-existing bugs. Report analysis limitations.\nSnapshot context:\n${initial}`;
+      const prompt = `Review this batch of selected changes for concrete correctness bugs. Use the Context agent and repository tools to verify relevant callers, declarations and tests across the snapshot. Read captured diagnostics for files with nonzero diagnosticCounts and distinguish compiler facts from inference. Offset/total identifies part of a large diff; use readDiff and readSource when more evidence is needed. No speculative findings. Each finding needs an exact contiguous source excerpt, side before/after, 1-based start/end line and a useful fix prompt. Return one files assessment per batch path, including findings: [] when no bug is established. Write each problem as one concise paragraph, ideally 40–80 words, explaining the trigger, failure, impact and essential evidence, ending with one short sentence suggesting a focused fix. Do not generate additional description paragraphs. Use Markdown code spans for identifiers. Each fixPrompt is short Markdown guidance with the targeted change and relevant verification in 1–2 sentences. Do not repeat the problem, location or excerpt in fixPrompt; the application wraps it in a review comment and adds: For this issue, determine whether it is valid and should be fixed. If so, fix it directly. Style example — problem: If another program takes the saved workspace port between sessions, \`workspacePort\` keeps returning that occupied port. The availability check fails without replacing it. Every retry uses the same port, so the repository cannot reopen. When no workspace owns the repository, choose and save another available port. Fix guidance: When no workspace owns the repository, choose and save another available port; test startup with the saved port occupied. This example illustrates writing style only and is not evidence of an issue in this snapshot. Omit unrelated pre-existing bugs. Report only specific evidence gaps that materially limit a conclusion. Do not repeat the static read-only scope or shared snapshot limitations for every batch; the application records those centrally. Zero diagnostics, lists of files checked and successful tool reads are not limitations.\nSnapshot context:\n${initial}`;
       const batches = batchesFor(prompt, schema);
       console.info("[senslop:ai-batches]", {
         ...diagnosticContext,
@@ -979,13 +999,12 @@ export const createRepositoryAgent = async ({
           findings: uniqueFindings(
             results.flatMap((result) => result.findings),
           ),
-          limitations: [
-            ...new Set([
-              ...results.flatMap((result) => result.limitations),
-              ...context.limitations,
-              ...context.analysis.limitations,
-            ]),
-          ],
+          limitations: consolidateReviewLimitations([
+            staticReviewLimitation,
+            ...results.flatMap((result) => result.limitations),
+            ...context.limitations,
+            ...context.analysis.limitations,
+          ]),
           fixAllPrompt: results.some((result) => result.findings.length)
             ? "Verify each finding against current source, apply focused fixes, and run relevant tests."
             : "No fixes needed based on verified findings. Check the analysis limitations before relying on this review.",

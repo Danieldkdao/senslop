@@ -15,6 +15,7 @@ import {
 import { formatSeverity } from "../lib/formatters";
 import { fixAllPrompt, findingFixPrompt } from "../lib/validate-results";
 import type { LivePreview } from "../../review/types";
+import { consolidateReviewLimitations } from "../lib/review-limitations";
 import { matchesJobSnapshot } from "../lib/job-snapshots";
 import { AgentMarkdown } from "./agent-markdown";
 import { FixPrompt } from "./fix-prompt";
@@ -31,6 +32,7 @@ export const ReviewResults = ({
 }) => {
   if (!job.result || !("findings" in job.result)) return null;
   const result = job.result;
+  const limitations = consolidateReviewLimitations(result.limitations);
   const files =
     snapshot?.id === job.snapshotId && matchesJobSnapshot(job, snapshot)
       ? snapshot.files
@@ -98,7 +100,7 @@ export const ReviewResults = ({
           </section>
         );
       })}
-      {!!result.limitations.length && (
+      {!!limitations.length && (
         <Collapsible
           render={<section />}
           className="flex min-w-0 flex-col gap-3"
@@ -106,7 +108,7 @@ export const ReviewResults = ({
           <h3>
             <CollapsibleTrigger className="group/limitations flex w-full items-center gap-2 rounded-md py-2 text-left text-base font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring">
               <span className="flex-1">
-                Analysis limitations ({result.limitations.length})
+                Analysis limitations ({limitations.length})
               </span>
               <ChevronDown
                 aria-hidden="true"
@@ -116,7 +118,7 @@ export const ReviewResults = ({
           </h3>
           <CollapsibleContent>
             <ul className="list-disc flex flex-col gap-2 pl-5 text-muted-foreground">
-              {result.limitations.map((limitation, index) => (
+              {limitations.map((limitation, index) => (
                 <li key={index}>{limitation}</li>
               ))}
             </ul>
