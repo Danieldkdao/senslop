@@ -1,23 +1,33 @@
 "use client";
 
-import { useId } from "react";
+import { useId, useState } from "react";
 import { useController, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { NumberInput } from "@senslop/ui/components/number-input";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { LoadingSwap } from "@/components/ui/loading-swap";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useUiPreferences } from "../../settings/hooks/use-ui-preferences";
 import {
   buddyPreferencesSchema,
   type BuddyPreferencesSchema,
 } from "../../settings/schemas";
-import { buddyMaxSize, buddyMinSize } from "../constants";
+import { buddyCharacters, buddyMaxSize, buddyMinSize } from "../constants";
+import { formatBuddyCharacter } from "../lib/formatters";
+import type { BuddyCharacter } from "../types";
 import { BuddySprite } from "./buddy-sprite";
 
 export const BuddySettings = () => {
   const id = useId();
   const ui = useUiPreferences();
+  const [preview, setPreview] = useState<BuddyCharacter | null>(null);
   const { control, handleSubmit } = useForm<BuddyPreferencesSchema>({
     resolver: zodResolver(buddyPreferencesSchema),
     values: ui.values.buddy,
@@ -25,12 +35,16 @@ export const BuddySettings = () => {
   const visible = useController({ control, name: "visible" });
   const animations = useController({ control, name: "animations" });
   const size = useController({ control, name: "size" });
+  const character = useController({ control, name: "character" });
+  const previewCharacter = preview ?? character.field.value;
+  const selectedBuddy = formatBuddyCharacter(character.field.value);
   const submit = handleSubmit((values) =>
     ui.save({
       buddy: {
         visible: values.visible,
         animations: values.animations,
         size: values.size,
+        character: values.character,
       },
     }),
   );
@@ -43,11 +57,50 @@ export const BuddySettings = () => {
       className="flex flex-col gap-4 border-t pt-4 text-base"
     >
       <div className="flex flex-col gap-1">
-        <p className="font-medium">Pip, your review buddy</p>
+        <p className="font-medium">{selectedBuddy.name}, your review buddy</p>
         <p className="text-muted-foreground">
-          A little company while you think. Drag Pip anywhere, or focus Pip and
-          use the arrow keys.
+          A little company while you think. Drag your buddy anywhere, or focus
+          it and use the arrow keys.
         </p>
+      </div>
+      <div className="flex flex-col gap-2">
+        <label htmlFor={`${id}-character`}>Buddy</label>
+        <Select<BuddyCharacter>
+          value={character.field.value}
+          onOpenChange={(open) => {
+            if (!open) setPreview(null);
+          }}
+          onValueChange={(value) => {
+            if (!value) return;
+            character.field.onChange(value);
+            setPreview(null);
+            void submit();
+          }}
+        >
+          <SelectTrigger
+            id={`${id}-character`}
+            disabled={disabled}
+            className="w-full max-w-xs text-base"
+          >
+            <SelectValue>{selectedBuddy.name}</SelectValue>
+          </SelectTrigger>
+          <SelectContent
+            alignItemWithTrigger={false}
+            onPointerLeave={() => setPreview(null)}
+          >
+            {buddyCharacters.map((value) => (
+              <SelectItem
+                key={value}
+                value={value}
+                className="text-base"
+                onPointerEnter={() => setPreview(value)}
+                onFocus={() => setPreview(value)}
+              >
+                {formatBuddyCharacter(value).name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
       <label
         htmlFor={`${id}-visible`}
@@ -68,10 +121,15 @@ export const BuddySettings = () => {
         <div className="flex flex-col gap-4">
           <div
             role="img"
-            aria-label="Pip preview"
+            aria-label={`${formatBuddyCharacter(previewCharacter).name} preview`}
             className="flex min-h-40 items-center justify-center rounded-lg border bg-muted/30 p-4"
           >
-            <BuddySprite mood="idle" still size={size.field.value} />
+            <BuddySprite
+              character={previewCharacter}
+              mood="idle"
+              still
+              size={size.field.value}
+            />
           </div>
           <div className="flex flex-wrap items-center justify-between gap-3">
             <label htmlFor={`${id}-size`}>Buddy size</label>
@@ -112,8 +170,8 @@ export const BuddySettings = () => {
         />
       </label>
       <p className="text-muted-foreground">
-        Reduced-motion preferences are always respected. Pausing keeps
-        Pip&apos;s expressions and removes movement and confetti.
+        Reduced-motion preferences are always respected. Pausing keeps your
+        buddy&apos;s expressions and removes movement and confetti.
       </p>
       <Button
         type="button"

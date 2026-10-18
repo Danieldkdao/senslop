@@ -61,7 +61,7 @@ export const ReviewSettings = ({
           {
             id: "appearance",
             label: "Appearance",
-            keywords: `appearance theme light dark system buddy pip mascot show hide animations position size preview ${applicationThemes.map(formatApplicationTheme).join(" ")}`,
+            keywords: `appearance theme light dark system buddy pip momo nori lumi pebble character mascot show hide animations position size preview ${applicationThemes.map(formatApplicationTheme).join(" ")}`,
             content: (
               <div className="flex flex-col gap-5">
                 <ApplicationThemeSelect
