@@ -10,7 +10,7 @@ import type {
   SavedReviewSchema,
 } from "@senslop/contracts";
 import type { SourceMap } from "./types";
-import { analyzeSources } from "./snapshot-analysis";
+import { analyzeSources, snapshotAnalysisVersion } from "./snapshot-analysis";
 
 type CapturableSnapshot = {
   source: PreviewSourceSchema;
@@ -204,18 +204,18 @@ export const loadContext = async (
       "Snapshot changed during context loading. Reload and retry.",
     );
   if (captured.error) throw new Error(captured.error);
-  const sources = { ...captured.sources };
-  for (const file of snapshot.files)
-    if (file.after === null && file.before !== null)
-      sources[file.path] = file.before;
-  const analysis =
-    captured.analysis ??
-    (await analyzeSources(
-      sources,
-      snapshot.files.map((file) => file.path),
-    ));
+  const currentAnalysis =
+    captured.analysis?.version === snapshotAnalysisVersion;
+  const analysis = currentAnalysis
+    ? captured.analysis!
+    : await analyzeSources(
+        captured.sources,
+        snapshot.files
+          .filter((file) => file.after !== null)
+          .map((file) => file.path),
+      );
   if (
-    !captured.analysis &&
+    !currentAnalysis &&
     store.getReview(root, snapshot.id)?.hash === snapshot.hash &&
     store.getReview(root, snapshot.id)?.round === snapshot.round
   )

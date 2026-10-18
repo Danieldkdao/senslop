@@ -16,16 +16,27 @@ import {
   formatInlineChangeStyle,
 } from "../lib/formatters";
 import type { DiffSettingsState } from "../types";
+import { DiffAppearanceSettings } from "./diff-appearance-settings";
 
 type DiffSettingsProps = {
   settings: DiffSettingsState;
   onChange: (settings: DiffSettingsState) => void;
+  onPreviewChange?: (settings: Partial<DiffSettingsState> | null) => void;
 };
 
-export const DiffSettings = ({ settings, onChange }: DiffSettingsProps) => {
+export const DiffSettings = ({
+  settings,
+  onChange,
+  onPreviewChange,
+}: DiffSettingsProps) => {
   const id = useId();
   return (
     <div className="flex flex-col gap-5 text-base">
+      <DiffAppearanceSettings
+        settings={settings}
+        onChange={onChange}
+        onPreviewChange={onPreviewChange}
+      />
       <div className="grid gap-2">
         <p id={`${id}-indicators`} className="font-medium">
           Change indicators

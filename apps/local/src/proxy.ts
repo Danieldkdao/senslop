@@ -10,6 +10,8 @@ export const proxy = (request: NextRequest) => {
       status: 503,
     });
   const bootstrap = request.nextUrl.pathname === "/api/session";
+  const callback =
+    request.method === "GET" && request.nextUrl.pathname === "/auth/callback";
   // Inngest validates POST signatures; registration uses a persistent private worker capability.
   const worker =
     request.nextUrl.pathname === "/api/inngest" &&
@@ -23,6 +25,7 @@ export const proxy = (request: NextRequest) => {
     return new NextResponse("Invalid local host.", { status: 403 });
   if (
     !bootstrap &&
+    !callback &&
     !worker &&
     !allowsLocalRequest(request.headers, { origin, token })
   )

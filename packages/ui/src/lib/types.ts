@@ -1,7 +1,8 @@
 import { Dispatch, SetStateAction } from "react";
-import { themes } from "./constants";
+import { themes, applicationThemes } from "./constants";
 
 export type Theme = (typeof themes)[number];
+export type ApplicationTheme = (typeof applicationThemes)[number];
 
 export type SetterType<T> = Dispatch<SetStateAction<T>>;
 

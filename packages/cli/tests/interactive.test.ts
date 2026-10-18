@@ -1,184 +1,278 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-
-const prompts = vi.hoisted(() => ({
+const mocks = vi.hoisted(() => ({
+  select: vi.fn(),
+  text: vi.fn(),
+  request: vi.fn(),
+  start: vi.fn(),
+  collect: vi.fn(),
+  install: vi.fn(),
+  confirm: vi.fn(),
+  multiselect: vi.fn(),
+}));
+vi.mock("node:os", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("node:os")>()),
+  homedir: () => "/fixture-home",
+}));
+vi.mock("../src/features/skills/install.js", () => ({
+  installReviewSkill: mocks.install,
+}));
+vi.mock("@clack/prompts", () => ({
+  select: mocks.select,
+  text: mocks.text,
+  confirm: mocks.confirm,
+  multiselect: mocks.multiselect,
+  isCancel: (value: unknown) => typeof value === "symbol",
   intro: vi.fn(),
   outro: vi.fn(),
-  cancel: vi.fn(),
-  isCancel: (value: unknown) => typeof value === "symbol",
-  text: vi.fn(),
-  select: vi.fn(),
-  note: vi.fn(),
-  log: { info: vi.fn(), success: vi.fn(), warn: vi.fn(), error: vi.fn() },
-  spinner: vi.fn(() => ({ start: vi.fn(), stop: vi.fn(), error: vi.fn() })),
+  log: { info: vi.fn(), success: vi.fn(), error: vi.fn() },
 }));
-const commands = vi.hoisted(() => ({
-  login: vi.fn(),
-  runWorkspace: vi.fn(),
-  logout: vi.fn(),
-  collectSnapshot: vi.fn(),
-  inspectRepository: vi.fn(),
-}));
-
-vi.mock("@clack/prompts", () => prompts);
-vi.mock("@senslop/review-core/git", () => ({
-  inspectRepository: commands.inspectRepository,
-}));
-vi.mock("../src/features/auth/login.js", () => ({ login: commands.login }));
-vi.mock("../src/features/auth/logout.js", () => ({ logout: commands.logout }));
 vi.mock("../src/features/workspace/run-workspace.js", () => ({
-  runWorkspace: commands.runWorkspace,
+  runWorkspace: mocks.start,
+}));
+vi.mock("../src/features/workspace/workspace-client.js", () => ({
+  connectWorkspace: async () => ({
+    request: mocks.request,
+    info: () => ({ origin: "http://127.0.0.1:4317" }),
+  }),
 }));
 vi.mock("../src/features/git/snapshot.js", () => ({
-  collectSnapshot: commands.collectSnapshot,
+  collectSnapshot: mocks.collect,
 }));
-
 import { main } from "../src/index.js";
-
-const stdinTTY = Object.getOwnPropertyDescriptor(process.stdin, "isTTY");
-const stdoutTTY = Object.getOwnPropertyDescriptor(process.stdout, "isTTY");
-const snapshot = {
-  source: { kind: "working-tree" },
-  files: [],
-  excluded: [],
-  eligibility: { eligible: false, qualifyingFiles: 0 },
-};
-
+const stdin = Object.getOwnPropertyDescriptor(process.stdin, "isTTY");
+const stdout = Object.getOwnPropertyDescriptor(process.stdout, "isTTY");
 beforeEach(() => {
   vi.clearAllMocks();
   Object.defineProperty(process.stdin, "isTTY", {
-    configurable: true,
     value: true,
+    configurable: true,
   });
   Object.defineProperty(process.stdout, "isTTY", {
-    configurable: true,
     value: true,
-  });
-  process.exitCode = 0;
-  commands.collectSnapshot.mockResolvedValue(snapshot);
-  commands.inspectRepository.mockResolvedValue({
-    snapshot,
-    fingerprint: "f".repeat(64),
+    configurable: true,
   });
 });
-
 afterEach(() => {
-  if (stdinTTY) Object.defineProperty(process.stdin, "isTTY", stdinTTY);
+  if (stdin) Object.defineProperty(process.stdin, "isTTY", stdin);
   else Reflect.deleteProperty(process.stdin, "isTTY");
-  if (stdoutTTY) Object.defineProperty(process.stdout, "isTTY", stdoutTTY);
+  if (stdout) Object.defineProperty(process.stdout, "isTTY", stdout);
   else Reflect.deleteProperty(process.stdout, "isTTY");
   process.exitCode = 0;
 });
 
-test("an interactive invocation offers a command menu", async () => {
-  prompts.select.mockResolvedValueOnce("connect");
+test("the interactive CLI attaches to the app and exits after a focused command", async () => {
+  mocks.select.mockResolvedValueOnce("reviews list");
+  mocks.request.mockResolvedValue({ history: [] });
+  vi.spyOn(console, "log").mockImplementation(() => {});
   await main([]);
-  expect(prompts.select).toHaveBeenCalledWith(
-    expect.objectContaining({ message: "What would you like to do?" }),
+  expect(mocks.request).toHaveBeenCalledWith(
+    expect.stringContaining("history=1"),
   );
-  expect(commands.runWorkspace).toHaveBeenCalledOnce();
+  expect(mocks.start).not.toHaveBeenCalled();
 });
 
-test.each(["connect", "inspect"])(
-  "--dev routes %s to the development workspace",
-  async (command) => {
-    await main([
-      command,
-      "--dev",
-      ...(command === "inspect" ? ["--working-tree"] : []),
-    ]);
-    expect(commands.runWorkspace).toHaveBeenCalledWith(
-      expect.objectContaining({ development: true }),
-    );
-  },
-);
-
-test("--dev cannot be combined with one-shot JSON output", async () => {
-  await expect(
-    main(["inspect", "--working-tree", "--json", "--dev"]),
-  ).rejects.toThrow(/--dev.*--json/);
-  expect(commands.runWorkspace).not.toHaveBeenCalled();
-});
-
-test("login asks for a website origin when not supplied", async () => {
-  prompts.text.mockResolvedValueOnce("http://localhost:3000");
-  await main(["login"]);
-  expect(commands.login).toHaveBeenCalledWith("http://localhost:3000");
-  expect(prompts.text).toHaveBeenCalledOnce();
-});
-
-test("inspection prompts for a source and opens an account-free local workspace", async () => {
-  prompts.select.mockResolvedValueOnce("working-tree");
-  await main(["inspect"]);
-  expect(commands.inspectRepository).toHaveBeenCalledWith(process.cwd(), {
-    kind: "working-tree",
-  });
-  expect(commands.runWorkspace).toHaveBeenCalledWith(
-    expect.objectContaining({
-      snapshot: { ...snapshot, repositoryFingerprint: "f".repeat(64) },
-    }),
+test("app start owns the app, and its development flag never reaches ordinary review commands", async () => {
+  await main(["app", "start", "--dev", "--no-open"]);
+  expect(mocks.start).toHaveBeenCalledWith(
+    expect.objectContaining({ development: true, openBrowser: false }),
   );
-  expect(process.exitCode).toBe(0);
+  await expect(main(["reviews", "create", "--dev"])).rejects.toThrow(/--dev/);
 });
 
-test("cancelled prompts never start login or snapshot collection", async () => {
-  prompts.text.mockResolvedValueOnce(Symbol("cancel"));
-  await main(["login"]);
-  expect(prompts.cancel).toHaveBeenCalledOnce();
-  expect(commands.login).not.toHaveBeenCalled();
-  expect(commands.collectSnapshot).not.toHaveBeenCalled();
-});
-
-test("JSON inspection never prompts or writes decorative output", async () => {
+test("standalone JSON inspection stays prompt-free and never starts or attaches to an app", async () => {
+  const snapshot = { files: [], eligibility: { eligible: true } };
+  mocks.collect.mockResolvedValue(snapshot);
   const output = vi.spyOn(console, "log").mockImplementation(() => {});
   await main(["inspect", "--working-tree", "--json"]);
   expect(output).toHaveBeenCalledExactlyOnceWith(
     JSON.stringify(snapshot, null, 2),
   );
-  expect(prompts.intro).not.toHaveBeenCalled();
-  expect(prompts.spinner).not.toHaveBeenCalled();
-  expect(prompts.select).not.toHaveBeenCalled();
-  expect(commands.runWorkspace).not.toHaveBeenCalled();
+  expect(mocks.select).not.toHaveBeenCalled();
+  expect(mocks.start).not.toHaveBeenCalled();
+  expect(mocks.request).not.toHaveBeenCalled();
 });
 
-test("JSON inspection requires an explicit source even in a terminal", async () => {
-  await expect(main(["inspect", "--json"])).rejects.toThrow(
-    "Choose exactly one",
+test("machine-readable help uses the live command catalog without an app", async () => {
+  const output = vi.spyOn(console, "log").mockImplementation(() => {});
+  await main(["help", "--json"]);
+  const catalog = JSON.parse(output.mock.calls[0]![0]);
+  expect(catalog.commands).toContainEqual(
+    expect.objectContaining({ name: "reviews create" }),
   );
-  expect(prompts.select).not.toHaveBeenCalled();
+  expect(mocks.request).not.toHaveBeenCalled();
 });
 
-test("noninteractive login requires a URL and never waits for input", async () => {
-  Object.defineProperty(process.stdin, "isTTY", {
-    configurable: true,
-    value: false,
+test.each(["project", "user"])(
+  "skill installation routes agents and Claude using %s scope",
+  async (scope) => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    mocks.install.mockResolvedValue({
+      installed: true,
+      path: "/fixture/SKILL.md",
+    });
+    for (const [input, expected] of [
+      ["agents", "agents"],
+      ["claude", "claude"],
+    ]) {
+      await main([
+        "skills",
+        "install",
+        "--scope",
+        scope,
+        "--json",
+        ...(input ? ["--agent", input] : []),
+      ]);
+      expect(mocks.install).toHaveBeenLastCalledWith(
+        scope === "user" ? "/fixture-home" : process.cwd(),
+        expected,
+        false,
+      );
+    }
+    expect(mocks.start).not.toHaveBeenCalled();
+    expect(mocks.request).not.toHaveBeenCalled();
+  },
+);
+
+test("skill installation rejects unsupported agents and scopes before writing", async () => {
+  for (const args of [
+    ["--agent", "unknown"],
+    ["--agent", "all"],
+    ["--agent", "codex"],
+    ["--scope", "unknown"],
+    ["--agent", "both"],
+    ["--all", "--symlink", "--no-symlink"],
+    ["--all", "--agent", "claude"],
+    ["--agent", "agents", "--symlink"],
+    ["--agent", "claude", "--no-symlink"],
+  ])
+    await expect(main(["skills", "install", ...args])).rejects.toMatchObject({
+      code: "invalid_arguments",
+      exitCode: 2,
+    });
+  expect(mocks.install).not.toHaveBeenCalled();
+});
+
+test.each([true, false])(
+  "--all skips target selection, asks about sharing a file, and honors answer %s",
+  async (answer) => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    mocks.confirm.mockResolvedValueOnce(answer);
+    await main(["skills", "install", "--all"]);
+    expect(mocks.confirm).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ message: expect.stringContaining("symlink") }),
+    );
+    expect(mocks.multiselect).not.toHaveBeenCalled();
+    expect(mocks.install).toHaveBeenCalledWith(process.cwd(), "both", answer);
+  },
+);
+
+test("canceling the symlink question writes no skill files", async () => {
+  mocks.confirm.mockResolvedValueOnce(Symbol("cancel"));
+  await expect(main(["skills", "install", "--all"])).rejects.toMatchObject({
+    code: "canceled",
   });
-  await expect(main(["login"])).rejects.toThrow("--url");
-  expect(prompts.text).not.toHaveBeenCalled();
+  expect(mocks.install).not.toHaveBeenCalled();
+});
+
+test.each(["--symlink", "--no-symlink"])(
+  "machine installation of both targets accepts explicit %s without a prompt",
+  async (flag) => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    await main([
+      "skills",
+      "install",
+      "--all",
+      flag,
+      "--scope",
+      "user",
+      "--json",
+    ]);
+    expect(mocks.install).toHaveBeenCalledWith(
+      "/fixture-home",
+      "both",
+      flag === "--symlink",
+    );
+    expect(mocks.confirm).not.toHaveBeenCalled();
+  },
+);
+
+test("machine and piped installation of both targets requires an explicit symlink choice", async () => {
+  await expect(
+    main(["skills", "install", "--all", "--json"]),
+  ).rejects.toMatchObject({ exitCode: 2 });
+  Object.defineProperty(process.stdin, "isTTY", {
+    value: false,
+    configurable: true,
+  });
+  await expect(main(["skills", "install", "--all"])).rejects.toMatchObject({
+    exitCode: 2,
+  });
+  expect(mocks.confirm).not.toHaveBeenCalled();
+  expect(mocks.install).not.toHaveBeenCalled();
 });
 
 test.each([
-  ["commit", "HEAD", { kind: "commit", commit: "HEAD" }],
-  ["range", "HEAD~1..HEAD", { kind: "range", base: "HEAD~1", head: "HEAD" }],
-])("inspection prompts for the %s revision", async (kind, revision, source) => {
-  prompts.select.mockResolvedValueOnce(kind);
-  prompts.text.mockResolvedValueOnce(revision);
-  await main(["inspect"]);
-  expect(commands.inspectRepository).toHaveBeenCalledWith(
-    process.cwd(),
-    source,
-  );
+  [["claude"], "claude"],
+  [["agents"], "agents"],
+  [["agents", "claude"], "both"],
+] as const)(
+  "interactive target selection %j installs %s",
+  async (selection, target) => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    mocks.multiselect.mockResolvedValueOnce([...selection]);
+    if (target === "both") mocks.confirm.mockResolvedValueOnce(false);
+    await main(["skills"]);
+    expect(mocks.install).toHaveBeenCalledWith(process.cwd(), target, false);
+    expect(mocks.confirm).toHaveBeenCalledTimes(target === "both" ? 1 : 0);
+  },
+);
+
+test.each([["skills"], ["skills", "install"]])(
+  "%j without target flags allows an empty selection and defaults to both",
+  async (...args) => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    mocks.multiselect.mockResolvedValueOnce([]);
+    mocks.confirm.mockResolvedValueOnce(true);
+    await main(args);
+    expect(mocks.multiselect).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        required: false,
+        initialValues: [],
+        options: expect.arrayContaining([
+          expect.objectContaining({ value: "claude", label: "Claude" }),
+          expect.objectContaining({
+            value: "agents",
+            label: "All other agents",
+          }),
+        ]),
+      }),
+    );
+    expect(mocks.confirm).toHaveBeenCalledOnce();
+    expect(mocks.install).toHaveBeenCalledWith(process.cwd(), "both", true);
+  },
+);
+
+test("canceling target selection writes nothing and skips the symlink question", async () => {
+  mocks.multiselect.mockResolvedValueOnce(Symbol("cancel"));
+  await expect(main(["skills"])).rejects.toMatchObject({ code: "canceled" });
+  expect(mocks.install).not.toHaveBeenCalled();
+  expect(mocks.confirm).not.toHaveBeenCalled();
 });
 
-test("a failed inspection clears its progress indicator", async () => {
-  const progress = { start: vi.fn(), stop: vi.fn(), error: vi.fn() };
-  prompts.spinner.mockReturnValueOnce(progress);
-  commands.inspectRepository.mockRejectedValueOnce(
-    new Error("not a Git repository"),
-  );
-  await expect(main(["inspect", "--working-tree"])).rejects.toThrow(
-    "not a Git repository",
-  );
-  expect(progress.error).toHaveBeenCalledExactlyOnceWith(
-    "Snapshot could not be collected.",
-  );
+test("automated skills commands require explicit targets without opening a selector", async () => {
+  await expect(main(["skills", "--json"])).rejects.toMatchObject({
+    code: "invalid_arguments",
+    exitCode: 2,
+  });
+  Object.defineProperty(process.stdin, "isTTY", {
+    value: false,
+    configurable: true,
+  });
+  await expect(main(["skills", "install"])).rejects.toMatchObject({
+    code: "invalid_arguments",
+    exitCode: 2,
+  });
+  expect(mocks.multiselect).not.toHaveBeenCalled();
+  expect(mocks.confirm).not.toHaveBeenCalled();
+  expect(mocks.install).not.toHaveBeenCalled();
 });

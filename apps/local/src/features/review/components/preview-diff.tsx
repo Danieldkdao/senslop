@@ -7,6 +7,7 @@ import type { DiffLineAnnotation, SelectedLineRange } from "@pierre/diffs";
 import type { PreviewFileSchema } from "@senslop/contracts";
 import { Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { SelectionExplanation } from "../../agents/components/selection-explanation";
 import { InlineComment } from "./inline-comment";
 import type {
@@ -18,7 +19,7 @@ import type {
 } from "../types";
 import { formatFileStatus, formatReviewLine } from "../lib/formatters";
 import { parsePreviewFile } from "../lib/parse-preview-file";
-import { getDiffOptions } from "../lib/diff-options";
+import { getDiffOptions, getDiffStyle } from "../lib/diff-options";
 import { useDiffHighlighter } from "../hooks/use-diff-highlighter";
 import { DiffRenderState } from "./diff-render-state";
 
@@ -52,7 +53,7 @@ export const PreviewDiff = ({
   snapshotId,
   evidence,
 }: PreviewDiffProps) => {
-  const { resolvedTheme } = useTheme();
+  const { systemTheme } = useTheme();
   const [commentTarget, setCommentTarget] = useState<CommentTarget | null>(
     null,
   );
@@ -102,6 +103,7 @@ export const PreviewDiff = ({
     file.binary ? null : file.path,
     file.oldPath ?? undefined,
     patch?.lang,
+    settings.theme,
   );
   const openComment = useCallback(
     (target: CommentTarget) => {
@@ -220,7 +222,7 @@ export const PreviewDiff = ({
   );
   const options = useMemo<FileDiffOptions<ReviewAnnotation, undefined>>(
     () => ({
-      ...getDiffOptions(settings, view, resolvedTheme),
+      ...getDiffOptions(settings, view, systemTheme),
       onPostRender: revealEvidence,
       enableLineSelection: commentTarget === null,
       controlledSelection: true,
@@ -246,7 +248,7 @@ export const PreviewDiff = ({
     [
       file,
       view,
-      resolvedTheme,
+      systemTheme,
       settings,
       lines,
       openComment,
@@ -379,7 +381,14 @@ export const PreviewDiff = ({
           })}
           renderAnnotation={renderAnnotation}
           selectedLines={selectedLines}
-          className="preview-diff"
+          className={cn(
+            "preview-diff",
+            settings.theme === "default" && "preview-diff-default",
+            settings.theme === "default" &&
+              systemTheme === "dark" &&
+              "preview-diff-default-dark",
+          )}
+          style={getDiffStyle(settings)}
         />
         {explanation}
       </div>
@@ -393,7 +402,14 @@ export const PreviewDiff = ({
           lineAnnotations={annotations}
           renderAnnotation={renderAnnotation}
           selectedLines={selectedLines}
-          className="preview-diff"
+          className={cn(
+            "preview-diff",
+            settings.theme === "default" && "preview-diff-default",
+            settings.theme === "default" &&
+              systemTheme === "dark" &&
+              "preview-diff-default-dark",
+          )}
+          style={getDiffStyle(settings)}
         />
         {explanation}
       </>

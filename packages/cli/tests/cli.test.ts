@@ -6,7 +6,7 @@ test("arguments reject ambiguous source selections and unknown commands", () => 
   expect(parseCommand(["inspect", "--working-tree"]).command).toBe("inspect");
   for (const args of [
     ["oops"],
-    ["status", "--json"],
+    ["app", "status", "--dev"],
     ["inspect", "extra"],
     ["inspect", "--shell"],
   ])

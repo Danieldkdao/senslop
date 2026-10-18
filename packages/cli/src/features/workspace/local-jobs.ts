@@ -1,6 +1,7 @@
 import { fork } from "node:child_process";
 import { createRequire } from "node:module";
-import { createHash, randomBytes } from "node:crypto";
+import { randomBytes } from "node:crypto";
+import { workspaceStateDirectory } from "./runtime-paths.js";
 import { mkdir, readFile, writeFile, unlink } from "node:fs/promises";
 import { createServer } from "node:net";
 import { basename, dirname, join } from "node:path";
@@ -22,18 +23,11 @@ export const availablePort = (port = 0) =>
     });
   });
 
-const jobDirectory = (dataDirectory: string, repository: string) =>
-  join(
-    dataDirectory,
-    "jobs",
-    createHash("sha256").update(repository).digest("hex").slice(0, 20),
-  );
-
 export const workspacePort = async (
   dataDirectory: string,
   repository: string,
 ): Promise<number> => {
-  const state = jobDirectory(dataDirectory, repository);
+  const state = workspaceStateDirectory(dataDirectory, repository);
   await mkdir(state, { recursive: true, mode: 0o700 });
   const path = join(state, "worker-port.json");
   try {
@@ -108,7 +102,7 @@ export const startLocalJobs = async ({
   ),
   signal,
 }: LocalJobsOptions) => {
-  const state = jobDirectory(dataDirectory, repository);
+  const state = workspaceStateDirectory(dataDirectory, repository);
   const appId = basename(state);
   await mkdir(state, { recursive: true, mode: 0o700 });
   const lock = join(state, "owner.lock");

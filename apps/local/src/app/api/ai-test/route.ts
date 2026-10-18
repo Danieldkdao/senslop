@@ -5,9 +5,9 @@ import {
   readLocalBody,
 } from "../../../features/workspace/lib/server-workspace";
 import { ProviderService } from "../../../features/providers/lib/provider-service";
-import { osCredentials } from "../../../services/credentials/os-credentials";
 import { AiServiceError, formatAiError } from "../../../services/ai/errors";
 import { generateReply } from "../../../services/ai/generate-reply";
+import { resolveProviderConnection } from "../../../services/ai/provider-connection";
 
 export const POST = async (request: Request) => {
   if (!protectLocalRoute(request))
@@ -27,10 +27,12 @@ export const POST = async (request: Request) => {
     );
   let resolved: Awaited<ReturnType<ProviderService["resolve"]>>;
   try {
-    resolved = await new ProviderService(
+    resolved = await resolveProviderConnection(
       getWorkspace().store,
-      osCredentials,
-    ).resolve(input.data.connectionId);
+      input.data.connectionId,
+      input.data.modelId,
+      request.signal,
+    );
   } catch {
     return Response.json(
       {

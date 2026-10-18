@@ -3,6 +3,7 @@ import {
   groupingSchema,
   correctnessSchema,
   type FindingSchema,
+  type CorrectnessSchema,
 } from "../schemas";
 
 export class GroupingValidationError extends Error {
@@ -94,15 +95,44 @@ export const validateReview = (
     const key = findingKey(finding);
     if (seen.has(key)) return false;
     seen.add(key);
-    if (formatPrompts)
-      finding.fixPrompt = `Fix the following verified finding from snapshot ${snapshot.id}. Recheck current source before editing.\n${finding.path} (${finding.side}, lines ${finding.start}–${finding.end})\n${finding.problem}\nEvidence:\n${finding.code}\n\n${finding.fixPrompt}`;
+    if (formatPrompts) finding.fixPrompt = findingFixPrompt(finding);
     return true;
   });
+  if (!result.findings.length) result.summary = undefined;
   return result;
 };
 
-export const fixAllPrompt = (
-  snapshotId: string,
-  result: ReturnType<typeof correctnessSchema.parse>,
-) =>
-  `${result.fixAllPrompt ? result.fixAllPrompt + "\n\n" : ""}Fix these findings from snapshot ${snapshotId}. Verify each against the current code; make minimal changes and run relevant tests.\n\n${result.findings.map((finding, index) => `${index + 1}. ${finding.severity}: ${finding.title}\n${finding.fixPrompt}`).join("\n\n")}`;
+const individualFooter =
+  "For this issue, determine whether it is valid and should be fixed. If so, fix it directly.";
+const allIssuesFooter =
+  "For each issue above, determine whether it is valid and should be fixed. If so, fix it directly.";
+
+const fixGuidance = (finding: FindingSchema) => {
+  const prompt = finding.fixPrompt.trim();
+  const marker = "\n\n**Suggested fix**\n";
+  if (
+    prompt.startsWith("This is a comment left during a code review.") &&
+    prompt.includes(marker)
+  ) {
+    return prompt
+      .slice(prompt.indexOf(marker) + marker.length)
+      .replace(`\n\n---\n\n${individualFooter}`, "")
+      .trim();
+  }
+  const legacyMarker = `\nEvidence:\n${finding.code}\n\n`;
+  if (
+    prompt.startsWith("Fix the following verified finding from snapshot ") &&
+    prompt.includes(legacyMarker)
+  ) {
+    return prompt
+      .slice(prompt.indexOf(legacyMarker) + legacyMarker.length)
+      .trim();
+  }
+  return prompt;
+};
+
+export const findingFixPrompt = (finding: FindingSchema) =>
+  `This is a comment left during a code review.\nPath: ${finding.path}\nLine: ${finding.start}-${finding.end}\n\nComment:\n**${finding.title}**\n\n${finding.problem}\n\n**Suggested fix**\n${fixGuidance(finding)}\n\n---\n\n${individualFooter}`;
+
+export const fixAllPrompt = (_snapshotId: string, result: CorrectnessSchema) =>
+  `${result.findings.map((finding, index) => `### Issue ${index + 1}\n${finding.path}:${finding.start}-${finding.end}\n**${finding.title}**\n\n${finding.problem}\n\n${fixGuidance(finding)}`).join("\n\n")}\n\n---\n\n${allIssuesFooter}`;

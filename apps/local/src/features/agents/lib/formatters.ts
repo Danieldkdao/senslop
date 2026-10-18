@@ -282,3 +282,12 @@ export const formatExplanationRange = (range: SelectedLineRange) => {
     ? `${side} line ${start}`
     : `${side} lines ${start}–${end}`;
 };
+
+export const formatGroupingCountdown = (seconds: number, fallback: boolean) => {
+  if (!fallback && seconds === 0)
+    return "Waiting for the local worker to retry grouping…";
+  const duration = `${seconds} ${seconds === 1 ? "second" : "seconds"}`;
+  return fallback
+    ? `Opening the file review in ${duration}.`
+    : `Retrying grouping in ${duration}.`;
+};

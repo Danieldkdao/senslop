@@ -189,7 +189,7 @@ packageTest(
       ["--branch", "feature"],
     ];
     for (const [index, mode] of modes.entries()) {
-      const { child, url } = await start(cli, repo, ["inspect", ...mode]);
+      const { child, url } = await start(cli, repo, ["app", "start"]);
       const origin = new URL(url).origin;
       expect((await fetch(`${origin}/api/preview`)).status).toBe(403);
       const session = await fetch(url, { redirect: "manual" });
@@ -197,6 +197,11 @@ packageTest(
       const cookie = session.headers.get("set-cookie")!.split(";")[0]!;
       expect(session.headers.get("set-cookie")).toContain("HttpOnly");
       const headers = { Cookie: cookie };
+      await execute(
+        process.execPath,
+        [cli, "reviews", "create", ...mode, "--no-group", "--json"],
+        { cwd: repo, timeout: 30000 },
+      );
       const page = await fetch(origin, { headers });
       expect(page.status).toBe(200);
       const html = await page.text();

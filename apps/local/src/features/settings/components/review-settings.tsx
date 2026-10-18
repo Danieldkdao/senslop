@@ -1,17 +1,11 @@
 "use client";
 
-import { useTheme } from "next-themes";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { themes } from "@/lib/constants";
-import { formatTheme } from "@/lib/formatters";
-import type { Theme } from "@/lib/types";
+import { applicationThemes } from "@/lib/constants";
+import { formatApplicationTheme } from "@/lib/formatters";
+import type { ApplicationTheme } from "@/lib/types";
+import { ApplicationThemeSelect } from "./application-theme-select";
 import type { DiffSettingsState, DiffView } from "../../review/types";
 import { DiffSettings } from "../../review/components/diff-settings";
 import { getProviderSettingsSection } from "./provider-settings-dialog";
@@ -20,6 +14,7 @@ import { SettingsDialog } from "./settings-dialog";
 import type { SettingsSection } from "../types";
 import { EditorDiffPreview } from "./editor-diff-preview";
 import { ReviewPreferences } from "./review-preferences";
+import { BuddySettings } from "../../buddy/components/buddy-settings";
 
 type ReviewSettingsProps = {
   open?: boolean;
@@ -29,6 +24,10 @@ type ReviewSettingsProps = {
   onChange: (settings: DiffSettingsState) => void;
   view: DiffView;
   onViewChange: (view: DiffView) => void;
+  onApplicationThemeChange?: (theme: ApplicationTheme) => void;
+  preferencesLoading?: boolean;
+  preferencesError?: string;
+  onRetryPreferences?: () => void;
 };
 
 export const ReviewSettings = ({
@@ -39,12 +38,20 @@ export const ReviewSettings = ({
   onChange,
   view,
   onViewChange,
+  onApplicationThemeChange,
+  preferencesLoading,
+  preferencesError,
+  onRetryPreferences,
 }: ReviewSettingsProps) => {
-  const { theme, setTheme } = useTheme();
+  const [previewSettings, setPreviewSettings] =
+    useState<Partial<DiffSettingsState> | null>(null);
   return (
     <SettingsDialog
       open={open}
-      onOpenChange={onOpenChange}
+      onOpenChange={(value) => {
+        if (!value) setPreviewSettings(null);
+        onOpenChange?.(value);
+      }}
       initialSection={initialSection}
     >
       {(navigation, search) => {
@@ -54,38 +61,14 @@ export const ReviewSettings = ({
           {
             id: "appearance",
             label: "Appearance",
-            keywords: "appearance theme light dark system",
+            keywords: `appearance theme light dark system buddy pip momo nori lumi pebble character mascot show hide animations position size preview ${applicationThemes.map(formatApplicationTheme).join(" ")}`,
             content: (
-              <div className="flex flex-col gap-1">
-                <label htmlFor="settings-theme">Theme</label>
-                <Select<Theme>
-                  value={
-                    theme === "light" || theme === "dark" ? theme : "system"
-                  }
-                  onValueChange={(value) => {
-                    if (value) setTheme(value);
-                  }}
-                >
-                  <SelectTrigger
-                    id="settings-theme"
-                    className="w-full max-w-xs text-base"
-                  >
-                    <SelectValue>
-                      {formatTheme(
-                        theme === "light" || theme === "dark"
-                          ? theme
-                          : "system",
-                      )}
-                    </SelectValue>
-                  </SelectTrigger>
-                  <SelectContent>
-                    {themes.map((value) => (
-                      <SelectItem key={value} value={value}>
-                        {formatTheme(value)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+              <div className="flex flex-col gap-5">
+                <ApplicationThemeSelect
+                  disabled={preferencesLoading || !!preferencesError}
+                  onChange={onApplicationThemeChange}
+                />
+                <BuddySettings />
               </div>
             ),
           },
@@ -100,34 +83,60 @@ export const ReviewSettings = ({
             id: "editor",
             label: "Editor",
             keywords:
-              "editor review diff preview split unified indicators inline changes wrapping backgrounds line numbers",
+              "editor review diff preview theme font size line height split unified indicators inline changes wrapping backgrounds line numbers",
             content: (
               <>
-                <div className="flex flex-col gap-2">
-                  <p>Diff view</p>
+                {preferencesLoading && (
+                  <p role="status">Loading saved editor settings…</p>
+                )}
+                {preferencesError && (
                   <div
-                    role="group"
-                    aria-label="Diff view"
-                    className="flex gap-2"
+                    role="alert"
+                    className="flex flex-col gap-2 text-destructive"
                   >
-                    <Button
-                      variant={view === "split" ? "secondary" : "ghost"}
-                      aria-pressed={view === "split"}
-                      onClick={() => onViewChange("split")}
-                    >
-                      Split
-                    </Button>
-                    <Button
-                      variant={view === "unified" ? "secondary" : "ghost"}
-                      aria-pressed={view === "unified"}
-                      onClick={() => onViewChange("unified")}
-                    >
-                      Unified
+                    <p>{preferencesError}</p>
+                    <Button variant="outline" onClick={onRetryPreferences}>
+                      Retry loading settings
                     </Button>
                   </div>
-                </div>
-                <DiffSettings settings={settings} onChange={onChange} />
-                <EditorDiffPreview settings={settings} view={view} />
+                )}
+                <fieldset
+                  disabled={preferencesLoading || !!preferencesError}
+                  className="flex min-w-0 flex-col gap-5 disabled:opacity-60"
+                >
+                  <div className="flex flex-col gap-2">
+                    <p>Diff view</p>
+                    <div
+                      role="group"
+                      aria-label="Diff view"
+                      className="flex gap-2"
+                    >
+                      <Button
+                        variant={view === "split" ? "secondary" : "ghost"}
+                        aria-pressed={view === "split"}
+                        onClick={() => onViewChange("split")}
+                      >
+                        Split
+                      </Button>
+                      <Button
+                        variant={view === "unified" ? "secondary" : "ghost"}
+                        aria-pressed={view === "unified"}
+                        onClick={() => onViewChange("unified")}
+                      >
+                        Unified
+                      </Button>
+                    </div>
+                  </div>
+                  <EditorDiffPreview
+                    settings={{ ...settings, ...previewSettings }}
+                    view={view}
+                  />
+                  <DiffSettings
+                    settings={settings}
+                    onChange={onChange}
+                    onPreviewChange={setPreviewSettings}
+                  />
+                </fieldset>
               </>
             ),
           },

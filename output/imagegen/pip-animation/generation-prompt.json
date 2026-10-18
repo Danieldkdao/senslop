@@ -1,0 +1,26 @@
+{
+  "tool": "built-in image_gen",
+  "reference": "../buddy-concepts/pip-slop-sprite.png",
+  "transparentBackground": true,
+  "columns": 4,
+  "rows": 4,
+  "poses": [
+    "resting",
+    "blink",
+    "thinking-right",
+    "thinking-left",
+    "working-paper",
+    "grouping-blocks",
+    "happy",
+    "celebrating",
+    "crying",
+    "wiping-tears",
+    "pickup",
+    "landing",
+    "wave",
+    "sleep",
+    "proud-clipboard",
+    "looking-around"
+  ],
+  "prompt": "Create a production pixel-art POSE ATLAS of the EXACT same Pip character in the attached reference. The reference is the approved character identity: retain its pear-shaped squishy lavender body, distinctive single floppy curved tuft, mitten arms, two small feet, big glossy dark oval eyes, little smile, chunky pixel outlines and gentle three-tone pixel shading. No ears or new appendages.\nOutput a square transparent PNG divided into an EXACT UNIFORM 4 COLUMN by 4 ROW grid of equal square cells. Sixteen characters total, ONE Pip in each cell. No gutters between cells, no drawn grid, no text or labels. Each character uses the same logical pixel scale, same overall body proportions, same center alignment, same feet baseline at 84 percent of the cell height. Every character fits entirely in its own cell with 12 percent padding. Truly transparent background.\nUse crisp coherent low-resolution pixel art, nearest-neighbor appearance, consistent 3-tone periwinkle palette. Keep an essentially identical body contour in all frames, changing face and arms to achieve the poses. Needed later for recoloring by luminance, so maintain consistent shading; dark outline and eye details remain distinct from body.\nCell order left to right then top to bottom:\nROW 1: (0) resting friendly smile eyes open hands at sides; (1) same resting pose eyes closed for blink; (2) thinking gaze up and right one hand at cheek mouth small uncertain line; (3) thinking gaze up and left hand at chin.\nROW 2: (4) quietly working, holds a tiny pale paper sheet at belly, attentive eyes; (5) grouping, holds three simple pale square blocks at belly; (6) happy celebration eyes curved shut with broad smile both arms up; (7) big joyous celebration sparkling open eyes delighted open mouth both arms up.\nROW 3: (8) sad, drooping eyes, small frown, TWO tiny visible tears on cheeks hands lowered; (9) wiping tears with one hand, hopeful face; (10) surprised pickup, round open mouth, wide eyes, arms lifted, feet dangling; (11) landing crouch, body slightly compressed and eyes closed, feet stay aligned to the same baseline.\nROW 4: (12) friendly wave with one arm raised and a smile; (13) sleeping sitting low with shut eyes and relaxed mouth; (14) proud little smile holding a small pale clipboard against belly; (15) looking around with face turned slightly to one side, body front-facing and a gentle smile.\nDo not add confetti, symbols, stars, motion lines, shadows outside bodies, captions, background textures or scene. All details must be within each pose. Keep 4x4 grid exact and consistent. A pixel-game animation-ready character atlas, not a poster or a presentation."
+}

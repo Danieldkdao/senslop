@@ -46,11 +46,13 @@ export const AiSettings = ({
     control,
     register,
     handleSubmit,
+    reset,
     formState: { errors, isSubmitting },
   } = useForm<z.input<typeof aiSettingsSchema>, unknown, AiSettingsSchema>({
     resolver: zodResolver(aiSettingsSchema),
     defaultValues: defaultAiSettings,
     values: settings.data,
+    resetOptions: { keepDirtyValues: true },
   });
   const separate = useWatch({ control, name: "separate" });
   const shared = useWatch({ control, name: "shared" });
@@ -64,7 +66,9 @@ export const AiSettings = ({
       <form
         noValidate
         onSubmit={handleSubmit(async (values) => {
-          await save(values).catch(() => {});
+          await save(values)
+            .then(() => reset(values, { keepDirtyValues: false }))
+            .catch(() => {});
         })}
         className="flex flex-col gap-5"
       >

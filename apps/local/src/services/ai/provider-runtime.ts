@@ -5,6 +5,7 @@ import {
   createGateway,
   wrapLanguageModel,
   type LanguageModel,
+  type ToolSet,
 } from "ai";
 import { createOpenAI } from "@ai-sdk/openai";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
@@ -27,9 +28,16 @@ import {
 import { getOpenCodeProtocol } from "./opencode-protocol";
 import { getRequestLimiter } from "./request-limiter";
 import { estimateInputTokenUpperBound } from "./context-budget";
+import { createChatGptSubscriptionModel } from "./chatgpt-subscription-model";
+import { createClaudeSubscriptionModel } from "./claude-subscription-model";
 
 type ResolvedLanguageModel = {
   model: LanguageModel;
+  createModel?: (
+    tools: ToolSet,
+    maxTurns: number,
+    signal?: AbortSignal,
+  ) => Exclude<LanguageModel, string>;
   requestLimiter?: ReturnType<typeof getRequestLimiter>;
   providerOptions?: {
     ollama: { options: { num_ctx: number; num_predict: number } };
@@ -129,6 +137,12 @@ export const resolveLanguageModel = (
     switch (connection.provider) {
       case "chatgpt":
         return { model: createOpenAI(options).responses(modelId) };
+      case "chatgpt-subscription":
+        return {
+          model: createChatGptSubscriptionModel(apiKey!, modelId, safeFetch),
+        };
+      case "claude-code":
+        return { model: createClaudeSubscriptionModel(modelId, {}, 1) };
       case "google":
         return { model: createGoogleGenerativeAI(options)(modelId) };
       case "anthropic":
@@ -223,11 +237,9 @@ export const resolveLanguageModel = (
     )
     .digest("hex");
   const limiter = getRequestLimiter(key, connection.provider);
-  return {
-    ...resolved,
-    requestLimiter: limiter,
-    model: wrapLanguageModel({
-      model: resolved.model,
+  const wrapModel = (model: Exclude<LanguageModel, string>) =>
+    wrapLanguageModel({
+      model,
       middleware: {
         specificationVersion: "v4",
         transformParams: async ({ params }) => {
@@ -237,14 +249,16 @@ export const resolveLanguageModel = (
             (connection.provider === "opencode" &&
               getOpenCodeProtocol(modelId) === "gemini") ||
             (connection.provider === "vercel" && modelId.startsWith("google/"));
-          // Nested array bounds can exceed Google's schema complexity limit.
-          // SDK validation still enforces every original bound.
+          // Expanding array bounds can exceed Google's schema complexity limit.
+          // Keep empty-array constraints; SDK validation enforces all original bounds.
           if (googleSchema)
             return {
               ...params,
               responseFormat: JSON.parse(
                 JSON.stringify(params.responseFormat, (key, value) =>
-                  key === "maxItems" && typeof value === "number"
+                  (key === "minItems" || key === "maxItems") &&
+                  typeof value === "number" &&
+                  value > 0
                     ? undefined
                     : value,
                 ),
@@ -270,7 +284,31 @@ export const resolveLanguageModel = (
             }),
             actualInputTokens: (result) => result.usage.inputTokens.total,
           }),
+        wrapStream: ({ doStream, params }) =>
+          limiter.runStream(doStream, params.abortSignal, {
+            inputTokens: estimateInputTokenUpperBound({
+              prompt: params.prompt,
+              tools: params.tools,
+              responseFormat: params.responseFormat,
+            }),
+          }),
       },
-    }),
+    });
+  return {
+    ...resolved,
+    requestLimiter: limiter,
+    model: wrapModel(resolved.model),
+    ...(connection.provider === "claude-code"
+      ? {
+          createModel: (
+            tools: ToolSet,
+            maxTurns: number,
+            signal?: AbortSignal,
+          ) =>
+            wrapModel(
+              createClaudeSubscriptionModel(modelId, tools, maxTurns, signal),
+            ),
+        }
+      : {}),
   };
 };

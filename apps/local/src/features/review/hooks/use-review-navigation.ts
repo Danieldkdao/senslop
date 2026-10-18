@@ -1,6 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import {
+  hasOpenKeyboardOverlay,
+  isPlainKeyboardShortcutBlocked,
+} from "@senslop/ui/lib/keyboard-shortcuts";
 import type { LivePreview } from "../types";
 
 type ReviewNavigationOptions = {
@@ -31,9 +35,7 @@ export const useReviewNavigation = ({
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.isComposing || !preview) return;
-      const overlayOpen = document.querySelector(
-        '[role="dialog"], [role="menu"], [role="listbox"], [data-slot="popover-content"]',
-      );
+      const overlayOpen = hasOpenKeyboardOverlay();
       if (
         event.key.toLowerCase() === "k" &&
         (event.metaKey || event.ctrlKey) &&
@@ -45,29 +47,7 @@ export const useReviewNavigation = ({
         if (!event.repeat) setSearchOpen((open) => !open);
         return;
       }
-      if (
-        searchOpen ||
-        overlayOpen ||
-        event.metaKey ||
-        event.ctrlKey ||
-        event.altKey ||
-        event.shiftKey
-      )
-        return;
-      // Inspect the original target too: diff annotations live inside a shadow root.
-      if (
-        event
-          .composedPath()
-          .some(
-            (target) =>
-              target instanceof HTMLElement &&
-              (target.isContentEditable ||
-                target.closest(
-                  'input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="combobox"], [role="slider"], [role="separator"]',
-                )),
-          )
-      )
-        return;
+      if (searchOpen || isPlainKeyboardShortcutBlocked(event)) return;
       if (event.key.toLowerCase() === "d" && onToggleCompletion) {
         event.preventDefault();
         if (!event.repeat) onToggleCompletion();

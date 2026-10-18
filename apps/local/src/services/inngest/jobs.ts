@@ -1,11 +1,7 @@
 import { prepareIncrementalGrouping } from "../ai/incremental-grouping";
-import {
-  AiTransientError,
-  formatAiError,
-  isFatalAiError,
-  isRetryableAiError,
-} from "../ai/errors";
-import { NonRetriableError } from "inngest";
+import { formatAiError, isFatalAiError } from "../ai/errors";
+import { NonRetriableError, RetryAfterError } from "inngest";
+import { analysisRetryDelaysMs } from "../../features/agents/constants";
 import type { AgentStore } from "../../features/agents/lib/agent-store";
 import { matchesJobSnapshot } from "../../features/agents/lib/job-snapshots";
 import { assignedModel, createRepositoryAgent } from "../ai/repository-agent";
@@ -23,14 +19,34 @@ type DurableSteps = {
   ) => Promise<unknown>;
 };
 
+const retryJob = (
+  store: AgentStore,
+  id: string,
+  error: unknown,
+  attempt: number,
+): never => {
+  const delayMs = analysisRetryDelaysMs[attempt];
+  const message = formatAiError(error);
+  if (isFatalAiError(error) || delayMs === undefined)
+    throw new NonRetriableError(message);
+  const retryAt = new Date(Date.now() + delayMs);
+  store.updateJob(id, {
+    progress: "Retrying analysis",
+    error: message,
+    retryAt: retryAt.toISOString(),
+  });
+  throw new RetryAfterError(message, retryAt);
+};
+
 export const executeJob = async (
   store: AgentStore,
   id: string,
   runId: string,
   step: DurableSteps,
+  attempt = 0,
 ) => {
   const job = store.job(id);
-  if (!job || job.status === "canceled" || job.status === "completed") return;
+  if (!job || ["canceled", "completed", "failed"].includes(job.status)) return;
   const snapshot = store.snapshot(job.snapshotId);
   if (!matchesJobSnapshot(job, snapshot))
     throw new NonRetriableError("Snapshot identity changed.");
@@ -56,6 +72,8 @@ export const executeJob = async (
     progress: "Collecting frozen context",
     runId,
     error: null,
+    retryAt: null,
+    fallbackAt: null,
   });
   await step.run("prepare-context", async () => {
     const startedAt = performance.now();
@@ -177,21 +195,13 @@ export const executeJob = async (
           fatal,
           retryDecision: canceled
             ? "canceled"
-            : fatal
+            : fatal || attempt >= analysisRetryDelaysMs.length
               ? "stop-automatic-retries"
               : "inngest-retry",
           ...getAiErrorDiagnostics(error),
         });
         if (abort.signal.aborted) throw new NonRetriableError("Canceled.");
-        if (isFatalAiError(error))
-          throw new NonRetriableError(formatAiError(error));
-        store.updateJob(id, {
-          progress: "Retrying analysis",
-          error: formatAiError(error),
-        });
-        if (isRetryableAiError(error))
-          throw new AiTransientError(formatAiError(error));
-        throw error;
+        return retryJob(store, id, error, attempt);
       } finally {
         clearInterval(timer);
       }
@@ -213,7 +223,7 @@ export const executeJob = async (
         event: "publish-failed",
         ...getAiErrorDiagnostics(error),
       });
-      throw error;
+      return retryJob(store, id, error, attempt);
     }
   });
 };

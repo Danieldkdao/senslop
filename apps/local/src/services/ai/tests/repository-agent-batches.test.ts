@@ -1,7 +1,9 @@
 import { beforeEach, expect, test, vi } from "vitest";
 import { MockLanguageModelV4 } from "ai/test";
+import { APICallError } from "ai";
 import { createRepositoryAgent } from "../repository-agent";
 import { defaultAiSettings } from "../../../features/agents/constants";
+import { staticReviewLimitation } from "../../../features/agents/lib/review-limitations";
 import { correctnessSchema } from "../../../features/agents/schemas";
 import type { AnalysisContext } from "../../analysis/types";
 import type { AnalysisExecutionPolicy } from "../types";
@@ -829,11 +831,16 @@ test("large reviews validate merged evidence and remove duplicate findings acros
   state.model = new MockLanguageModelV4({
     doGenerate: async (options) => {
       requests.push(options);
+      if (
+        JSON.stringify(options.prompt).includes(
+          "Summarize the supplied code review findings",
+        )
+      )
+        return response({ summary: "Fix the changed value before merging." });
       const finding = {
         severity: "high",
         title: "Value changed incorrectly",
         problem: "Caller requires zero",
-        rationale: "Verified",
         path: "0.ts",
         side: "after",
         start: 1,
@@ -853,7 +860,8 @@ test("large reviews validate merged evidence and remove duplicate findings acros
   const result = await (await agent()).review();
   expect(requests.length).toBeGreaterThan(1);
   expect(result.findings).toHaveLength(1);
-  expect(result.findings[0]!.fixPrompt).toContain("Evidence:");
+  expect(result.summary).toBe("Fix the changed value before merging.");
+  expect(result.findings[0]!.fixPrompt).toContain("Path: 0.ts");
   expect(result.findings[0]!.fixPrompt).toContain("Restore zero");
   for (const request of requests)
     expect(Buffer.byteLength(text(request))).toBeLessThan(100000);
@@ -867,7 +875,10 @@ test("reviews preserve all batch and context limitations and can restore them fr
       saved.set(key, value);
     },
   };
-  const expected = new Set<string>(["Compiler context unavailable"]);
+  const expected = new Set<string>([
+    "Compiler context unavailable",
+    staticReviewLimitation,
+  ]);
   state.model = new MockLanguageModelV4({
     doGenerate: async (options) => {
       requests.push(options);
@@ -905,7 +916,7 @@ test("reviews preserve all batch and context limitations and can restore them fr
   expect(requests).toHaveLength(calls);
 });
 
-test("merged reviews retain more than one response's finding limit and persist source-enriched prompts", async () => {
+test("merged reviews retain more than one response's finding limit and persist Markdown prompts with verified locations", async () => {
   state.model = new MockLanguageModelV4({
     doGenerate: async (options) =>
       response({
@@ -915,7 +926,6 @@ test("merged reviews retain more than one response's finding limit and persist s
             severity: "high",
             title: `Verified issue ${index}`,
             problem: "Caller requires zero",
-            rationale: "Verified",
             path,
             side: "after",
             start: 1,
@@ -935,7 +945,9 @@ test("merged reviews retain more than one response's finding limit and persist s
     result.findings.some((finding) => finding.fixPrompt.length > 10000),
   ).toBe(true);
   expect(
-    result.findings.every((finding) => finding.fixPrompt.includes("Evidence:")),
+    result.findings.every((finding) =>
+      finding.fixPrompt.includes("**Suggested fix**"),
+    ),
   ).toBe(true);
   expect(correctnessSchema.parse(result)).toEqual(result);
 });
@@ -962,7 +974,7 @@ test("missing review assessments narrow into smaller requests instead of failing
   });
   const result = await (await agent(selected)).review();
   expect(result.findings).toEqual([]);
-  expect(result.limitations).toEqual([]);
+  expect(result.limitations).toEqual([staticReviewLimitation]);
   expect(singleFileCalls).toBeGreaterThan(0);
   expect(requests.length).toBeLessThan(80);
 });
@@ -997,7 +1009,6 @@ test("review requests name the exact expected paths and finding repairs accept e
                   severity: "high",
                   title: "Unsupported",
                   problem: "Unsupported",
-                  rationale: "Unsupported",
                   path,
                   side: "after",
                   start: 1,
@@ -1013,9 +1024,76 @@ test("review requests name the exact expected paths and finding repairs accept e
   });
   const result = await (await agent(selected)).review();
   expect(result.findings).toEqual([]);
-  expect(result.limitations).toEqual([]);
+  expect(result.limitations).toEqual([staticReviewLimitation]);
   expect(requests).toHaveLength(2);
 });
+
+test("schema complexity rejections narrow the review without losing any file assessments", async () => {
+  const selected = Array.from({ length: 26 }, (_, index) => ({
+    ...files[0]!,
+    path: `${index}.ts`,
+    diff: "small patch",
+  }));
+  const assessed: string[] = [];
+  state.model = new MockLanguageModelV4({
+    doGenerate: async (options) => {
+      requests.push(options);
+      const changes = batch(options).changes;
+      if (changes.length > 2)
+        throw new APICallError({
+          message:
+            "The specified schema produces a constraint that has too many states for serving.",
+          url: "https://example.test/generateContent",
+          requestBodyValues: {},
+          statusCode: 400,
+          isRetryable: false,
+        });
+      assessed.push(...changes.map(({ path }) => path));
+      return response({
+        files: changes.map(({ path }) => ({ path, findings: [] })),
+        limitations: [],
+      });
+    },
+  });
+  const result = await (await agent(selected)).review();
+  expect(result.findings).toEqual([]);
+  expect(result.limitations).toEqual([staticReviewLimitation]);
+  expect(assessed.sort()).toEqual(selected.map(({ path }) => path).sort());
+  expect(requests.length).toBeLessThan(40);
+});
+
+test.each([
+  [400, "Request contains an invalid argument.", 2],
+  [401, "Invalid API key.", 2],
+  [400, "Schema contains an unsupported property.", 2],
+  [400, "The response schema is too complex.", 1],
+])(
+  "unrecoverable %i rejections stop without repeating unchanged requests",
+  async (statusCode, message, count) => {
+    state.model = new MockLanguageModelV4({
+      doGenerate: async (options) => {
+        requests.push(options);
+        throw new APICallError({
+          message,
+          url: "https://example.test/generateContent",
+          requestBodyValues: {},
+          statusCode,
+          isRetryable: false,
+        });
+      },
+    });
+    await expect(
+      (
+        await agent(
+          files
+            .slice(0, count)
+            .map((file) => ({ ...file, diff: "small patch" })),
+        )
+      ).review(),
+    ).rejects.toMatchObject({ statusCode });
+    expect(requests).toHaveLength(1);
+  },
+);
 
 test("a persistently missing single-file assessment fails clearly without claiming a clean review", async () => {
   state.model = new MockLanguageModelV4({
@@ -1216,7 +1294,6 @@ test("invalid review evidence receives bounded repair and explicit limitations w
               severity: "high",
               title: "Invented issue",
               problem: "Unsupported",
-              rationale: "Unsupported",
               path: file.path,
               side: "after",
               start: 1,
@@ -1716,51 +1793,72 @@ test("group ordering cannot discard already validated summaries when both placem
   ).toBe(true);
 });
 
-test("incomplete multi-file grouping narrows the failed batch instead of losing the entire review", async () => {
-  const selected = files
-    .slice(0, 3)
-    .map((file) => ({ ...file, diff: "small patch" }));
-  let smallCalls = 0;
-  state.model = new MockLanguageModelV4({
-    doGenerate: async (options) => {
-      requests.push(options);
-      const properties =
-        options.responseFormat?.type === "json"
-          ? (options.responseFormat.schema?.properties as Record<
-              string,
-              unknown
-            >)
-          : undefined;
-      if (properties?.files) return response({ groups: [], files: [] });
-      if (text(options).includes("Order these prepared files"))
+test.each([3, 10])(
+  "incomplete grouping of %i files narrows down to individual files instead of losing the entire review",
+  async (count) => {
+    state.contextWindow = 128000;
+    const selected = Array.from({ length: count }, (_, index) => ({
+      ...files[0]!,
+      path: `${index}.ts`,
+      diff: "small patch",
+    }));
+    let smallCalls = 0;
+    state.model = new MockLanguageModelV4({
+      doGenerate: async (options) => {
+        requests.push(options);
+        const properties =
+          options.responseFormat?.type === "json"
+            ? (options.responseFormat.schema?.properties as Record<
+                string,
+                unknown
+              >)
+            : undefined;
+        if (properties?.files) return response({ groups: [], files: [] });
+        if (text(options).includes("Order these prepared files"))
+          return response({
+            groups: [
+              {
+                title: "Flow",
+                rationale: "Review",
+                files: selected.map((_, index) => index),
+              },
+            ],
+          });
+        const input = batch(options);
+        if (input.changes.length === 1) smallCalls++;
         return response({
-          groups: [{ title: "Flow", rationale: "Review", files: [0, 1, 2] }],
+          groups: [
+            {
+              title: "Flow",
+              rationale: "Review",
+              files: input.changes.slice(0, 1).map((file) => ({
+                path: file.path,
+                summary: "Verified summary",
+                related: [],
+              })),
+            },
+          ],
         });
-      const input = batch(options);
-      if (input.changes.length === 1) smallCalls++;
-      return response({
-        groups: [
-          {
-            title: "Flow",
-            rationale: "Review",
-            files: input.changes.slice(0, 1).map((file) => ({
-              path: file.path,
-              summary: "Verified summary",
-              related: [],
-            })),
-          },
-        ],
-      });
-    },
-  });
-  const result = await (await agent(selected)).grouping();
-  expect(
-    result.groups
-      .flatMap((group) => group.files.map((file) => file.path))
-      .sort(),
-  ).toEqual(["0.ts", "1.ts", "2.ts"]);
-  expect(smallCalls).toBeGreaterThan(0);
-});
+      },
+    });
+    const result = await (
+      await agent(selected, undefined, undefined, undefined, undefined, {
+        groupingInputTokens: 32000,
+        groupingMaxFiles: 12,
+        groupingOutputTokens: 16000,
+        groupingSteps: 2,
+        batchConcurrency: 1,
+      })
+    ).grouping();
+    expect(
+      result.groups
+        .flatMap((group) => group.files.map((file) => file.path))
+        .sort(),
+    ).toEqual(selected.map((file) => file.path).sort());
+    expect(batch(requests[0]!).changes).toHaveLength(count);
+    expect(smallCalls).toBe(count);
+  },
+);
 
 test("malformed final ordering JSON retains validated groups after bounded format correction", async () => {
   const selected = files

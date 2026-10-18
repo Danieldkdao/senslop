@@ -29,7 +29,7 @@ export const ChatMessage = ({
     >
       {user ? (
         <>
-          <div className="ml-auto @md:w-fit min-w-0 rounded-2xl bg-card px-4 py-3 text-card-foreground shadow-xs">
+          <div className="ml-auto @md:w-fit min-w-0 rounded-2xl bg-chat-user px-4 py-3 text-card-foreground">
             <p className="whitespace-pre-wrap wrap-anywhere text-base">
               {text}
             </p>
@@ -44,14 +44,14 @@ export const ChatMessage = ({
           )}
         </>
       ) : (
-        <div className="flex flex-col mr-auto @md:w-fit min-w-0 gap-2">
+        <div className="mr-auto flex w-full min-w-0 max-w-full flex-col gap-2">
           <AgentActivity
             presentation={presentation}
             message={message}
             busy={busy}
           />
           {text && (
-            <div className="min-w-0 rounded-2xl text-card-foreground shadow-xs">
+            <div className="min-w-0 text-foreground">
               <AgentMarkdown streaming={busy}>{text}</AgentMarkdown>
             </div>
           )}

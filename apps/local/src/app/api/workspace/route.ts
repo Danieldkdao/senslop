@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { SnapshotLimitError } from "@senslop/review-core/git";
+import { scheduleGrouping } from "../../../services/inngest/functions";
 import {
   reviewChangeSchema,
   reviewStateSchema,
@@ -52,7 +54,49 @@ export const GET = async (request: Request) => {
     const workspace = getWorkspace();
     const root = await workspace.root();
     const params = new URL(request.url).searchParams;
+    const id = params.get("id");
+    if (id) {
+      if (id !== "current" && !z.uuid().safeParse(id).success)
+        return Response.json(
+          { message: "Choose a valid review ID." },
+          { status: 400 },
+        );
+      const existingReview =
+        id === "current"
+          ? await workspace.current()
+          : workspace.store.getReview(root, id);
+      return existingReview
+        ? Response.json(existingReview, {
+            headers: { "Cache-Control": "no-store" },
+          })
+        : Response.json(
+            { message: "Saved review not found in this repository." },
+            { status: 404 },
+          );
+    }
     const historyRequested = params.has("history");
+    const offset = Number(params.get("offset") ?? 0);
+    const limit = Number(params.get("limit") ?? 50);
+    if (
+      !Number.isSafeInteger(offset) ||
+      offset < 0 ||
+      !Number.isSafeInteger(limit) ||
+      limit < 1 ||
+      limit > 100
+    )
+      return Response.json(
+        { message: "Use a nonnegative offset and a limit from 1 to 100." },
+        { status: 400 },
+      );
+    const paginated = params.has("limit") || params.has("offset");
+    const existingReviews = historyRequested
+      ? paginated
+        ? workspace.store.listReviews(root, params.get("search") ?? "", {
+            offset,
+            limit: limit + 1,
+          })
+        : workspace.store.listReviews(root, params.get("search") ?? "")
+      : [];
     const repository = historyRequested
       ? null
       : await workspace.repository().catch(() => null);
@@ -60,9 +104,9 @@ export const GET = async (request: Request) => {
       {
         repository,
         root,
-        history: historyRequested
-          ? workspace.store.listReviews(root, params.get("search") ?? "")
-          : [],
+        history: paginated ? existingReviews.slice(0, limit) : existingReviews,
+        next:
+          paginated && existingReviews.length > limit ? offset + limit : null,
       },
       { headers: { "Cache-Control": "no-store" } },
     );
@@ -101,14 +145,23 @@ export const POST = async (request: Request) => {
     const workspace = getWorkspace();
     const root = await workspace.root();
     switch (action.action) {
-      case "inspect":
-        return Response.json(
-          await workspace.inspect(action.source, action.grouping),
+      case "inspect": {
+        const insertedReview = await workspace.inspect(
+          action.source,
+          action.grouping,
         );
-      case "resync":
-        return Response.json(
-          await workspace.resync(action.id, action.mode, action.grouping),
+        await scheduleGrouping(insertedReview.id);
+        return Response.json(insertedReview);
+      }
+      case "resync": {
+        const updatedReview = await workspace.resync(
+          action.id,
+          action.mode,
+          action.grouping,
         );
+        await scheduleGrouping(updatedReview.id);
+        return Response.json(updatedReview);
+      }
       case "open":
         return Response.json(workspace.store.openReview(root, action.id));
       case "change": {
@@ -139,6 +192,7 @@ export const POST = async (request: Request) => {
         ? "Check the Git selection and retry."
         : (error as Error).message;
     const safe =
+      error instanceof SnapshotLimitError ||
       /Diff generation|Git|snapshot|ancestor|selection|changed|changes|revision|not found|does not belong|line does not match|repository root|Re-sync/.test(
         message,
       );

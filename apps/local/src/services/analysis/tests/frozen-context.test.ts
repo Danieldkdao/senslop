@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { inspectRepository } from "@senslop/review-core/git";
-import { captureSources } from "../frozen-context";
+import { loadContext, captureSources } from "../frozen-context";
 const paths: string[] = [];
 afterEach(async () => {
   await Promise.all(
@@ -68,3 +68,78 @@ test("revision context stays frozen and excludes secrets and symlinks", async ()
     }),
   ).rejects.toThrow(/fresh snapshot/);
 });
+
+test.each([false, true])(
+  "deleted files stay available as before evidence without creating current diagnostics; legacy cache: %s",
+  async (legacy) => {
+    const snapshot = {
+      id: "snapshot",
+      hash: "hash",
+      round: 1,
+      files: [
+        {
+          path: "deleted.ts",
+          before: "import { removed } from './removed';",
+          after: null,
+        },
+        {
+          path: "current.ts",
+          before: "",
+          after: "export const value: number = 'wrong';",
+        },
+      ],
+    } as unknown as import("@senslop/contracts").SavedReviewSchema;
+    let body = JSON.stringify({
+      sources: { "current.ts": "export const value: number = 'wrong';" },
+      before: { "deleted.ts": "import { removed } from './removed';" },
+      limitations: [],
+      hash: "hash",
+      round: 1,
+      ...(legacy
+        ? {
+            analysis: {
+              edges: [],
+              symbols: [],
+              diagnostics: [
+                {
+                  path: "deleted.ts",
+                  line: 1,
+                  code: 9999,
+                  message: "stale",
+                  severity: "error",
+                },
+              ],
+              cycles: [],
+              limitations: [],
+            },
+          }
+        : {}),
+    });
+    let writes = 0;
+    const store = {
+      getReview: () => snapshot,
+      database: {
+        prepare: () => ({
+          get: () => ({ body }),
+          run: (value: unknown) => {
+            body = String(value);
+            writes++;
+          },
+        }),
+      },
+    } as unknown as import("@senslop/review-core/storage").LocalStore;
+    const context = await loadContext(store, "/unused", snapshot);
+    expect(
+      context.analysis.diagnostics.some((d) => d.path === "deleted.ts"),
+    ).toBe(false);
+    expect(
+      context.analysis.diagnostics.some(
+        (d) => d.path === "current.ts" && d.code === 2322,
+      ),
+    ).toBe(true);
+    expect(context.before["deleted.ts"]).toContain("removed");
+    expect(writes).toBe(1);
+    await loadContext(store, "/unused", snapshot);
+    expect(writes).toBe(1);
+  },
+);

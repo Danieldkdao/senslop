@@ -1,160 +1,38 @@
 #!/usr/bin/env node
 import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { parseArgs } from "node:util";
-import {
-  cancel,
-  intro,
-  isCancel,
-  log,
-  outro,
-  select,
-  spinner,
-  text,
-} from "@clack/prompts";
+import { select, text, isCancel } from "@clack/prompts";
 import { simpleGit } from "simple-git";
+import { secureBaseURL, type SourceSelectionSchema } from "@senslop/contracts";
 import { runWorkspace } from "./features/workspace/run-workspace.js";
+import { executeAppCommand } from "./features/workspace/app-commands.js";
+import { connectWorkspace } from "./features/workspace/workspace-client.js";
 import { collectSnapshot } from "./features/git/snapshot.js";
-import { inspectRepository } from "@senslop/review-core/git";
+import { sourceFromOptions } from "./features/commands/source.js";
+import { parseCliCommand } from "./features/commands/parse-command.js";
+import { commandCatalog, formatCommandHelp } from "./features/commands/help.js";
+import { formatCommandResult } from "./features/commands/formatters.js";
+import { CliError } from "./features/commands/errors.js";
+import { stringOption } from "./features/commands/input.js";
+import { executeReviewCommand } from "./features/reviews/commands.js";
+import { executeSettingsCommand } from "./features/settings/commands.js";
+import { executeProviderCommand } from "./features/providers/commands.js";
+import { executeSkillCommand } from "./features/skills/commands.js";
 import { requireCredentials } from "./features/auth/credentials.js";
 import { fetchStatus } from "./features/connection/fetch-status.js";
 import { login } from "./features/auth/login.js";
 import { logout } from "./features/auth/logout.js";
-import {
-  sourceSelectionSchema,
-  secureBaseURL,
-  type SourceSelectionSchema,
-} from "@senslop/contracts";
 
-export const HELP = `Senslop — understand your local code changes
-
-Usage: senslop COMMAND [options]
-
-  login [--url URL]   Sign in with a browser-approved device code
-  connect             Open the local workspace and inspect in this terminal
-  status              Check your saved account credential
-  logout              Revoke and remove the CLI credential
-  inspect --commit REF        Inspect one commit (first-parent delta)
-  inspect --range BASE..HEAD   Inspect an endpoint-to-endpoint range
-  inspect --working-tree      Inspect staged, unstaged and untracked text
-  inspect --branch NAME [--base REF]  Compare HEAD or REF to a branch
-
-Run without arguments for a command menu. Interactive inspect prompts for its source.
-Options: --dev (connect/inspect; source checkout), --json (inspect; requires an explicit source), --help, --version
-
-Connect and inspect start the bundled local Next.js app without account login.
-Keep this terminal open; Ctrl+C stops the app. Source stays on this computer.
-Add --json to print a snapshot without starting the app.
-Inspection accepts small selections; JSON output includes future review eligibility.
-`;
-
+export { sourceFromOptions } from "./features/commands/source.js";
+export const HELP = formatCommandHelp();
 export const parseCommand = (args: string[]) => {
-  const parsed = parseArgs({
-    args,
-    allowPositionals: true,
-    strict: true,
-    options: {
-      help: { type: "boolean", short: "h" },
-      version: { type: "boolean" },
-      url: { type: "string" },
-      commit: { type: "string" },
-      range: { type: "string" },
-      branch: { type: "string" },
-      base: { type: "string" },
-      "working-tree": { type: "boolean" },
-      json: { type: "boolean" },
-      dev: { type: "boolean" },
-    },
-  });
-  const command = parsed.positionals[0];
-  if (parsed.positionals.length > 1)
-    throw new Error(
-      "Use one command; source revisions go in --commit or --range.",
-    );
-  if (parsed.values.version)
-    return { command: "version" as const, values: parsed.values };
-  if (parsed.values.help || !command)
-    return { command: "help" as const, values: parsed.values };
-  if (!["login", "connect", "status", "logout", "inspect"].includes(command))
-    throw new Error(`Unknown command: ${command}. Run senslop --help.`);
-  const allowed: Record<string, string[]> = {
-    login: ["url"],
-    connect: ["dev"],
-    status: [],
-    logout: [],
-    inspect: [
-      "commit",
-      "range",
-      "branch",
-      "base",
-      "working-tree",
-      "json",
-      "dev",
-    ],
-  };
-  for (const option of Object.keys(parsed.values))
-    if (!allowed[command].includes(option))
-      throw new Error(`--${option} is not valid for ${command}.`);
-  if (parsed.values.dev && parsed.values.json)
-    throw new Error(
-      "--dev cannot be combined with --json; JSON inspection does not start an app.",
-    );
-  return { command, values: parsed.values };
-};
-
-export const sourceFromOptions = (values: {
-  commit?: string;
-  range?: string;
-  branch?: string;
-  base?: string;
-  "working-tree"?: boolean;
-}): SourceSelectionSchema => {
-  if (
-    [
-      values.commit !== undefined,
-      values.range !== undefined,
-      values.branch !== undefined,
-      values["working-tree"] === true,
-    ].filter(Boolean).length !== 1
-  )
-    throw new Error(
-      "Choose exactly one of --commit, --range, --branch or --working-tree.",
-    );
-  if (values.base !== undefined && values.branch === undefined)
-    throw new Error("--base can only be used with --branch.");
-  if (values.branch !== undefined)
-    return sourceSelectionSchema.parse({
-      kind: "branch",
-      branch: values.branch,
-      base: values.base ?? "HEAD",
-    });
-  if (values.commit !== undefined)
-    return sourceSelectionSchema.parse({
-      kind: "commit",
-      commit: values.commit,
-    });
-  if (values.range !== undefined) {
-    const pair = values.range.split("..");
-    if (
-      pair.length !== 2 ||
-      !pair[0] ||
-      !pair[1] ||
-      pair.some((p) => p.includes(".") && p.startsWith("."))
-    )
-      throw new Error(
-        "Use an endpoint range BASE..HEAD, not a three-dot comparison.",
-      );
-    return sourceSelectionSchema.parse({
-      kind: "range",
-      base: pair[0],
-      head: pair[1],
-    });
-  }
-  return { kind: "working-tree" };
+  const parsed = parseCliCommand(args);
+  return { command: parsed.name, values: parsed.values };
 };
 
 const promptSource = async (
   signal?: AbortSignal,
+  repository = process.cwd(),
 ): Promise<SourceSelectionSchema | null> => {
   const kind = await select({
     message: "Which changes would you like to inspect?",
@@ -169,7 +47,7 @@ const promptSource = async (
   if (isCancel(kind)) return null;
   if (kind === "working-tree") return { kind };
   if (kind === "branch") {
-    const branches = await simpleGit(process.cwd()).branchLocal();
+    const branches = await simpleGit(repository).branchLocal();
     const branch = await select({
       message: "Which branch should HEAD be compared to?",
       signal,
@@ -198,61 +76,60 @@ const promptSource = async (
   );
 };
 
-const inspectFromPrompt = async (signal: AbortSignal) => {
-  const source = await promptSource(signal);
-  if (!source || signal.aborted) return null;
-  const progress = spinner({ signal });
-  progress.start("Freezing your selected Git changes…");
-  try {
-    const inspection = await inspectRepository(process.cwd(), source);
-    const snapshot = {
-      ...inspection.snapshot,
-      repositoryFingerprint: inspection.fingerprint,
-    };
-    progress.stop("Local snapshot frozen.");
-    return snapshot;
-  } catch (error) {
-    progress.error("Snapshot could not be collected.");
-    throw error;
-  }
-};
-
 export const main = async (args = process.argv.slice(2)) => {
-  const interactive = Boolean(process.stdin.isTTY && process.stdout.isTTY);
+  const interactive = !!(process.stdin.isTTY && process.stdout.isTTY);
   if (!args.length && interactive) {
-    const command = await select({
+    const name = await select({
       message: "What would you like to do?",
       options: [
-        { value: "login", label: "Sign in" },
-        { value: "connect", label: "Open the local review workspace" },
-        { value: "status", label: "Check account status" },
-        { value: "inspect", label: "Inspect changes locally" },
-        { value: "logout", label: "Sign out" },
+        { value: "reviews create", label: "Prepare changes for review" },
+        { value: "reviews list", label: "List saved reviews" },
+        { value: "reviews sync current", label: "Sync the current review" },
+        { value: "reviews run current", label: "Run an AI review" },
+        { value: "settings show", label: "Show AI settings" },
+        { value: "app open", label: "Open the browser workspace" },
+        { value: "app status", label: "Check the running app" },
+        { value: "help", label: "Show all commands" },
       ],
     });
-    if (isCancel(command)) {
-      cancel("Cancelled.");
-      return;
-    }
-    args = [command];
+    if (isCancel(name)) return;
+    args = name.split(" ");
   }
-  const { command, values } = parseCommand(args);
-  if (command === "help") {
-    console.log(HELP);
+  const command = parseCliCommand(args);
+  const { name, values } = command;
+  if (name === "version") {
+    console.log(commandCatalog().version);
     return;
   }
-  if (command === "version") {
-    console.log("0.1.0");
+  if (command.help || name === "help") {
+    console.log(
+      values.json
+        ? JSON.stringify(commandCatalog(), null, 2)
+        : formatCommandHelp(name === "help" ? command.args.join(" ") : name),
+    );
     return;
   }
-  if (!values.json) intro(`Senslop: ${command}`);
-  if (command === "login") {
-    let url = values.url;
-    if (!url) {
-      if (!interactive) throw new Error("Use senslop login --url WEBSITE_URL.");
-      const value = await text({
+  const repository = stringOption(values, "repo") ?? process.cwd();
+  if (name === "app start" || name === "connect") {
+    await runWorkspace({
+      development: !!values.dev,
+      repository,
+      openBrowser: !values["no-open"],
+      json: !!values.json,
+    });
+    return;
+  }
+  if (name === "login") {
+    if (values.json)
+      throw new CliError(
+        "Account login uses human browser approval. Run without --json.",
+        "invalid_arguments",
+        2,
+      );
+    let url = stringOption(values, "url");
+    if (!url && interactive) {
+      const entered = await text({
         message: "What is your Senslop website URL?",
-        placeholder: "http://localhost:3000",
         validate: (value) => {
           try {
             secureBaseURL(value ?? "");
@@ -261,102 +138,139 @@ export const main = async (args = process.argv.slice(2)) => {
           }
         },
       });
-      if (isCancel(value)) {
-        cancel("Cancelled. No credential saved.");
-        return;
-      }
-      url = value;
+      if (isCancel(entered)) return;
+      url = entered;
     }
-    if (await login(url))
-      outro(
-        "Cloud account connected. Local inspection also works without login.",
+    if (!url)
+      throw new CliError(
+        "Use senslop login --url WEBSITE_URL.",
+        "invalid_arguments",
+        2,
       );
+    await login(url);
     return;
   }
-  if (command === "connect") {
-    await runWorkspace({
-      development: values.dev,
-      interactive,
-      inspect: inspectFromPrompt,
-    });
-    outro("Local app stopped.");
-    return;
-  }
-  if (command === "logout") {
-    await logout();
-    outro("Signed out.");
-    return;
-  }
-  if (command === "status") {
-    const progress = spinner();
-    progress.start("Checking your account…");
-    try {
-      const status = await fetchStatus(await requireCredentials());
-      if (!status)
-        throw new Error(
-          "Account status unavailable. Check the service and sign in again if your credential expired.",
-        );
-      progress.stop("Account verified.");
-      log.success(`Signed in as ${status.user.name} (${status.user.email}).`);
-      outro(
-        "Cloud account verified. Run senslop connect to open your local workspace.",
-      );
-    } catch (error) {
-      progress.error("Could not verify the account.");
-      throw error;
-    }
-    return;
-  }
-  const hasSource =
-    values.commit !== undefined ||
-    values.range !== undefined ||
-    values.branch !== undefined ||
-    values["working-tree"] === true;
-  const source =
-    !hasSource && interactive && !values.json
-      ? await promptSource()
-      : sourceFromOptions(values);
-  if (!source) {
-    cancel("Cancelled. No snapshot collected.");
-    return;
-  }
-  const progress = values.json ? undefined : spinner();
-  progress?.start("Freezing your selected Git changes…");
-  let snapshot;
-  try {
+  if (name === "logout") {
     if (values.json)
-      snapshot = await collectSnapshot({ cwd: process.cwd(), source });
-    else {
-      const inspection = await inspectRepository(process.cwd(), source);
-      snapshot = {
-        ...inspection.snapshot,
-        repositoryFingerprint: inspection.fingerprint,
-      };
-    }
-    progress?.stop("Local snapshot frozen.");
-  } catch (error) {
-    progress?.error("Snapshot could not be collected.");
-    throw error;
-  }
-  if (!values.json) {
-    await runWorkspace({
-      development: values.dev,
-      interactive,
-      snapshot,
-      inspect: inspectFromPrompt,
-    });
-    outro("Local app stopped.");
+      throw new CliError(
+        "Account logout uses human-readable feedback. Run without --json.",
+        "invalid_arguments",
+        2,
+      );
+    await logout();
     return;
   }
-  console.log(JSON.stringify(snapshot, null, 2));
-  if (!snapshot.eligibility.eligible) process.exitCode = 2;
+  if (name === "status") {
+    const result = await fetchStatus(await requireCredentials());
+    if (!result)
+      throw new CliError(
+        "Account status unavailable. Check the service or sign in again.",
+      );
+    console.log(formatCommandResult(result, !!values.json));
+    return;
+  }
+  if (name === "skills" || name === "skills install") {
+    console.log(
+      formatCommandResult(
+        await executeSkillCommand(command, repository),
+        !!values.json,
+      ),
+    );
+    return;
+  }
+  if (
+    (name === "inspect" || name === "reviews create") &&
+    !["commit", "range", "branch", "working-tree"].some((key) => values[key])
+  ) {
+    if (!interactive || values.json)
+      throw new CliError(
+        "Choose exactly one of --commit, --range, --branch or --working-tree.",
+        "invalid_arguments",
+        2,
+      );
+    const source = await promptSource(undefined, repository);
+    if (!source) return;
+    switch (source.kind) {
+      case "working-tree":
+        values["working-tree"] = true;
+        break;
+      case "commit":
+        values.commit = source.commit;
+        break;
+      case "range":
+        values.range = `${source.base}..${source.head}`;
+        break;
+      case "branch":
+        values.branch = source.branch;
+        values.base = source.base;
+        break;
+    }
+    values.open = true;
+  }
+  if (name === "inspect" && values.json) {
+    if (
+      ["group", "no-group", "open", "wait", "run-review", "timeout"].some(
+        (key) => values[key],
+      )
+    )
+      throw new CliError(
+        "Standalone inspect --json only collects a snapshot. Use reviews create --json for saved reviews and preparation.",
+        "invalid_arguments",
+        2,
+      );
+    const snapshot = await collectSnapshot({
+      cwd: repository,
+      source: sourceFromOptions({
+        commit: stringOption(values, "commit"),
+        range: stringOption(values, "range"),
+        branch: stringOption(values, "branch"),
+        base: stringOption(values, "base"),
+        "working-tree": !!values["working-tree"],
+      }),
+    });
+    console.log(JSON.stringify(snapshot, null, 2));
+    if (!snapshot.eligibility.eligible) process.exitCode = 2;
+    return;
+  }
+  let result: unknown;
+  if (name.startsWith("app "))
+    result = await executeAppCommand(command, repository);
+  else {
+    const client = await connectWorkspace(repository).catch((error: Error) => {
+      throw new CliError(error.message, "app_unavailable", 3);
+    });
+    if (name.startsWith("settings "))
+      result = await executeSettingsCommand(client, command);
+    else if (name.startsWith("providers "))
+      result = await executeProviderCommand(client, command);
+    else result = await executeReviewCommand(client, command);
+  }
+  console.log(formatCommandResult(result, !!values.json));
 };
 
 if (
   process.argv[1] &&
   realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)
-)
-  main().catch((error) => {
-    log.error(`Senslop: ${error.message}`, { output: process.stderr });
-    process.exitCode = 1;
-  });
+) {
+  main().catch(
+    (
+      error: Error & { code?: string; exitCode?: number; details?: unknown },
+    ) => {
+      const json = process.argv.includes("--json");
+      const code =
+        error.exitCode ??
+        (error instanceof TypeError ||
+        /Unknown command|not valid|Usage:|Choose exactly|--group or|--timeout/.test(
+          error.message,
+        )
+          ? 2
+          : 1);
+      process.stderr.write(
+        json
+          ? `${JSON.stringify({ error: { code: error.code ?? (code === 2 ? "invalid_arguments" : "operation_failed"), message: error.message, ...(error.details ? { details: error.details } : {}) } })}\n`
+          : `Senslop: ${error.message}\n`,
+      );
+      process.exitCode = code;
+    },
+  );
+}

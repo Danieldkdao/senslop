@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { isSubscriptionProvider } from "@senslop/contracts";
+import { getSubscriptionService } from "../../../../services/subscriptions/server-subscriptions";
 import {
   getWorkspace,
   protectLocalRoute,
@@ -26,7 +28,9 @@ export const GET = async (request: Request) => {
     const service = new ProviderService(getWorkspace().store, osCredentials);
     const { connection, secret } = await service.resolve(id.data);
     return Response.json(
-      await discoverModels(connection, secret, request.signal),
+      isSubscriptionProvider(connection.provider)
+        ? await getSubscriptionService().models(id.data, request.signal)
+        : await discoverModels(connection, secret, request.signal),
       { headers: { "Cache-Control": "no-store" } },
     );
   } catch (error) {

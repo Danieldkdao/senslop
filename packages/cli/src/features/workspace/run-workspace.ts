@@ -1,83 +1,57 @@
 import open from "open";
-import { isCancel, log, select, spinner } from "@clack/prompts";
+import { log, spinner } from "@clack/prompts";
 import { startLocalApp } from "./local-app.js";
-import type { FrozenSnapshot } from "../git/snapshot.js";
 
 type WorkspaceOptions = {
   development?: boolean;
-  interactive: boolean;
-  snapshot?: FrozenSnapshot;
-  inspect: (signal: AbortSignal) => Promise<FrozenSnapshot | null>;
+  repository?: string;
+  openBrowser?: boolean;
+  json?: boolean;
 };
 
 export const runWorkspace = async ({
   development = false,
-  interactive,
-  snapshot,
-  inspect,
-}: WorkspaceOptions) => {
-  if (snapshot && !snapshot.files.length)
-    throw new Error(
-      "No changed files to inspect. Choose another Git selection.",
-    );
+  repository = process.cwd(),
+  openBrowser = true,
+  json = false,
+}: WorkspaceOptions = {}) => {
   const abort = new AbortController();
   const stop = () => abort.abort();
   process.once("SIGINT", stop);
   process.once("SIGTERM", stop);
-  const progress = spinner({ signal: abort.signal });
-  progress.start("Starting your local Next.js workspace…");
+  const progress = json ? undefined : spinner({ signal: abort.signal });
+  progress?.start("Starting your local workspace…");
   let app: Awaited<ReturnType<typeof startLocalApp>> | undefined;
   try {
-    app = await startLocalApp({ development, signal: abort.signal });
-    if (snapshot) await app.setSnapshot(snapshot);
-    progress.stop("Local workspace is running.");
-    log.info(
-      `Open ${app.url}\nKeep this terminal open. Ctrl+C stops the app. No cloud login is required.`,
-    );
-    if (development)
-      log.info(
-        "Development mode: dashboard edits refresh automatically. Restart this command after editing CLI logic.",
+    app = await startLocalApp({
+      development,
+      repository,
+      signal: abort.signal,
+    });
+    progress?.stop("Local workspace is running.");
+    if (json)
+      console.log(
+        JSON.stringify({
+          running: true,
+          repository,
+          origin: app.origin,
+          pid: process.pid,
+        }),
       );
-    await open(app.url).catch(() =>
-      log.warn("Could not open a browser automatically. Use the URL above."),
-    );
-    if (!interactive) {
-      await app.closed;
-      return;
-    }
-    void app.closed.then(stop, stop);
-    while (!abort.signal.aborted) {
-      const action = await select({
-        message: "Your local app is running. What would you like to do?",
-        signal: abort.signal,
-        options: [
-          { value: "inspect", label: "Inspect changes in this repository" },
-          { value: "stop", label: "Stop the local app" },
-        ],
-      });
-      if (isCancel(action) || action === "stop" || abort.signal.aborted) break;
-      try {
-        const nextSnapshot = await Promise.race([
-          inspect(abort.signal),
-          app.closed.then(() => null),
-        ]);
-        if (nextSnapshot && !abort.signal.aborted) {
-          if (!nextSnapshot.files.length)
-            throw new Error(
-              "No changed files to inspect. Choose another Git selection.",
-            );
-          await app.setSnapshot(nextSnapshot);
-          log.success(
-            `${nextSnapshot.files.length} files are ready in your local workspace.`,
+    else
+      log.info(
+        `Open ${app.url}\nThis terminal runs the app and background jobs. Ctrl+C stops them.\nRun senslop commands from another terminal in this repository.`,
+      );
+    if (openBrowser)
+      await open(app.url).catch(() => {
+        if (!json)
+          log.warn(
+            "Could not open the browser. Run senslop app open from another terminal.",
           );
-        }
-      } catch (error) {
-        if (!abort.signal.aborted) log.error((error as Error).message);
-      }
-    }
-    await app.stop();
+      });
+    await app.closed;
   } catch (error) {
-    progress.error("Local workspace stopped.");
+    progress?.error("Local workspace stopped.");
     if (!(abort.signal.aborted && (error as Error).name === "AbortError"))
       throw error;
   } finally {

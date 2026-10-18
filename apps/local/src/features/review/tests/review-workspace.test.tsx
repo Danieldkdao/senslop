@@ -5,17 +5,30 @@ import {
   cleanup,
   act,
   fireEvent,
-  render,
+  render as renderView,
   screen,
   waitFor,
   within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { ReactNode } from "react";
+import { defaultUiPreferences } from "../../settings/constants";
+import { mergeUiPreferences } from "../../settings/lib/ui-preferences";
 import { defaultAiSettings } from "../../agents/constants";
+import { defaultDiffSettings } from "../constants";
 import type { JobSchema } from "../../agents/schemas";
 import type { LivePreview, ReviewLine, ReviewNote } from "../types";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ReviewWorkspace } from "../components/review-workspace";
+
+let queryClient: QueryClient;
+const render = (ui: ReactNode) =>
+  renderView(ui, {
+    wrapper: ({ children }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    ),
+  });
 
 vi.mock("../../agents/hooks/use-agent-state", () => ({
   useAgentState: () => ({
@@ -77,6 +90,58 @@ vi.mock("../../settings/hooks/use-review-preferences", () => ({
     preferences: { data: { autoAdvance: state.autoAdvance } },
   }),
 }));
+
+test("editor settings survive reopening the workspace instead of resetting to defaults", async () => {
+  state.mobile = true;
+  let saved = {
+    editor: defaultDiffSettings,
+    view: "split",
+    applicationTheme: null,
+    panels: null,
+  };
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (_url, options) => {
+      if (options?.method === "PATCH") {
+        const patch = JSON.parse(options.body);
+        saved = {
+          ...saved,
+          ...patch,
+          editor: { ...saved.editor, ...patch.editor },
+        };
+      }
+      return Response.json(saved);
+    }),
+  );
+  const user = userEvent.setup();
+  const mount = () => render(<ReviewWorkspace>Setup</ReviewWorkspace>);
+  mount();
+  await user.click(screen.getByRole("button", { name: "Settings" }));
+  const size = screen.getByRole("spinbutton", { name: "Font size" });
+  await waitFor(() => expect((size as HTMLInputElement).disabled).toBe(false));
+  fireEvent.change(size, { target: { value: "20" } });
+  fireEvent.blur(size);
+  await user.click(screen.getByRole("button", { name: "Unified" }));
+  await waitFor(() => expect(saved.view).toBe("unified"));
+  cleanup();
+  queryClient = new QueryClient();
+  mount();
+  await user.click(screen.getByRole("button", { name: "Settings" }));
+  await waitFor(() =>
+    expect(
+      (
+        screen.getByRole("spinbutton", {
+          name: "Font size",
+        }) as HTMLInputElement
+      ).value,
+    ).toBe("20"),
+  );
+  expect(
+    screen
+      .getByRole("button", { name: "Unified" })
+      .getAttribute("aria-pressed"),
+  ).toBe("true");
+});
 vi.mock("../../workspace/components/workspace-toolbar", () => ({
   WorkspaceToolbar: () => null,
 }));
@@ -174,6 +239,21 @@ vi.mock("@/components/ui/toast", () => ({
 }));
 
 beforeEach(() => {
+  queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  let savedPreferences = defaultUiPreferences;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (_url, options?: RequestInit) => {
+      if (options?.method === "PATCH")
+        savedPreferences = mergeUiPreferences(
+          savedPreferences,
+          JSON.parse(String(options.body)),
+        );
+      return Response.json(savedPreferences);
+    }),
+  );
   Object.defineProperty(Element.prototype, "scrollIntoView", {
     configurable: true,
     value: vi.fn(),
@@ -940,6 +1020,8 @@ test.each([
     state.jobs = [
       {
         id: "old-grouping",
+        retryAt: null,
+        fallbackAt: null,
         snapshotId: state.preview.id,
         generation: 1,
         settings: defaultAiSettings,
@@ -1087,4 +1169,138 @@ test("rapid D and next-file navigation queues completion for each file instead o
     "src/first.ts",
     "src/second.tsx",
   ]);
+});
+
+test("automatic retries count down against the worker deadline and wait for actual restart", async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date("2026-10-17T12:00:00Z"));
+  try {
+    setNavigationPreview();
+    state.preview!.groupingEnabled = true;
+    state.jobs = [
+      {
+        id: "retry",
+        kind: "grouping",
+        status: "running",
+        error: "Provider temporarily unavailable",
+        updatedAt: new Date().toISOString(),
+        retryAt: new Date(Date.now() + 30000).toISOString(),
+      } as JobSchema,
+    ];
+    const mounted = render(<ReviewWorkspace>Setup</ReviewWorkspace>);
+    expect(screen.getByRole("alert").textContent).toContain(
+      "Provider temporarily unavailable",
+    );
+    expect(screen.getByRole("timer").textContent).toBe(
+      "Retrying grouping in 30 seconds.",
+    );
+    expect(screen.queryByRole("button", { name: "Retry grouping" })).toBeNull();
+    await act(() => vi.advanceTimersByTimeAsync(5000));
+    expect(screen.getByRole("timer").textContent).toBe(
+      "Retrying grouping in 25 seconds.",
+    );
+    mounted.rerender(<ReviewWorkspace>Polling update</ReviewWorkspace>);
+    expect(screen.getByRole("timer").textContent).toBe(
+      "Retrying grouping in 25 seconds.",
+    );
+    await act(() => vi.advanceTimersByTimeAsync(25000));
+    expect(screen.getByRole("timer").textContent).toBe(
+      "Waiting for the local worker to retry grouping…",
+    );
+    expect(screen.queryByText(/Diff for/)).toBeNull();
+    state.jobs[0] = { ...state.jobs[0]!, retryAt: null, error: null };
+    mounted.rerender(<ReviewWorkspace>Retry started</ReviewWorkspace>);
+    expect(screen.queryByRole("timer")).toBeNull();
+    expect(screen.getByText("Preparing your review")).toBeTruthy();
+    mounted.unmount();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("terminal failure explains the fallback then opens every original file without AI ordering", async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date("2026-10-17T12:00:00Z"));
+  try {
+    setNavigationPreview();
+    state.preview!.groupingEnabled = true;
+    state.jobs = [
+      {
+        id: "final-failure",
+        kind: "grouping",
+        status: "failed",
+        error: "Model returned invalid groups",
+        updatedAt: new Date().toISOString(),
+        fallbackAt: new Date(Date.now() + 15000).toISOString(),
+      } as JobSchema,
+    ];
+    const mounted = render(<ReviewWorkspace>Setup</ReviewWorkspace>);
+    expect(screen.getByRole("alert").textContent).toContain(
+      "Model returned invalid groups",
+    );
+    expect(
+      screen.getByText(
+        /couldn’t group this review.*without AI grouping or ordering/i,
+      ),
+    ).toBeTruthy();
+    expect(screen.getByRole("timer").textContent).toBe(
+      "Opening the file review in 15 seconds.",
+    );
+    await act(() => vi.advanceTimersByTimeAsync(14000));
+    expect(screen.queryByText(/Diff for/)).toBeNull();
+    expect(screen.getByRole("timer").textContent).toBe(
+      "Opening the file review in 1 second.",
+    );
+    await act(() => vi.advanceTimersByTimeAsync(1000));
+    expect(screen.getByText("Diff for src/first.ts")).toBeTruthy();
+    expect(screen.getByLabelText("Changed files").textContent).toContain(
+      "first.ts",
+    );
+    expect(screen.getByLabelText("Changed files").textContent).toContain(
+      "second.tsx",
+    );
+    expect(state.preview!.files.map((file) => file.path)).toEqual([
+      "src/first.ts",
+      "src/second.tsx",
+    ]);
+    expect(state.act).not.toHaveBeenCalled();
+    mounted.unmount();
+    render(<ReviewWorkspace>Reopened</ReviewWorkspace>);
+    expect(screen.getByText("Diff for src/first.ts")).toBeTruthy();
+    cleanup();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("a fresh manual grouping attempt supersedes an old fallback deadline", async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date("2026-10-17T12:00:00Z"));
+  try {
+    setNavigationPreview();
+    state.preview!.groupingEnabled = true;
+    const failed = {
+      id: "old",
+      kind: "grouping",
+      status: "failed",
+      error: "Old error",
+      updatedAt: new Date().toISOString(),
+      fallbackAt: new Date(Date.now() + 15000).toISOString(),
+    } as JobSchema;
+    state.jobs = [failed];
+    const mounted = render(<ReviewWorkspace>Setup</ReviewWorkspace>);
+    await act(() => vi.advanceTimersByTimeAsync(5000));
+    state.jobs = [
+      { ...failed, id: "new", status: "queued", error: null, fallbackAt: null },
+      failed,
+    ];
+    mounted.rerender(<ReviewWorkspace>New attempt</ReviewWorkspace>);
+    await act(() => vi.advanceTimersByTimeAsync(15000));
+    expect(screen.queryByText(/Diff for/)).toBeNull();
+    expect(screen.getByText("Preparing your review")).toBeTruthy();
+    expect(screen.queryByRole("timer")).toBeNull();
+    mounted.unmount();
+  } finally {
+    vi.useRealTimers();
+  }
 });

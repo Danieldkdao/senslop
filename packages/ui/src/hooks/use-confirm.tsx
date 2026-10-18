@@ -44,7 +44,7 @@ export const useConfirm = (title: string, description: string) => {
         }
       }}
     >
-      <DialogContent>
+      <DialogContent overlayProps={{ forceRender: true }}>
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>{description}</DialogDescription>

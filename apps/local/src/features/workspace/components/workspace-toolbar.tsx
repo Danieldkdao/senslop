@@ -9,6 +9,7 @@ import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 import { useLivePreview } from "../../review/components/live-preview-provider";
 import { useWorkspaceMetadata } from "../hooks/use-workspace-metadata";
+import { useReviewShortcuts } from "../hooks/use-review-shortcuts";
 import {
   formatFreshness,
   formatResyncUnavailableReason,
@@ -30,6 +31,7 @@ export const WorkspaceToolbar = ({
   const loading = repository.isPending;
   const [busy, setBusy] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [shortcutsEnabled, setShortcutsEnabled] = useState(true);
   const load = async () => {
     const result = await repository.refetch();
     if (result.error) throw result.error;
@@ -60,12 +62,21 @@ export const WorkspaceToolbar = ({
     } catch (error) {
       trackReviewOperation(null);
       setError((error as Error).message);
-      if (notify) toast.error((error as Error).message);
+      if (notify || ("action" in body && body.action === "open"))
+        toast.error((error as Error).message);
       return false;
     } finally {
       setBusy(false);
     }
   };
+  useReviewShortcuts({
+    currentReviewId: preview?.id,
+    enabled: shortcutsEnabled,
+    busy,
+    historyOpen,
+    onOpenHistory: () => setHistoryOpen(true),
+    onAction: act,
+  });
   const resyncUnavailableReason = formatResyncUnavailableReason({
     preview,
     repository: metadata?.repository,
@@ -130,11 +141,14 @@ export const WorkspaceToolbar = ({
           act({ action: "resync", id: preview!.id, mode, grouping }, mode)
         }
       />
-      <TooltipWrapper content="Saved reviews">
+      <TooltipWrapper
+        content={shortcutsEnabled ? "Saved reviews (R)" : "Saved reviews"}
+      >
         <Button
           variant="ghost"
           size="icon"
           aria-label="Saved reviews"
+          aria-keyshortcuts={shortcutsEnabled ? "r" : undefined}
           onClick={() => setHistoryOpen(true)}
         >
           <History aria-hidden="true" className="size-5" />
@@ -142,6 +156,9 @@ export const WorkspaceToolbar = ({
       </TooltipWrapper>
       <ReviewHistory
         open={historyOpen}
+        currentReviewId={preview?.id}
+        shortcutsEnabled={shortcutsEnabled}
+        onShortcutsEnabledChange={setShortcutsEnabled}
         onOpenChange={setHistoryOpen}
         onAction={act}
       />

@@ -92,6 +92,11 @@ test("history reopen, rename, note edits and deletion preserve unrelated snapsho
   try {
     const first = store.saveReview("/repo", preview(), "a".repeat(64));
     const second = store.saveReview("/repo", preview(), "b".repeat(64));
+    expect(
+      store
+        .listReviews("/repo", "", { offset: 1, limit: 1 })
+        .map((review) => review.id),
+    ).toEqual([first.id]);
     store.openReview("/repo", first.id);
     expect(store.currentReview("/repo")?.id).toBe(first.id);
     const note = {

@@ -7,6 +7,7 @@ import type { FileDiffProps, FileProps } from "@pierre/diffs/react";
 import type { PreviewFileSchema } from "@senslop/contracts";
 import type { ReviewAnnotation, ReviewNote } from "../types";
 import { PreviewDiff } from "../components/preview-diff";
+import { defaultDiffSettings } from "../constants";
 
 const mocks = vi.hoisted(() => ({
   diff: vi.fn(),
@@ -84,6 +85,7 @@ const file: PreviewFileSchema = {
   diff: "diff --git a/index.ts b/index.ts\n--- a/index.ts\n+++ b/index.ts\n@@ -1 +1 @@\n-old\n+new\n",
 };
 const settings = {
+  ...defaultDiffSettings,
   indicators: "classic" as const,
   inlineChanges: "char" as const,
   backgrounds: false,

@@ -1,6 +1,11 @@
 import { createHash, randomUUID } from "node:crypto";
 import { APICallError, RetryError, ToolChoiceViolationError } from "ai";
-import { getAiErrorStatus, isRetryableAiError } from "./errors";
+import {
+  getAiErrorStatus,
+  isRetryableAiError,
+  isAiSchemaComplexityError,
+  isAiSchemaValidationError,
+} from "./errors";
 import type {
   AiDiagnosticContext,
   AiRequestDiagnosticSettings,
@@ -117,6 +122,8 @@ export const getAiErrorDiagnostics = (error: unknown) => {
     lastErrorName: retry ? getErrorName(lastError) : undefined,
     statusCode: getAiErrorStatus(error),
     retryable: isRetryableAiError(error),
+    schemaComplexity: isAiSchemaComplexityError(error),
+    schemaRejected: isAiSchemaValidationError(error),
     providerAttempts: retry?.errors.length,
     retryReason: retry?.reason,
     ...(APICallError.isInstance(lastError)

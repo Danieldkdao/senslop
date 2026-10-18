@@ -35,6 +35,8 @@ export const useProviderModels = () => {
         connection.id,
         connection.baseURL,
         connection.configured,
+        connection.revision,
+        connection.account?.subject,
       ],
       queryFn: async ({ signal }: { signal: AbortSignal }) => {
         const response = await fetch(
@@ -73,6 +75,7 @@ export const useProviderModels = () => {
       catalog: catalogs[index].data,
       error: catalogs[index].error,
       pending: catalogs[index].isPending,
+      fetching: catalogs[index].isFetching,
       refetch: catalogs[index].refetch,
     })),
     refresh,

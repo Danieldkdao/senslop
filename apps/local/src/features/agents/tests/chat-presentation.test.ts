@@ -85,3 +85,45 @@ test("a saved turn ending with tools keeps its progress statement in activity ra
   expect(result.answer).toBe("");
   expect(result.activity.some((step) => step.text === progress)).toBe(true);
 });
+
+test("provider-executed tools and a final answer can share one SDK step without hiding either", () => {
+  const message: AgentMessage = {
+    id: "native",
+    role: "assistant",
+    parts: [
+      { type: "step-start" },
+      { type: "text", text: "I will inspect the source.", state: "done" },
+      {
+        type: "dynamic-tool",
+        toolName: "mcp__senslop__readSource",
+        toolCallId: "native-read",
+        providerExecuted: true,
+        state: "output-available",
+        input: { path: "a.ts" },
+        output: "frozen source",
+      },
+      {
+        type: "dynamic-tool",
+        toolName: "ToolSearch",
+        toolCallId: "native-search",
+        providerExecuted: true,
+        state: "output-available",
+        input: { query: "read" },
+        output: "tools",
+      },
+      { type: "text", text: "Here is the final answer.", state: "done" },
+    ],
+  };
+  const presentation = getChatPresentation(message, false);
+  expect(presentation.answer).toBe("Here is the final answer.");
+  expect(
+    presentation.activity
+      .filter((part) => part.kind === "tool")
+      .map((part) => part.toolName),
+  ).toEqual(["mcp__senslop__readSource", "ToolSearch"]);
+  expect(
+    presentation.activity.some(
+      (part) => part.text === "I will inspect the source.",
+    ),
+  ).toBe(true);
+});

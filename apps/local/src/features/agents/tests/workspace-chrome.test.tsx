@@ -7,10 +7,17 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { beforeEach, afterEach, expect, test, vi } from "vitest";
+import { defaultUiPreferences } from "../../settings/constants";
 import { AgentPanel } from "../components/agent-panel";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { NoteControls } from "../../review/components/note-controls";
 import userEvent from "@testing-library/user-event";
+vi.mock("../../settings/hooks/use-ui-preferences", () => ({
+  useUiPreferences: () => ({ values: defaultUiPreferences }),
+}));
+vi.mock("../../review/hooks/use-diff-highlighter", () => ({
+  useDiffHighlighter: () => ({ ready: false, error: false, retry: vi.fn() }),
+}));
 const models = vi.hoisted(() => ({ review: false, fingerprint: "current" }));
 vi.mock("../../workspace/hooks/use-workspace-metadata", () => ({
   useWorkspaceMetadata: () => ({
@@ -55,6 +62,11 @@ test("agent tabs occupy the panel header without a separate title row", () => {
   );
   const header = screen.getByLabelText("Agents").querySelector("header")!;
   expect(within(header).getByRole("tab", { name: "Chat" })).toBeTruthy();
+  expect(
+    within(header)
+      .getByRole("tab", { name: "Chat" })
+      .getAttribute("aria-selected"),
+  ).toBe("true");
   expect(within(header).getByRole("tab", { name: "Review" })).toBeTruthy();
   expect(within(header).queryByText("Agents")).toBeNull();
 });
@@ -62,6 +74,56 @@ test("header keeps the add-note action and removes the notes browser", () => {
   render(<NoteControls onAddNote={vi.fn()} />);
   expect(screen.getByRole("button", { name: "Add note" })).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Browse notes" })).toBeNull();
+});
+
+test("completed review summaries appear between review metadata and the combined fix prompt", async () => {
+  const summary = "Fix the startup crash before merging.";
+  const job = {
+    id: "review",
+    snapshotId: "snapshot",
+    kind: "review",
+    status: "completed",
+    title: "Reviewed changes",
+    createdAt: "2026-10-16T20:00:00Z",
+    settings: { separate: false, shared: { name: "Review model" } },
+    result: {
+      summary,
+      findings: [
+        {
+          severity: "high",
+          title: "Missing guard",
+          problem: "An empty input crashes startup. Guard the input.",
+          path: "a.ts",
+          side: "after",
+          start: 1,
+          end: 1,
+          code: "input.value",
+          fixPrompt: "Guard the input.",
+        },
+      ],
+      limitations: [],
+      fixAllPrompt: "Verify the input guard.",
+    },
+  };
+  render(
+    <AgentPanel
+      snapshotId="snapshot"
+      agents={{ state: { data: { jobs: [job] } } } as never}
+      onEvidence={vi.fn()}
+    />,
+  );
+  await userEvent.setup().click(screen.getByRole("tab", { name: "Review" }));
+  const metadata = screen.getByText("Reviewed changes");
+  const description = screen.getByText(summary);
+  const prompt = screen.getByRole("button", { name: "Fix with agent prompt" });
+  expect(
+    metadata.compareDocumentPosition(description) &
+      Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+  expect(
+    description.compareDocumentPosition(prompt) &
+      Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
 });
 
 test("code reviews cannot start until a Review model is assigned", async () => {
@@ -123,6 +185,36 @@ test("grouping keeps agent tabs mounted and disables actions until ready", async
   expect(
     screen.getByRole("tab", { name: "Chat" }).getAttribute("aria-disabled"),
   ).not.toBe("true");
+  await waitFor(() =>
+    expect(
+      screen.getByRole("tab", { name: "Chat" }).getAttribute("aria-selected"),
+    ).toBe("true"),
+  );
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("tab", { name: "Review" }));
+  expect(
+    screen.getByRole("tab", { name: "Review" }).getAttribute("aria-selected"),
+  ).toBe("true");
+  rerender(
+    <AgentPanel
+      preparing
+      snapshotId="snapshot"
+      agents={{ state: { data: { jobs: [] } } } as never}
+      onEvidence={vi.fn()}
+    />,
+  );
+  rerender(
+    <AgentPanel
+      snapshotId="snapshot"
+      agents={{ state: { data: { jobs: [] } } } as never}
+      onEvidence={vi.fn()}
+    />,
+  );
+  await waitFor(() =>
+    expect(
+      screen.getByRole("tab", { name: "Review" }).getAttribute("aria-selected"),
+    ).toBe("true"),
+  );
 });
 
 test("a running code review keeps its action label and uses LoadingSwap", async () => {
@@ -379,7 +471,6 @@ test.each([
             severity: "high",
             title: "Old issue",
             problem: "Old contents",
-            rationale: "Old caller",
             path: "a.ts",
             side: "after",
             start: 1,

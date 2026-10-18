@@ -12,21 +12,27 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve, relative } from "node:path";
 import { fileURLToPath } from "node:url";
-import { startLocalApp } from "../local-app.js";
+import { startLocalApp as startApp } from "../local-app.js";
 
 const directories: string[] = [];
+
+const startLocalApp = async (options: Parameters<typeof startApp>[0] = {}) => {
+  const dataDirectory =
+    options.dataDirectory ??
+    (await mkdtemp(join(tmpdir(), "senslop-app-data-")));
+  if (!options.dataDirectory) directories.push(dataDirectory);
+  return startApp({ ...options, dataDirectory });
+};
 afterEach(async () => {
   await Promise.all(
-    directories
-      .splice(0)
-      .map((path) =>
-        rm(path, {
-          recursive: true,
-          force: true,
-          maxRetries: 5,
-          retryDelay: 100,
-        }),
-      ),
+    directories.splice(0).map((path) =>
+      rm(path, {
+        recursive: true,
+        force: true,
+        maxRetries: 5,
+        retryDelay: 100,
+      }),
+    ),
   );
 });
 

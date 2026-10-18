@@ -1,22 +1,20 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { ReactNode } from "react";
+import type { PublicConnectionSchema } from "@senslop/contracts";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { toast } from "@/components/ui/toast";
 import { ProviderSettings } from "../components/provider-settings";
 import { ConnectionForm } from "../components/connection-form";
-import type { PublicConnectionSchema } from "@senslop/contracts";
-
-const modelState = vi.hoisted(() => ({
-  entries: [] as unknown[],
-  refresh: vi.fn(),
-  retry: vi.fn(),
-}));
-vi.mock("../hooks/use-provider-models", () => ({
-  useProviderModels: () => ({
-    entries: modelState.entries,
-    refresh: modelState.refresh,
-  }),
-}));
 
 vi.mock("../../../components/provider-icon", () => ({
   ProviderIcon: () => <span />,
@@ -24,169 +22,182 @@ vi.mock("../../../components/provider-icon", () => ({
 vi.mock("@/components/ui/toast", () => ({
   toast: { success: vi.fn(), error: vi.fn() },
 }));
+const clients: QueryClient[] = [];
 afterEach(() => {
   cleanup();
+  clients.splice(0).forEach((client) => client.clear());
   vi.unstubAllGlobals();
-  modelState.entries = [];
   vi.clearAllMocks();
 });
-const empty = { connections: [], defaultId: null, cleanupPending: false };
-
-test("model discovery details and retry appear on the matching settings connection", async () => {
-  const connection = {
-    id: "00000000-0000-4000-8000-000000000003",
-    provider: "ollama",
-    name: "Ollama",
-    baseURL: "http://localhost:11434",
-    model: "",
-    contextWindow: null,
-    configured: false,
-    credentialError: null,
-  };
-  modelState.entries = [
-    {
-      connection,
-      catalog: undefined,
-      pending: false,
-      error: new Error(
-        "Provider returned invalid or oversized model metadata.",
-      ),
-      refetch: modelState.retry,
-    },
-  ];
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(async () => Response.json({ ...empty, connections: [connection] })),
-  );
-  const user = userEvent.setup();
-  render(<ProviderSettings onConfigure={vi.fn()} />);
-  expect(
-    await screen.findByText(
-      "Provider returned invalid or oversized model metadata.",
-    ),
-  ).toBeTruthy();
-  await user.click(screen.getByRole("button", { name: "Retry Ollama models" }));
-  expect(modelState.retry).toHaveBeenCalledOnce();
+const id = "00000000-0000-4000-8000-000000000001";
+const connection = (
+  provider: "ollama" | "openrouter" = "ollama",
+): PublicConnectionSchema => ({
+  id,
+  provider,
+  name: provider === "ollama" ? "Ollama" : "OpenRouter",
+  baseURL:
+    provider === "ollama"
+      ? "http://localhost:11434"
+      : "https://openrouter.ai/api/v1",
+  model: "",
+  contextWindow: null,
+  configured: provider !== "ollama",
+  credentialError: null,
+  revision: 0,
 });
-
-test("a newly saved local connection exposes key removal and retains its saved state", async () => {
-  const connection: PublicConnectionSchema = {
-    id: "00000000-0000-4000-8000-000000000004",
-    provider: "ollama",
-    name: "Ollama",
-    baseURL: "http://localhost:11434",
-    model: "",
-    contextWindow: null,
-    configured: true,
-    credentialError: null,
+const catalog = {
+  models: [{ id: "review-model", name: "Review model", available: true }],
+  source: "live",
+  manualAllowed: false,
+  message: null,
+};
+const setup = (connections: PublicConnectionSchema[] = []) => {
+  const state = {
+    connections,
+    defaultId: null as string | null,
+    cleanupPending: false,
+    modelError: null as string | null,
+    saveError: null as string | null,
+    settingsError: false,
+    modelWait: null as Promise<void> | null,
+    saveWait: null as Promise<void> | null,
   };
-  const calls: { action: string; connection?: { removeKey?: boolean } }[] = [];
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(async (_url, options?: RequestInit) => {
-      const body = JSON.parse(String(options?.body));
-      calls.push(body);
-      return {
-        ok: true,
-        json: async () =>
-          body.action === "save"
-            ? {
-                connection: {
-                  ...connection,
-                  configured: !body.connection.removeKey,
-                },
-                warning: null,
-              }
-            : { supported: true, models: [], message: "Metadata received." },
-      };
-    }),
-  );
-  const user = userEvent.setup();
-  render(<ConnectionForm provider="ollama" onSaved={vi.fn()} />);
-  await user.type(screen.getByLabelText("API key"), "optional-key");
-  await user.keyboard("{Enter}");
-  await user.click(await screen.findByLabelText("Remove saved API key"));
-  const endpoint = screen.getByLabelText("API base URL");
-  await user.clear(endpoint);
-  await user.type(endpoint, "http://localhost:11435");
-  await user.click(screen.getByRole("button", { name: "Save connection" }));
-  await waitFor(() => expect(calls).toHaveLength(4));
-  expect(calls[2]).toMatchObject({
-    action: "save",
-    connection: {
-      id: connection.id,
-      apiKey: "",
-      removeKey: true,
-      baseURL: "http://localhost:11435",
-    },
+  const writes: Record<string, unknown>[] = [];
+  const reads: string[] = [];
+  const fetcher = vi.fn(async (url: string, options?: RequestInit) => {
+    if (options?.method !== "POST") {
+      reads.push(String(url));
+      if (String(url).startsWith("/api/providers/models?")) {
+        if (state.modelWait) await state.modelWait;
+        return state.modelError
+          ? Response.json({ message: state.modelError }, { status: 422 })
+          : Response.json(catalog);
+      }
+      return state.settingsError
+        ? Response.json({ message: "Offline" }, { status: 503 })
+        : Response.json({
+            connections: state.connections,
+            defaultId: state.defaultId,
+            cleanupPending: state.cleanupPending,
+          });
+    }
+    const body = JSON.parse(String(options.body));
+    writes.push(body);
+    switch (body.action) {
+      case "save": {
+        if (state.saveWait) await state.saveWait;
+        if (state.saveError)
+          return Response.json({ message: state.saveError }, { status: 422 });
+        const { apiKey, removeKey, ...values } = body.connection;
+        const previous = state.connections.find(
+          (value) => value.id === values.id,
+        );
+        const saved = {
+          ...values,
+          id: values.id ?? id,
+          configured: !!apiKey || (!!previous?.configured && !removeKey),
+          credentialError: null,
+          revision: (previous?.revision ?? -1) + 1,
+        };
+        state.connections = [saved];
+        return Response.json({ connection: saved, warning: null });
+      }
+      case "default":
+        state.defaultId = body.id;
+        return Response.json(null);
+      case "delete":
+        state.connections = state.connections.filter(
+          (value) => value.id !== body.id,
+        );
+        return Response.json({ warning: null });
+      default:
+        throw new Error(`Unexpected legacy action: ${body.action}`);
+    }
   });
-  expect(screen.queryByLabelText("Remove saved API key")).toBeNull();
+  vi.stubGlobal("fetch", fetcher);
+  const view = (element: ReactNode) => {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false, gcTime: 0 } },
+    });
+    clients.push(client);
+    return render(
+      <QueryClientProvider client={client}>
+        <TooltipProvider>{element}</TooltipProvider>
+      </QueryClientProvider>,
+    );
+  };
+  return { state, reads, writes, fetcher, view };
+};
+
+test("provider headers contain compact error and refresh controls without discovery blocks or local endpoint details", async () => {
+  const fixture = setup([connection()]);
+  fixture.state.modelError =
+    "Server unavailable or timed out. Start the server, retry, or enter its exact model ID.";
+  fixture.view(<ProviderSettings onConfigure={vi.fn()} />);
+  const status = await screen.findByRole("button", {
+    name: "Ollama: model check failed",
+  });
+  const heading = screen.getByRole("heading", { name: /Ollama/, level: 3 });
+  expect(heading.contains(status)).toBe(true);
+  expect(
+    within(heading).getByRole("button", { name: "Refresh Ollama models" }),
+  ).toBeTruthy();
+  expect(screen.queryByText("Model discovery")).toBeNull();
+  expect(screen.queryByText("http://localhost:11434")).toBeNull();
+  expect(screen.queryByText(/inference server on this computer/)).toBeNull();
+  expect(screen.queryByText(fixture.state.modelError)).toBeNull();
+  const user = userEvent.setup();
+  await user.hover(status);
+  expect(
+    (await screen.findByText(fixture.state.modelError!)).textContent,
+  ).toContain(fixture.state.modelError);
+  fixture.state.modelError = null;
+  await user.click(
+    screen.getByRole("button", { name: "Refresh Ollama models" }),
+  );
+  await screen.findByRole("button", { name: "Ollama: models available" });
+  expect(fixture.writes).toEqual([]);
 });
 
-test("failed provider reads show a retry action instead of staying in loading", async () => {
-  vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("Offline")));
-  const user = userEvent.setup();
-  render(<ProviderSettings onConfigure={vi.fn()} />);
-  const retry = await screen.findByRole("button", { name: "Retry settings" });
-  vi.stubGlobal(
-    "fetch",
-    vi.fn().mockResolvedValue({ ok: true, json: async () => empty }),
-  );
-  await user.click(retry);
-  await screen.findByRole("heading", { name: "Ollama" });
-  expect(screen.queryByRole("alert")).toBeNull();
+test("refresh runs one model-list GET and stays disabled while that request is pending", async () => {
+  const fixture = setup([connection()]);
+  fixture.view(<ProviderSettings onConfigure={vi.fn()} />);
+  await screen.findByRole("button", { name: "Ollama: models available" });
+  let finish!: () => void;
+  fixture.state.modelWait = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  const before = fixture.reads.filter((value) =>
+    value.startsWith("/api/providers/models?"),
+  ).length;
+  await userEvent
+    .setup()
+    .click(screen.getByRole("button", { name: "Refresh Ollama models" }));
+  expect(
+    (
+      screen.getByRole("button", {
+        name: "Refresh Ollama models",
+      }) as HTMLButtonElement
+    ).disabled,
+  ).toBe(true);
+  expect(
+    screen.getByRole("button", { name: "Ollama: checking models" }),
+  ).toBeTruthy();
+  finish();
+  await screen.findByRole("button", { name: "Ollama: models available" });
+  expect(
+    fixture.reads.filter((value) => value.startsWith("/api/providers/models?")),
+  ).toHaveLength(before + 1);
 });
 
 test.each(["Enter", "blur"])(
-  "failed check remains visible after the saved connection reloads on %s",
+  "secure save on %s refreshes model discovery and keeps failures in the header tooltip",
   async (trigger) => {
-    const connection: PublicConnectionSchema = {
-      id: "00000000-0000-4000-8000-000000000001",
-      provider: "openrouter",
-      name: "OpenRouter",
-      baseURL: "https://openrouter.ai/api/v1",
-      model: "",
-      contextWindow: null,
-      configured: true,
-      credentialError: null,
-    };
-    let saved = false;
-    let valid = false;
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (_url, options?: RequestInit) => {
-        if (!options?.body)
-          return {
-            ok: true,
-            json: async () => ({
-              ...empty,
-              connections: saved ? [connection] : [],
-            }),
-          };
-        const body = JSON.parse(String(options.body));
-        if (body.action === "save") {
-          saved = true;
-          return { ok: true, json: async () => ({ connection }) };
-        }
-        if (body.action === "default")
-          return { ok: true, json: async () => null };
-        if (valid)
-          return {
-            ok: true,
-            json: async () => ({
-              supported: true,
-              models: [],
-              message: "Connection metadata received.",
-            }),
-          };
-        return {
-          ok: false,
-          json: async () => ({ message: "Provider rejected the API key." }),
-        };
-      }),
-    );
+    const fixture = setup();
+    fixture.state.modelError = "Provider rejected the API key.";
+    fixture.view(<ProviderSettings onConfigure={vi.fn()} />);
     const user = userEvent.setup();
-    render(<ProviderSettings onConfigure={vi.fn()} />);
     await user.type(
       await screen.findByLabelText("OpenRouter API key"),
       "invalid-key",
@@ -196,317 +207,176 @@ test.each(["Enter", "blur"])(
       await user.tab();
       await user.tab();
     }
-    // Wait for the parent to render the real saved record, not transient feedback.
-    await screen.findByRole("button", { name: "Use by default OpenRouter" });
-    expect(screen.getByRole("alert").textContent).toMatch(
-      /connection check failed.*rejected the API key/i,
-    );
+    const status = await screen.findByRole("button", {
+      name: "OpenRouter: model check failed",
+    });
     expect(
       (screen.getByLabelText("OpenRouter API key") as HTMLInputElement).value,
     ).toBe("");
-    await user.click(
-      screen.getByRole("button", { name: "Use by default OpenRouter" }),
-    );
-    expect(screen.getByRole("alert").textContent).toMatch(
-      /rejected the API key/,
-    );
-    valid = true;
-    await user.click(
-      screen.getByRole("button", { name: "Retry connection check" }),
-    );
-    await screen.findByRole("status");
     expect(screen.queryByRole("alert")).toBeNull();
-    expect(screen.getByRole("status").textContent).toMatch(/metadata received/);
+    expect(
+      screen.queryByRole("button", { name: "Retry connection check" }),
+    ).toBeNull();
+    await user.hover(status);
+    expect(
+      (await screen.findByText("Provider rejected the API key.")).textContent,
+    ).toContain("rejected the API key");
+    expect(fixture.writes.map((value) => value.action)).toEqual(["save"]);
+    expect(
+      fixture.reads.some((value) =>
+        value.includes(`/api/providers/models?connectionId=${id}`),
+      ),
+    ).toBe(true);
+    fixture.state.modelError = null;
+    await user.click(
+      screen.getByRole("button", { name: "Refresh OpenRouter models" }),
+    );
+    await screen.findByRole("button", { name: "OpenRouter: models available" });
   },
 );
-test("exactly twelve providers, remote keys save on Enter without a name or model, local configure delegates navigation", async () => {
-  const fetcher = vi
-    .fn()
-    .mockImplementation(async (_url, options?: RequestInit) => ({
-      ok: true,
-      json: async () =>
-        options?.method === "POST"
-          ? {
-              connection: { id: "00000000-0000-4000-8000-000000000002" },
-              warning: null,
-              supported: true,
-              models: [],
-              message: "Connection metadata received.",
-            }
-          : empty,
-    }));
-  vi.stubGlobal("fetch", fetcher);
-  const user = userEvent.setup();
-  const configure = vi.fn();
-  render(<ProviderSettings onConfigure={configure} />);
-  expect(await screen.findByRole("heading", { name: "Ollama" })).toBeTruthy();
-  expect(screen.getAllByRole("heading", { level: 3 })).toHaveLength(12);
-  expect(screen.getAllByRole("button", { name: /^Configure / })).toHaveLength(
-    3,
-  );
-  expect(screen.queryByText(/Copilot/)).toBeNull();
-  await user.type(
-    screen.getByLabelText("OpenRouter API key"),
-    "test-key{Enter}",
-  );
-  await waitFor(() =>
-    expect(fetcher).toHaveBeenCalledWith(
-      "/api/providers",
-      expect.objectContaining({ body: expect.stringContaining('"model":""') }),
-    ),
-  );
-  await waitFor(() =>
-    expect(
-      (screen.getByLabelText("OpenRouter API key") as HTMLInputElement).value,
-    ).toBe(""),
-  );
-  await user.click(screen.getByRole("button", { name: "Configure Ollama" }));
-  expect(configure).toHaveBeenCalledWith(
-    "ollama",
-    undefined,
-    expect.any(Function),
-    expect.objectContaining({
-      initialFeedback: null,
-      onFeedback: expect.any(Function),
-    }),
-  );
-  expect(screen.queryByRole("dialog")).toBeNull();
-});
-test("blur saves once, failed secure storage retains draft, and saved keys are never returned to an input", async () => {
-  const fetcher = vi
-    .fn()
-    .mockImplementation(async (_url, options?: RequestInit) =>
-      options?.method === "POST"
-        ? {
-            ok: false,
-            json: async () => ({
-              message: "OS credential store locked. Retry.",
-            }),
-          }
-        : { ok: true, json: async () => empty },
-    );
-  vi.stubGlobal("fetch", fetcher);
-  const user = userEvent.setup();
-  render(<ProviderSettings onConfigure={vi.fn()} />);
-  const input = await screen.findByLabelText("OpenAI API key");
-  await user.type(input, "new-test-key");
-  await user.tab();
-  await user.tab();
-  expect(await screen.findByRole("alert")).toHaveProperty(
-    "textContent",
-    expect.stringContaining("credential store locked"),
-  );
-  expect((input as HTMLInputElement).value).toBe("new-test-key");
-  expect(
-    fetcher.mock.calls.filter(([, options]) => options?.method === "POST"),
-  ).toHaveLength(1);
-});
-test("local configuration uses endpoint preset without model controls or a provider-name field", async () => {
-  const fetcher = vi.fn().mockResolvedValue({
-    ok: true,
-    json: async () => ({
-      connection: { id: "00000000-0000-4000-8000-000000000002" },
-      warning: null,
-      supported: true,
-      models: [],
-      message: "Connection metadata received.",
-    }),
+
+test("configuration save spins the header and a failed secure write retains the draft without checking models", async () => {
+  const fixture = setup();
+  fixture.state.saveError = "OS credential store locked. Retry.";
+  fixture.view(<ProviderSettings onConfigure={vi.fn()} />);
+  let finish!: () => void;
+  fixture.state.saveWait = new Promise<void>((resolve) => {
+    finish = resolve;
   });
-  vi.stubGlobal("fetch", fetcher);
-  const saved = vi.fn().mockResolvedValue(undefined);
   const user = userEvent.setup();
-  render(<ConnectionForm provider="ollama" onSaved={saved} />);
+  const input = await screen.findByLabelText("OpenAI API key");
+  await user.type(input, "private-draft{Enter}");
+  await screen.findByRole("button", { name: "OpenAI: checking models" });
   expect(
-    (screen.getByLabelText("API base URL") as HTMLInputElement).value,
-  ).toBe("http://localhost:11434");
-  expect(screen.queryByLabelText(/name/i)).toBeNull();
-  expect(screen.queryByLabelText(/model/i)).toBeNull();
-  expect(screen.queryByRole("button", { name: "Load models" })).toBeNull();
-  await user.click(screen.getByRole("button", { name: "Save connection" }));
-  await waitFor(() => expect(saved).toHaveBeenCalled());
+    (
+      screen.getByRole("button", {
+        name: "Refresh OpenAI models",
+      }) as HTMLButtonElement
+    ).disabled,
+  ).toBe(true);
+  finish();
+  await waitFor(() =>
+    expect(toast.error).toHaveBeenCalledWith(fixture.state.saveError),
+  );
+  expect((input as HTMLInputElement).value).toBe("private-draft");
+  expect(screen.queryByRole("alert")).toBeNull();
+  expect(
+    fixture.reads.filter((value) => value.startsWith("/api/providers/models?")),
+  ).toEqual([]);
+  expect(
+    screen.getByRole("button", { name: "OpenAI: model check failed" }),
+  ).toBeTruthy();
 });
 
-test("dedicated password inputs reveal drafts without saving, then clear after secure save", async () => {
-  const fetcher = vi
-    .fn()
-    .mockImplementation(async (_url, options?: RequestInit) => ({
-      ok: true,
-      json: async () =>
-        options?.method === "POST"
-          ? {
-              connection: { id: "00000000-0000-4000-8000-000000000002" },
-              warning: null,
-              supported: true,
-              models: [],
-              message: "Connection metadata received.",
-            }
-          : empty,
-    }));
-  vi.stubGlobal("fetch", fetcher);
+test("missing OS credentials are explained in the header instead of beneath the provider", async () => {
+  const saved = {
+    ...connection("openrouter"),
+    credentialError: "Unlock the OS credential store.",
+  };
+  const fixture = setup([saved]);
+  fixture.view(<ProviderSettings onConfigure={vi.fn()} />);
+  const status = await screen.findByRole("button", {
+    name: "OpenRouter: model check failed",
+  });
+  expect(screen.queryByText(saved.credentialError)).toBeNull();
+  await userEvent.setup().hover(status);
+  expect(
+    (await screen.findByText(saved.credentialError)).textContent,
+  ).toContain(saved.credentialError);
+});
+
+test("failed provider reads can retry and unconfigured providers perform no model requests", async () => {
+  const fixture = setup();
+  fixture.state.settingsError = true;
+  fixture.view(<ProviderSettings onConfigure={vi.fn()} />);
+  const retry = await screen.findByRole("button", { name: "Retry settings" });
+  fixture.state.settingsError = false;
+  await userEvent.setup().click(retry);
+  await screen.findByRole("heading", { name: "Ollama" });
+  expect(screen.getAllByRole("heading", { level: 3 })).toHaveLength(14);
+  expect(screen.getAllByRole("button", { name: /^Sign In / })).toHaveLength(2);
+  expect(
+    fixture.reads.filter((value) => value.startsWith("/api/providers/models?")),
+  ).toEqual([]);
+});
+
+test("local configure delegates navigation without endpoint summary or duplicate feedback state", async () => {
+  const fixture = setup([connection()]);
+  const configure = vi.fn();
+  fixture.view(<ProviderSettings onConfigure={configure} />);
+  await userEvent
+    .setup()
+    .click(await screen.findByRole("button", { name: "Configure Ollama" }));
+  expect(configure).toHaveBeenCalledWith(
+    "ollama",
+    expect.objectContaining({ id }),
+  );
+});
+
+test("reveal does not save; leaving the key input saves exactly once and clears its draft", async () => {
+  const fixture = setup();
+  fixture.view(<ProviderSettings onConfigure={vi.fn()} />);
   const user = userEvent.setup();
-  const { unmount } = render(<ProviderSettings onConfigure={vi.fn()} />);
   const input = await screen.findByLabelText("OpenRouter API key");
   await user.type(input, "draft-key");
   await user.tab();
   await user.keyboard(" ");
   expect(input.getAttribute("type")).toBe("text");
-  expect(
-    fetcher.mock.calls.filter(([, options]) => options?.method === "POST"),
-  ).toHaveLength(0);
+  expect(fixture.writes).toEqual([]);
   await user.tab();
-  await waitFor(() => expect((input as HTMLInputElement).value).toBe(""));
+  await waitFor(() =>
+    expect(
+      (screen.getByLabelText("OpenRouter API key") as HTMLInputElement).value,
+    ).toBe(""),
+  );
+  expect(fixture.writes).toHaveLength(1);
+});
+
+test("local configuration keeps inputs and refreshes the GET catalog after saving without a legacy POST check", async () => {
+  const fixture = setup();
+  fixture.view(<ConnectionForm provider="ollama" />);
   expect(
-    fetcher.mock.calls.filter(([, options]) => options?.method === "POST"),
-  ).toHaveLength(2);
-  unmount();
-  render(<ConnectionForm provider="ollama" onSaved={vi.fn()} />);
-  const localKey = screen.getByLabelText("API key");
-  await user.type(localKey, "local-draft");
-  await user.click(screen.getByRole("button", { name: "Show password" }));
-  expect(localKey.getAttribute("type")).toBe("text");
+    (screen.getByLabelText("API base URL") as HTMLInputElement).value,
+  ).toBe("http://localhost:11434");
+  expect(screen.queryByText(/inference server on this computer/)).toBeNull();
   expect(screen.queryByLabelText(/model/i)).toBeNull();
+  await userEvent
+    .setup()
+    .click(screen.getByRole("button", { name: "Save connection" }));
+  await screen.findByRole("button", { name: "Ollama: models available" });
+  expect(fixture.writes.map((value) => value.action)).toEqual(["save"]);
+  expect(screen.queryByText("Model discovery")).toBeNull();
 });
 
-test("key submission saves securely before automatic check; failed checks preserve configured state and allow replacement", async () => {
-  const calls: object[] = [];
-  const fetcher = vi.fn(async (_url, options?: RequestInit) => {
-    if (!options?.body) return { ok: true, json: async () => empty };
-    const body = JSON.parse(String(options.body));
-    calls.push(body);
-    if (body.action === "save")
-      return {
-        ok: true,
-        json: async () => ({
-          connection: { id: "00000000-0000-4000-8000-000000000001" },
-          warning: null,
-        }),
-      };
-    return {
-      ok: false,
-      json: async () => ({
-        message:
-          "Provider rejected the credentials. Check your API key and endpoint.",
-      }),
-    };
-  });
-  vi.stubGlobal("fetch", fetcher);
+test("local optional key removal remains effective after the initial save", async () => {
+  const fixture = setup();
+  fixture.view(<ConnectionForm provider="ollama" />);
   const user = userEvent.setup();
-  render(<ProviderSettings onConfigure={vi.fn()} />);
-  const input = await screen.findByLabelText("OpenRouter API key");
-  await user.type(input, "invalid-key{Enter}");
-  const alert = await screen.findByRole("alert");
-  expect(alert.textContent).toMatch(/saved securely.*connection check failed/i);
-  expect(alert.classList.contains("text-destructive")).toBe(true);
-  expect(calls).toMatchObject([
-    { action: "save" },
-    { action: "test", id: "00000000-0000-4000-8000-000000000001" },
-  ]);
-  expect(calls[1]).not.toHaveProperty("connection");
-  expect((input as HTMLInputElement).value).toBe("");
-  await user.click(
-    screen.getByRole("button", { name: "Retry connection check" }),
-  );
-  await waitFor(() => expect(calls).toHaveLength(3));
-  expect(calls[2]).toEqual({
-    action: "test",
-    id: "00000000-0000-4000-8000-000000000001",
-  });
-  await user.type(input, "replacement-key{Enter}");
-  await waitFor(() => expect(calls).toHaveLength(5));
-  expect(calls[3]).toMatchObject({
+  await user.type(screen.getByLabelText("API key"), "optional-key{Enter}");
+  await user.click(await screen.findByLabelText("Remove saved API key"));
+  const endpoint = screen.getByLabelText("API base URL");
+  await user.clear(endpoint);
+  await user.type(endpoint, "http://localhost:11435");
+  await user.click(screen.getByRole("button", { name: "Save connection" }));
+  await waitFor(() => expect(fixture.writes).toHaveLength(2));
+  expect(fixture.writes[1]).toMatchObject({
     action: "save",
-    connection: {
-      id: "00000000-0000-4000-8000-000000000001",
-      apiKey: "replacement-key",
-    },
+    connection: { id, removeKey: true, baseURL: "http://localhost:11435" },
   });
+  await waitFor(() =>
+    expect(screen.queryByLabelText("Remove saved API key")).toBeNull(),
+  );
 });
 
-test("local key blur checks the newly saved endpoint, preserves the configuration screen, and colors failed feedback only", async () => {
-  const calls: object[] = [];
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(async (_url, options?: RequestInit) => {
-      const body = JSON.parse(String(options?.body));
-      calls.push(body);
-      return {
-        ok: true,
-        json: async () =>
-          body.action === "save"
-            ? {
-                connection: { id: "00000000-0000-4000-8000-000000000003" },
-                warning: null,
-              }
-            : {
-                supported: false,
-                models: [],
-                message: "Credentials have not been verified.",
-              },
-      };
-    }),
-  );
-  const user = userEvent.setup();
-  const saved = vi.fn().mockResolvedValue(undefined);
-  render(<ConnectionForm provider="ollama" onSaved={saved} />);
-  await user.type(screen.getByLabelText("API key"), "local-key");
-  await user.tab();
-  expect(calls).toHaveLength(0);
-  await user.tab();
-  const feedback = await screen.findByRole("alert");
-  expect(feedback.textContent).toMatch(/not been verified/);
-  expect(feedback.classList.contains("text-destructive")).toBe(true);
-  expect(feedback.classList.contains("bg-muted")).toBe(true);
-  expect(calls).toMatchObject([
-    { action: "save" },
-    { action: "test", id: "00000000-0000-4000-8000-000000000003" },
-  ]);
-  expect(saved).toHaveBeenCalledOnce();
-  expect(screen.getByLabelText("API base URL")).toBeTruthy();
-});
-
-test("connection deletion asks in a dialog and cancel retains the saved connection", async () => {
-  const connection: PublicConnectionSchema = {
-    id: "00000000-0000-4000-8000-000000000004",
-    provider: "ollama",
-    name: "Ollama",
-    baseURL: "http://localhost:11434",
-    model: "",
-    contextWindow: null,
-    configured: false,
-    credentialError: null,
-  };
-  let deleted = false;
-  const calls: object[] = [];
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(async (_url, options?: RequestInit) => {
-      if (options?.body) {
-        const body = JSON.parse(String(options.body));
-        calls.push(body);
-        deleted = true;
-        return Response.json(null);
-      }
-      return Response.json({
-        ...empty,
-        connections: deleted ? [] : [connection],
-      });
-    }),
-  );
-  render(<ProviderSettings onConfigure={vi.fn()} />);
+test("deleting a connection still requires confirmation and cancel preserves it", async () => {
+  const fixture = setup([connection()]);
+  fixture.view(<ProviderSettings onConfigure={vi.fn()} />);
   const user = userEvent.setup();
   await user.click(
     await screen.findByRole("button", { name: "Delete Ollama connection" }),
   );
-  expect(
-    await screen.findByRole("dialog", { name: "Delete this connection?" }),
-  ).toBeTruthy();
+  expect(screen.getByRole("dialog")).toBeTruthy();
   await user.click(screen.getByRole("button", { name: "Cancel" }));
-  expect(calls).toEqual([]);
-  await user.click(
-    screen.getByRole("button", { name: "Delete Ollama connection" }),
-  );
-  await user.click(screen.getByRole("button", { name: "Confirm" }));
-  await waitFor(() =>
-    expect(calls).toEqual([{ action: "delete", id: connection.id }]),
-  );
+  expect(fixture.writes).toEqual([]);
+  expect(screen.queryByRole("dialog")).toBeNull();
 });

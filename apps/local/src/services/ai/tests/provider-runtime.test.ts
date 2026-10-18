@@ -4,6 +4,10 @@ import { z } from "zod";
 import type { ProviderConfigSchema } from "@senslop/contracts";
 import { resolveLanguageModel } from "../provider-runtime";
 import { formatAiError } from "../errors";
+import {
+  createReviewBatchSchema,
+  createReviewRepairSchema,
+} from "../analysis-repair-schemas";
 
 vi.mock("server-only", () => ({}));
 
@@ -480,6 +484,94 @@ test("Gemini receives a compilable output schema while SDK array bounds remain e
   expect(JSON.stringify(captured!.generationConfig as object)).not.toContain(
     '"maxItems"',
   );
+});
+
+test("Gemini review requests remove expanding array bounds but still reject missing file coverage", async () => {
+  const paths = Array.from({ length: 24 }, (_, index) => `${index}.ts`);
+  let captured: Record<string, unknown> | undefined;
+  const fetcher: typeof fetch = async (_url, init) => {
+    captured = JSON.parse(String(init?.body));
+    return Response.json({
+      candidates: [
+        {
+          content: {
+            role: "model",
+            parts: [
+              {
+                text: JSON.stringify({
+                  files: paths.slice(1).map((path) => ({ path, findings: [] })),
+                  limitations: [],
+                }),
+              },
+            ],
+          },
+          finishReason: "STOP",
+        },
+      ],
+      usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 10 },
+    });
+  };
+  const resolved = resolveLanguageModel(
+    connection("google", "https://review-bounds.test/v1beta"),
+    "fixture-key",
+    "gemini-3.5-flash-lite",
+    fetcher,
+  );
+  await expect(
+    generateText({
+      model: resolved.model,
+      prompt: "Assess all 24 synthetic files.",
+      output: Output.object({ schema: createReviewBatchSchema(paths) }),
+      maxRetries: 0,
+    }),
+  ).rejects.toThrow(/schema/);
+  const serialized = JSON.stringify(captured!.generationConfig);
+  expect(serialized).not.toContain('"minItems":24');
+  expect(serialized).not.toContain('"maxItems":');
+});
+
+test("Gemini targeted repairs retain empty-array constraints for already accepted sections", async () => {
+  let captured: Record<string, unknown> | undefined;
+  const patch = {
+    files: [],
+    findings: [{ id: "finding-0", finding: null }],
+    limitations: [],
+  };
+  const fetcher: typeof fetch = async (_url, init) => {
+    captured = JSON.parse(String(init?.body));
+    return Response.json({
+      candidates: [
+        {
+          content: { role: "model", parts: [{ text: JSON.stringify(patch) }] },
+          finishReason: "STOP",
+        },
+      ],
+      usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 10 },
+    });
+  };
+  const resolved = resolveLanguageModel(
+    connection("google", "https://repair-bounds.test/v1beta"),
+    "fixture-key",
+    "gemini-3.5-flash-lite",
+    fetcher,
+  );
+  const result = await generateText({
+    model: resolved.model,
+    prompt: "Retract finding-0. Leave files and limitations empty.",
+    output: Output.object({
+      schema: createReviewRepairSchema([], ["finding-0"], false),
+    }),
+    maxRetries: 0,
+  });
+  expect(result.output).toEqual(patch);
+  expect(captured!.generationConfig).toMatchObject({
+    responseJsonSchema: {
+      properties: {
+        files: { maxItems: 0 },
+        limitations: { maxItems: 0 },
+      },
+    },
+  });
 });
 
 test("MiMo uses JSON mode through Gateway while SDK still validates the requested object", async () => {

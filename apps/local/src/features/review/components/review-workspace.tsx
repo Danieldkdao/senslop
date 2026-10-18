@@ -18,6 +18,7 @@ import { FileSummary } from "../../agents/components/file-summary";
 import { ReviewPreparation } from "../../agents/components/review-preparation";
 import { assignedModel } from "../../agents/lib/model-selection";
 import { useAiSettings } from "../../agents/hooks/use-ai-settings";
+import { useGroupingCountdown } from "../../agents/hooks/use-grouping-countdown";
 import { useAgentState } from "../../agents/hooks/use-agent-state";
 import type { FindingSchema } from "../../agents/schemas";
 import { FileSearchDialog } from "./file-search-dialog";
@@ -25,8 +26,10 @@ import { useReviewReadyToast } from "../hooks/use-review-ready-toast";
 import { useReviewPreferences } from "../../settings/hooks/use-review-preferences";
 import { matchesJobSnapshot } from "../../agents/lib/job-snapshots";
 import { useReviewNavigation } from "../hooks/use-review-navigation";
-import { defaultDiffSettings } from "../constants";
-import type { DiffView, ReviewLine } from "../types";
+import { useUiPreferences } from "../../settings/hooks/use-ui-preferences";
+import { changedEditorPreferences } from "../../settings/lib/ui-preferences";
+import { panelPreferencesSchema } from "../../settings/schemas";
+import type { ReviewLine } from "../types";
 import {
   ArrowLeft,
   ArrowRight,
@@ -35,6 +38,7 @@ import {
   Bot,
   Search,
   ListRestart,
+  CheckIcon,
 } from "lucide-react";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { FileIcon } from "@/components/file-icon";
@@ -55,6 +59,7 @@ import {
   SheetDescription,
 } from "@/components/ui/sheet";
 import { WorkspaceToolbar } from "../../workspace/components/workspace-toolbar";
+import { useWorkspaceBuddy } from "../../buddy/hooks/use-workspace-buddy";
 
 type ReviewWorkspaceProps = { children: ReactNode };
 
@@ -85,6 +90,20 @@ export const ReviewWorkspace = ({ children }: ReviewWorkspaceProps) => {
   } | null>(null);
   const agents = useAgentState(preview?.id);
   const { preferences } = useReviewPreferences();
+  const ui = useUiPreferences();
+  const settings = ui.values.editor;
+  const view = ui.values.view;
+  const panelGroup = useRef<{
+    getLayout: () => Record<string, number>;
+    setLayout: (layout: Record<string, number>) => Record<string, number>;
+  } | null>(null);
+  const panelsRestored = useRef(false);
+  useEffect(() => {
+    if (!ui.preferences.data || !panelGroup.current || panelsRestored.current)
+      return;
+    panelsRestored.current = true;
+    if (ui.values.panels) panelGroup.current.setLayout(ui.values.panels);
+  }, [ui.preferences.data, ui.values.panels, mobile]);
   const { settings: aiSettings } = useAiSettings();
   const groupingConfigured = !!assignedModel(aiSettings.data, "grouping");
   const groupingJobs =
@@ -94,6 +113,7 @@ export const ReviewWorkspace = ({ children }: ReviewWorkspaceProps) => {
         !!preview &&
         matchesJobSnapshot(job, preview),
     ) ?? [];
+  const groupingCountdown = useGroupingCountdown(groupingJobs[0]);
   const groupingRun =
     groupingJobs[0]?.status === "completed" ? groupingJobs[0] : null;
   const grouping =
@@ -102,10 +122,20 @@ export const ReviewWorkspace = ({ children }: ReviewWorkspaceProps) => {
     "groups" in groupingRun.result
       ? groupingRun.result
       : null;
+  useWorkspaceBuddy({
+    preview,
+    jobs: agents.state.data?.jobs ?? [],
+    jobsLoaded: !!agents.state.data,
+    grouping,
+    error,
+    requestedJobs: agents.requestedJobs,
+    operation: reviewOperation,
+  });
   const preparing =
     !!preview?.files.length &&
     preview.groupingEnabled !== false &&
     !grouping &&
+    !groupingCountdown.fallbackReady &&
     (aiSettings.isPending || groupingConfigured);
   const orderedFiles = grouping
     ? grouping.groups
@@ -120,11 +150,9 @@ export const ReviewWorkspace = ({ children }: ReviewWorkspaceProps) => {
     FindingSchema,
     "path" | "side" | "start" | "end"
   > | null>(null);
-  const [view, setView] = useState<DiffView>("split");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [initialSettingsSection, setInitialSettingsSection] =
     useState<string>();
-  const [settings, setSettings] = useState(defaultDiffSettings);
   const reviewNotes = preview?.notes ?? [];
   const selectedFile =
     preview?.files.find(
@@ -147,7 +175,9 @@ export const ReviewWorkspace = ({ children }: ReviewWorkspaceProps) => {
       orderedFiles.length === preview.files.length &&
       new Set(orderedFiles.map((file) => file.path)).size ===
         preview.files.length &&
-      (preview.groupingEnabled === false || !!grouping),
+      (preview.groupingEnabled === false ||
+        !!grouping ||
+        groupingCountdown.fallbackReady),
   });
   const selectedIndex =
     orderedFiles.findIndex((file) => file.path === selectedFile?.path) ?? -1;
@@ -335,8 +365,17 @@ export const ReviewWorkspace = ({ children }: ReviewWorkspaceProps) => {
             </SheetContent>
           </Sheet>
         )}
-        <FileIcon fileName={preparing ? "" : (selectedFile?.path ?? "")} />
-        <span className="min-w-0 flex-1 truncate text-foreground">
+        {completed && !preparing ? (
+          <CheckIcon className="size-5 text-success" />
+        ) : (
+          <FileIcon fileName={preparing ? "" : (selectedFile?.path ?? "")} />
+        )}
+        <span
+          className={cn(
+            "min-w-0 flex-1 truncate",
+            completed && !preparing ? "text-success" : "text-foreground",
+          )}
+        >
           {preparing
             ? "Preparing review…"
             : (selectedFile?.path ?? "No file selected")}
@@ -456,9 +495,18 @@ export const ReviewWorkspace = ({ children }: ReviewWorkspaceProps) => {
             onOpenChange={setSettingsOpen}
             initialSection={initialSettingsSection}
             settings={settings}
-            onChange={setSettings}
+            onChange={(next) => {
+              const editor = changedEditorPreferences(settings, next);
+              if (Object.keys(editor).length) ui.save({ editor });
+            }}
             view={view}
-            onViewChange={setView}
+            onViewChange={(next) => ui.save({ view: next })}
+            onApplicationThemeChange={(applicationTheme) =>
+              ui.save({ applicationTheme })
+            }
+            preferencesLoading={ui.preferences.isPending}
+            preferencesError={ui.preferences.error?.message}
+            onRetryPreferences={() => void ui.preferences.refetch()}
           />
           {mobile && (
             <Sheet>
@@ -513,6 +561,7 @@ export const ReviewWorkspace = ({ children }: ReviewWorkspaceProps) => {
         {preparing ? (
           <ReviewPreparation
             job={groupingJobs[0]}
+            remainingSeconds={groupingCountdown.seconds}
             error={
               agents.state.error?.message ??
               aiSettings.error?.message ??
@@ -578,7 +627,19 @@ export const ReviewWorkspace = ({ children }: ReviewWorkspaceProps) => {
       {mobile ? (
         canvas
       ) : (
-        <ResizablePanelGroup orientation="horizontal">
+        <ResizablePanelGroup
+          orientation="horizontal"
+          groupRef={panelGroup}
+          defaultLayout={ui.values.panels ?? undefined}
+          disabled={ui.preferences.isPending || !!ui.preferences.error}
+          onLayoutChanged={(layout, meta) => {
+            if (!meta.isUserInteraction || !ui.preferences.data) return;
+            const parsed = panelPreferencesSchema.safeParse(
+              meta.requestedLayout ?? layout,
+            );
+            if (parsed.success) ui.save({ panels: parsed.data });
+          }}
+        >
           <ResizablePanel
             id="review-files"
             defaultSize="20%"

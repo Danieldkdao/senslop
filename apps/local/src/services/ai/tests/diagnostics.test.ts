@@ -5,6 +5,7 @@ import {
   getAiTextDiagnostics,
   getProviderResponseDiagnostics,
 } from "../diagnostics";
+import { formatAiError } from "../errors";
 
 test.each([
   ["", "empty"],
@@ -92,4 +93,90 @@ test("request failures retain status and retry attempts without raw provider err
     providerRequestIds: { "x-request-id": "request-123" },
   });
   expect(JSON.stringify(details)).not.toContain("TEST_PRIVATE");
+});
+
+test("schema complexity failures expose a safe category and actionable message without provider text", () => {
+  const error = new APICallError({
+    message:
+      "The specified schema produces a constraint that has too many states for serving. TEST_PRIVATE_SOURCE",
+    url: "https://example.test/?key=TEST_PRIVATE_KEY",
+    requestBodyValues: { source: "TEST_PRIVATE_SOURCE" },
+    statusCode: 400,
+    isRetryable: false,
+  });
+  const wrapped = new RetryError({
+    message: "Failed",
+    reason: "errorNotRetryable",
+    errors: [error],
+  });
+  expect(getAiErrorDiagnostics(wrapped)).toMatchObject({
+    statusCode: 400,
+    schemaComplexity: true,
+    retryable: false,
+  });
+  expect(formatAiError(wrapped)).toMatch(/schema.*complex/i);
+  expect(JSON.stringify(getAiErrorDiagnostics(wrapped))).not.toContain(
+    "TEST_PRIVATE",
+  );
+  expect(formatAiError(wrapped)).not.toContain("TEST_PRIVATE");
+});
+
+test.each(["message", "code"])(
+  "schema rejection from %s is distinguished from provider unavailability without leaking payloads",
+  (source) => {
+    const error = new APICallError({
+      message:
+        source === "message"
+          ? "Invalid schema for response_format 'result': required is missing beforePath. TEST_PRIVATE_SOURCE"
+          : "Request rejected TEST_PRIVATE_SOURCE",
+      url: "https://example.test/?key=TEST_PRIVATE_KEY",
+      requestBodyValues: { source: "TEST_PRIVATE_SOURCE" },
+      statusCode: 400,
+      data:
+        source === "code"
+          ? {
+              error: {
+                code: "invalid_json_schema",
+                message: "TEST_PRIVATE_SOURCE",
+              },
+            }
+          : undefined,
+      isRetryable: false,
+    });
+    const wrapped = new RetryError({
+      message: "Failed",
+      reason: "errorNotRetryable",
+      errors: [error],
+    });
+    expect(getAiErrorDiagnostics(wrapped)).toMatchObject({
+      statusCode: 400,
+      schemaRejected: true,
+      retryable: false,
+    });
+    expect(formatAiError(wrapped)).toMatch(/structured response schema/i);
+    expect(JSON.stringify(getAiErrorDiagnostics(wrapped))).not.toContain(
+      "TEST_PRIVATE",
+    );
+    expect(formatAiError(wrapped)).not.toContain("TEST_PRIVATE");
+  },
+);
+
+test("other bad requests and actual rate limits retain distinct actionable categories", () => {
+  for (const statusCode of [400, 429]) {
+    const error = new APICallError({
+      message: "TEST_PRIVATE_RESPONSE",
+      url: "https://example.test",
+      requestBodyValues: {},
+      statusCode,
+      isRetryable: statusCode === 429,
+    });
+    expect(getAiErrorDiagnostics(error)).toMatchObject({
+      statusCode,
+      schemaRejected: false,
+    });
+    expect(formatAiError(error)).toMatch(
+      statusCode === 400 ? /invalid request.*400/i : /rate limit/i,
+    );
+    expect(formatAiError(error)).not.toContain("TEST_PRIVATE");
+  }
 });

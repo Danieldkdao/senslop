@@ -2,11 +2,92 @@ import type { JobSchema } from "../../agents/schemas";
 import type { PreviewSourceKind } from "@senslop/contracts";
 import type {
   DiffSettingsState,
+  DiffTheme,
+  DiffFont,
   LivePreview,
   ReviewLine,
   ReviewOperation,
 } from "../types";
 import type { ReviewLineSide } from "../schemas";
+
+export const formatDiffTheme = (theme: DiffTheme) => {
+  switch (theme) {
+    case "default":
+      return "Default";
+    case "github-light":
+      return "GitHub Light";
+    case "github-light-default":
+      return "GitHub Light Default";
+    case "catppuccin-latte":
+      return "Catppuccin Latte";
+    case "one-light":
+      return "One Light";
+    case "solarized-light":
+      return "Solarized Light";
+    case "rose-pine-dawn":
+      return "Rosé Pine Dawn";
+    case "vitesse-light":
+      return "Vitesse Light";
+    case "min-light":
+      return "Min Light";
+    case "snazzy-light":
+      return "Snazzy Light";
+    case "slack-ochin":
+      return "Slack Ochin";
+    case "github-dark":
+      return "GitHub Dark";
+    case "dracula":
+      return "Dracula";
+    case "one-dark-pro":
+      return "One Dark Pro";
+    case "nord":
+      return "Nord";
+    case "tokyo-night":
+      return "Tokyo Night";
+    case "catppuccin-mocha":
+      return "Catppuccin Mocha";
+    case "monokai":
+      return "Monokai";
+    case "night-owl":
+      return "Night Owl";
+    case "solarized-dark":
+      return "Solarized Dark";
+    case "rose-pine":
+      return "Rosé Pine";
+  }
+};
+
+export const formatDiffFont = (font: DiffFont) => {
+  switch (font) {
+    // An open tab can retain a retired font across a code update.
+    default:
+    case "jetbrains-mono":
+      return {
+        label: "JetBrains Mono (Default)",
+        fontFamily: 'var(--font-mono), "JetBrains Mono", monospace',
+      };
+    case "geist-mono":
+      return {
+        label: "Geist Mono",
+        fontFamily: 'var(--font-geist-mono), "Geist Mono", monospace',
+      };
+    case "fira-code":
+      return {
+        label: "Fira Code",
+        fontFamily: 'var(--font-fira-code), "Fira Code", monospace',
+      };
+    case "ibm-plex-mono":
+      return {
+        label: "IBM Plex Mono",
+        fontFamily: 'var(--font-ibm-plex-mono), "IBM Plex Mono", monospace',
+      };
+    case "cascadia-code":
+      return {
+        label: "Cascadia Code",
+        fontFamily: 'var(--font-cascadia-code), "Cascadia Code", monospace',
+      };
+  }
+};
 
 export const formatPreviewSource = (kind: PreviewSourceKind) => {
   switch (kind) {

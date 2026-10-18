@@ -1,7 +1,5 @@
 "use client";
 
-import { Button } from "@/components/ui/button";
-import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 import { ChevronDown } from "lucide-react";
 import {
@@ -15,36 +13,37 @@ import {
   type FindingSchema,
 } from "../schemas";
 import { formatSeverity } from "../lib/formatters";
-import { fixAllPrompt } from "../lib/validate-results";
+import { fixAllPrompt, findingFixPrompt } from "../lib/validate-results";
+import type { LivePreview } from "../../review/types";
+import { consolidateReviewLimitations } from "../lib/review-limitations";
+import { matchesJobSnapshot } from "../lib/job-snapshots";
 import { AgentMarkdown } from "./agent-markdown";
+import { FixPrompt } from "./fix-prompt";
+import { FindingEvidence } from "./finding-evidence";
 
 export const ReviewResults = ({
   job,
+  snapshot,
   onEvidence,
 }: {
   job: JobSchema;
+  snapshot?: LivePreview | null;
   onEvidence?: (finding: FindingSchema) => void;
 }) => {
   if (!job.result || !("findings" in job.result)) return null;
   const result = job.result;
-  const copy = async (text: string) => {
-    try {
-      await navigator.clipboard.writeText(text);
-      toast.success("Fix prompt copied");
-    } catch {
-      toast.error("Could not copy. Allow clipboard access and retry.");
-    }
-  };
+  const limitations = consolidateReviewLimitations(result.limitations);
+  const files =
+    snapshot?.id === job.snapshotId && matchesJobSnapshot(job, snapshot)
+      ? snapshot.files
+      : [];
   return (
     <div className="flex flex-col gap-6 p-4">
+      {!!result.findings.length && result.summary && (
+        <p className="text-base text-foreground">{result.summary}</p>
+      )}
       {!!result.findings.length && (
-        <Button
-          className="text-base"
-          variant="outline"
-          onClick={() => void copy(fixAllPrompt(job.snapshotId, result))}
-        >
-          Fix all with AI
-        </Button>
+        <FixPrompt prompt={fixAllPrompt(job.snapshotId, result)} />
       )}
       {!result.findings.length && (
         <p>
@@ -91,26 +90,12 @@ export const ReviewResults = ({
                 <CollapsibleContent>
                   <div className="flex min-w-0 flex-col gap-3 px-4 pb-4 text-foreground">
                     <AgentMarkdown>{finding.problem}</AgentMarkdown>
-                    <p className="text-muted-foreground">{finding.rationale}</p>
-                    <Button
-                      variant="link"
-                      className="h-auto whitespace-normal p-0 text-left text-base"
-                      disabled={!onEvidence}
-                      onClick={() => onEvidence?.(finding)}
-                    >
-                      {finding.path} ({finding.side}, {finding.start}–
-                      {finding.end})
-                    </Button>
-                    <pre className="overflow-auto rounded-md bg-muted p-3 text-base">
-                      {finding.code}
-                    </pre>
-                    <Button
-                      className="text-base"
-                      variant="secondary"
-                      onClick={() => void copy(finding.fixPrompt)}
-                    >
-                      Fix with AI
-                    </Button>
+                    <FindingEvidence
+                      finding={finding}
+                      file={files.find((file) => file.path === finding.path)}
+                      onEvidence={onEvidence}
+                    />
+                    <FixPrompt prompt={findingFixPrompt(finding)} secondary />
                   </div>
                 </CollapsibleContent>
               </Collapsible>
@@ -118,7 +103,7 @@ export const ReviewResults = ({
           </section>
         );
       })}
-      {!!result.limitations.length && (
+      {!!limitations.length && (
         <Collapsible
           render={<section />}
           className="flex min-w-0 flex-col gap-3"
@@ -126,7 +111,7 @@ export const ReviewResults = ({
           <h3>
             <CollapsibleTrigger className="group/limitations flex w-full items-center gap-2 rounded-md py-2 text-left text-base font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring">
               <span className="flex-1">
-                Analysis limitations ({result.limitations.length})
+                Analysis limitations ({limitations.length})
               </span>
               <ChevronDown
                 aria-hidden="true"
@@ -136,7 +121,7 @@ export const ReviewResults = ({
           </h3>
           <CollapsibleContent>
             <ul className="list-disc flex flex-col gap-2 pl-5 text-muted-foreground">
-              {result.limitations.map((limitation, index) => (
+              {limitations.map((limitation, index) => (
                 <li key={index}>{limitation}</li>
               ))}
             </ul>

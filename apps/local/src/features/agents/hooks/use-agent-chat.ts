@@ -7,11 +7,14 @@ import type { ConversationSchema, ModelSelectionSchema } from "../schemas";
 import type { AgentMessage } from "../types";
 import { toConversationMessages } from "../lib/messages";
 import { formatMessageText } from "../lib/formatters";
+import { useBuddy } from "../../buddy/components/buddy-provider";
 
 export const useAgentChat = (
   conversation: ConversationSchema | undefined,
   refresh: (conversationId: string) => Promise<unknown>,
 ) => {
+  const report = useBuddy();
+  const request = useRef<{ id: string; stopped: boolean } | null>(null);
   const loaded = useRef<string | null>(null);
   const outcome = useRef<{
     interrupted: boolean;
@@ -32,14 +35,28 @@ export const useAgentChat = (
     onError: (error) => {
       outcome.current.error = error;
     },
-    onFinish: ({ message, isAbort, isDisconnect, isError }) => {
+    onFinish: ({ message, isAbort, isDisconnect, isError, finishReason }) => {
       outcome.current = {
         ...outcome.current,
         messageId: message.id,
-        interrupted: isAbort || isDisconnect || isError,
+        interrupted:
+          isAbort ||
+          isDisconnect ||
+          isError ||
+          finishReason === "length" ||
+          finishReason === "content-filter" ||
+          finishReason === "error",
       };
     },
   });
+  useEffect(
+    () => () => {
+      if (request.current)
+        report({ type: "activity", id: request.current.id, activity: null });
+      request.current = null;
+    },
+    [report],
+  );
   const { setMessages } = state;
   const busy = state.status === "submitted" || state.status === "streaming";
   useEffect(() => {
@@ -56,6 +73,9 @@ export const useAgentChat = (
     }
   }, [conversation, busy, setMessages]);
   const reset = () => {
+    if (request.current)
+      report({ type: "activity", id: request.current.id, activity: null });
+    request.current = null;
     void state.stop();
     state.clearError();
     setMessages([]);
@@ -79,21 +99,57 @@ export const useAgentChat = (
       formatMessageText(previousUser) === content
         ? previousUser.id
         : undefined;
+    const retrying = outcome.current.interrupted || !!state.error;
+    const id = `chat:${crypto.randomUUID()}`;
+    request.current = { id, stopped: false };
+    if (retrying)
+      report({
+        type: "reaction",
+        id: `${id}:retry`,
+        mood: "retry",
+        message: "Let's try that message again.",
+      });
     outcome.current = { interrupted: false };
-    await state.sendMessage(
-      {
-        text: content,
-        messageId,
-        metadata: { createdAt: new Date().toISOString() },
-      },
-      { body: { conversationId, model } },
-    );
-    await refresh(conversationId);
-    if (outcome.current.error) throw outcome.current.error;
-    if (outcome.current.interrupted)
-      throw new Error(
-        "The response was interrupted. Your draft is retained for retry.",
+    report({ type: "activity", id, activity: "thinking" });
+    try {
+      await state.sendMessage(
+        {
+          text: content,
+          messageId,
+          metadata: { createdAt: new Date().toISOString() },
+        },
+        { body: { conversationId, model } },
       );
+      await refresh(conversationId);
+      if (outcome.current.error) throw outcome.current.error;
+      if (outcome.current.interrupted)
+        throw new Error(
+          "The response was interrupted. Your draft is retained for retry.",
+        );
+      if (request.current?.id === id)
+        report({
+          type: "reaction",
+          id: `${id}:complete`,
+          mood: "happy",
+          message: "Your response is ready.",
+        });
+    } catch (error) {
+      if (request.current?.id === id && !request.current.stopped)
+        report({
+          type: "reaction",
+          id: `${id}:failed`,
+          mood: "cry",
+          message: "That response hit a snag. Your draft is here for retry.",
+        });
+      throw error;
+    } finally {
+      report({ type: "activity", id, activity: null });
+      if (request.current?.id === id) request.current = null;
+    }
   };
-  return { ...state, busy, send, reset };
+  const stop = () => {
+    if (request.current) request.current.stopped = true;
+    return state.stop();
+  };
+  return { ...state, busy, send, reset, stop };
 };

@@ -29,6 +29,30 @@ vi.mock("../../settings/components/provider-settings-dialog", () => ({
 }));
 afterEach(cleanup);
 
+test("CLI settings refresh updates clean fields while preserving unsaved grouping instructions", async () => {
+  state.settings = {
+    ...defaultAiSettings,
+    shared: { connectionId: "test", modelId: "test", name: "Test" },
+  };
+  const navigation = { navigate: vi.fn() } as never;
+  const view = render(<AiSettings navigation={navigation} />);
+  const user = userEvent.setup();
+  const input = screen.getByLabelText("Grouping instructions");
+  await user.clear(input);
+  await user.type(input, "My draft");
+  state.settings = {
+    ...state.settings,
+    prompt: "CLI instructions",
+    separate: true,
+  };
+  view.rerender(<AiSettings navigation={navigation} />);
+  expect(
+    (screen.getByLabelText("Grouping instructions") as HTMLTextAreaElement)
+      .value,
+  ).toBe("My draft");
+  expect(screen.getByRole("switch").getAttribute("aria-checked")).toBe("true");
+});
+
 test("model settings explain the shared model and show every role description beside its picker", async () => {
   render(<AiSettings navigation={{ navigate: vi.fn() } as never} />);
   expect(

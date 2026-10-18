@@ -5,6 +5,10 @@ status: approved
 
 # Senslop — Technical Spec
 
+## Agent CLI architecture revision
+
+The CLI publishes a private, atomically replaced per-repository session descriptor after app/worker startup. Independent commands verify the loopback capability before reusing existing workspace, agent, provider, and preference APIs; command exit never stops the app. App lifecycle commands own startup/open/status/shutdown. Read endpoints expose saved snapshots and paginated jobs without changing selection; mutations reuse existing validation, expected snapshot hash/round, storage, and job dispatch. Grouping flags override saved defaults. Settings PATCH operations merge transactionally. A lightweight revision poll invalidates affected client queries after external writes while preserving dirty AI form values. Command definitions drive parsing and human/machine help. The npm artifact carries one senslop-review skill and an explicit installer: `--agent claude` selects `.claude/skills`, while `--agent agents` selects `.agents/skills` for all other agents. Project/user scope selects the repository/home root. `skills` and `skills install` share one handler. Without target flags, a Clack multiselect permits an empty selection and resolves it to both; `--agent` selects one, and `--all` selects both without opening the selector. Both targets ask for a symlink choice interactively; automation requires explicit target flags plus `--symlink` or `--no-symlink` when using `--all`. Symlink mode keeps a real `.agents` skill and a relative Claude file link. Preflight both destinations before writing, preserve custom files and unrelated links, and atomically replace matching bundled copies when changing modes. Verify isolated discovery, command contracts, actual independent CLI calls against the production bundle, clean installation, browser updates, cancellation/retry, and cleanup.
+
 ## Persistent connection feedback and editor preview — October 9, 2026
 
 The owner authorized these two refinements; earlier sections remain historical context.

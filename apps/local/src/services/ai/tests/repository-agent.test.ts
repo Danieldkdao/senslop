@@ -742,3 +742,108 @@ test("grouping consumes validated structured model output and rejects incomplete
   groups.groups[0]!.files = [];
   await expect(agent.grouping()).rejects.toThrow();
 });
+
+test("Context retrieval reserves a final answer after repository tools instead of returning an empty last tool step", async () => {
+  let contextCalls = 0;
+  state.contextResolved = {
+    model: new MockLanguageModelV4({
+      doGenerate: async (options) => {
+        contextCalls++;
+        if (options.toolChoice?.type === "none")
+          return {
+            ...jsonResponse({}),
+            content: [
+              {
+                type: "text" as const,
+                text: "a.ts:1 captures the relevant declaration.",
+              },
+            ],
+          };
+        return {
+          content: [
+            {
+              type: "tool-call" as const,
+              toolCallId: `read-${contextCalls}`,
+              toolName: "readSource",
+              input: JSON.stringify({
+                path: "a.ts",
+                start: 1,
+                end: 1,
+                side: "after",
+              }),
+            },
+          ],
+          finishReason: { unified: "tool-calls" as const, raw: "tool_calls" },
+          usage: resultUsage,
+          warnings: [],
+        };
+      },
+    }),
+  };
+  state.resolved = {
+    model: new MockLanguageModelV4({
+      doGenerate: async (options) => {
+        const results = options.prompt.filter(
+          (message) => message.role === "tool",
+        );
+        if (results.length) {
+          expect(JSON.stringify(results)).toContain(
+            "captures the relevant declaration",
+          );
+          return jsonResponse(resultGroups);
+        }
+        return {
+          content: [
+            {
+              type: "tool-call" as const,
+              toolCallId: "context",
+              toolName: "askContext",
+              input: JSON.stringify({ query: "Inspect a.ts" }),
+            },
+          ],
+          finishReason: { unified: "tool-calls" as const, raw: "tool_calls" },
+          usage: resultUsage,
+          warnings: [],
+        };
+      },
+    }),
+  };
+  const selection = {
+    connectionId: "connection",
+    modelId: "model",
+    name: "Model",
+  };
+  const agent = await createRepositoryAgent({
+    local: {} as never,
+    snapshot: {
+      id: "snapshot",
+      source: {},
+      files: [{ path: "a.ts", diff: "patch" }],
+    } as never,
+    settings: {
+      ...defaultAiSettings,
+      separate: true,
+      roles: {
+        review: null,
+        explain: null,
+        grouping: selection,
+        context: { ...selection, modelId: "context" },
+      },
+    },
+    selection,
+    context: {
+      sources: { "a.ts": "export const value = 1;" },
+      analysis: {
+        edges: [],
+        symbols: [],
+        diagnostics: [],
+        cycles: [],
+        limitations: [],
+      },
+      limitations: [],
+    },
+    signal: new AbortController().signal,
+  });
+  await expect(agent.grouping()).resolves.toEqual(resultGroups);
+  expect(contextCalls).toBe(4);
+});

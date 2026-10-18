@@ -1,55 +1,129 @@
 # Senslop CLI
 
-Requires Node.js 24 or 26+ and Git. The CLI includes a production Next.js workspace. Local inspection needs no Senslop account, database connection, or cloud service.
+Requires Node.js 24 or 26+ and Git. Senslop bundles the local browser app and its job engine. Local reviews do not require a hosted Senslop account.
 
-Build the CLI and its dependencies from the monorepo root with `pnpm exec turbo run build --filter=@senslop/cli`. Then run `node packages/cli/dist/index.js --help`. After package installation, use `senslop` directly.
+## Run the app and CLI separately
 
-For dashboard development, run `pnpm dev:local` from the repository root after `pnpm install`. This runs the CLI from source and starts the workspace's installed `next dev` on loopback with the same session protection, snapshot delivery, and shutdown ownership as production. No production build or cloud configuration is required. Edit `apps/local` or `packages/ui` and Next.js refreshes the browser automatically; some changes cause a full page reload; saved notes and review progress survive. Next.js compilation and error output appears in the same terminal. The same command also starts the persistent local Inngest engine and registers the app as its worker; no second terminal or Inngest cloud keys are needed. Restart the command after editing CLI logic.
+Run the app in one terminal, from the repository you want to review:
 
-To start development with a Git selection already loaded, run `pnpm exec tsx packages/cli/src/index.ts inspect --working-tree --dev` from the root. To inspect a different repository, run `/path/to/senslop/node_modules/.bin/tsx /path/to/senslop/packages/cli/src/index.ts connect --dev` from that repository. Development mode requires the source checkout and its installed dependencies; installed production users continue to run the bundled app. `--dev` cannot be combined with `--json`.
+```sh
+senslop app start
+```
 
-To verify the real development server, run `RUN_LOCAL_DEV_TESTS=1 pnpm exec vitest run packages/cli/src/features/workspace/tests/local-app.test.ts` from the root. This opt-in uses an isolated app copy and checks dashboard access protection, shared styles, local snapshot access, and shutdown. The default suite uses isolated launcher fixtures, so it can run while you develop.
+This terminal owns the app and background jobs. Ctrl+C or `senslop app stop` stops both and retains saved data. Browser closure and completion of ordinary CLI commands leave the app running. `connect` remains an alias for `app start`.
 
-Run `senslop connect` to open the last saved review for the current repository, or an empty workspace if none exists. Select changes in the browser or the same terminal. Run `senslop inspect --working-tree` to freeze and display changes immediately. Both commands print a browser URL, open it automatically, and keep the server running. In an interactive terminal, choose another inspection or stop the app from the menu. Ctrl+C or SIGTERM stops both the engine and server and removes the temporary snapshot; the child also exits if the CLI process dies unexpectedly.
+Use a second terminal for commands or run `senslop` for the focused interactive menu:
 
-`inspect` without source options prompts for a selection. Supported inputs remain `--commit HEAD`, `--range BASE..HEAD`, `--working-tree`, and `--branch feature` with optional `--base main`. No checkout occurs. Renames retain old and new paths; binary files carry metadata only. Credential-like paths and links remain excluded. Limits remain 1 MiB per file and 20 MiB per serialized snapshot, with explicit failure instead of truncation.
+```sh
+senslop app status
+senslop reviews list
+senslop reviews create --working-tree --group --open --wait --json
+```
 
-The local server binds to `127.0.0.1` on an available port. Its printed URL contains a random session capability used to establish a local browser cookie; keep that URL private. No account sign-in screen is involved. Code is delivered through a private temporary file and authenticated loopback requests, with no cloud relay. Every inspection saves an identifiable frozen snapshot in local SQLite. Refreshing and restarting restore notes, selected files, and completion progress. Saved reviews can be reopened, renamed, or deleted through the browser; deletion requires an explicit confirmation. The **New review** popover contains Git selection, repository details, and snapshot freshness. **Saved reviews** opens a searchable command dialog with inline rename and deletion icon actions. Enter submits notes/comments; Shift+Enter inserts a newline. Press `d` outside inputs/dialogs to toggle the selected file’s durable completion. Completed files show a checkmark and themed outlines; header controls scroll on narrow screens. The dashboard compares the current repository fingerprint with the saved inspection state. Freshness may be unavailable when current changes exceed capture limits.
+Commands discover the running app for the canonical repository root, authenticate over loopback, perform their operation, and return to the shell. Use `--repo /absolute/path` from another directory. Run one app per repository; separate repositories can have separate app terminals. A missing or stale session gives an actionable `app start` error. Runtime capability records remain private and are removed on normal shutdown.
 
-`inspect --working-tree --json` prints an undecorated local snapshot without starting a server or opening a browser. It requires an explicit source. JSON includes the future review eligibility check and exits with code 2 if ineligible. Normal local previews accept smaller changes. Exit codes otherwise remain 0 for success and 1 for failure.
+`app open` opens the browser without creating a review. `app start --no-open` runs without launching a browser. Agent output contains a safe browser origin; session capabilities are passed privately to the browser launcher.
 
-Cloud account commands remain independent: `login --url WEBSITE_URL`, `status`, and `logout`. Login opens the hosted device approval page. Enter the displayed code manually and approve it; credentials remain outside the repository with private permissions. Logout revokes the server credential before removing it locally. These commands do not start the review server. Managed inference, managed AI generation, payments, and subscriptions remain outside this feature.
+## Prepare and inspect reviews
 
-The npm archive contains built CLI files and the standalone Next.js runtime, static fonts/scripts/styles, and Material icon assets. It excludes source workspaces, real environment files, cloud account services, and hosted database modules. Local SQLite storage is bundled. The package remains private; no public npm publication has occurred.
+Choose exactly one Git source for `reviews create`:
 
-## Local data and provider settings
+```sh
+senslop reviews create --working-tree --open
+senslop reviews create --commit HEAD --open
+senslop reviews create --range HEAD~3..HEAD --open
+senslop reviews create --branch feature --base main --open
+```
 
-Durable reviews and nonsecret provider configuration are stored in `reviews.sqlite`:
+`--group` and `--no-group` override the saved grouping default. Explicit grouping requires a configured model and fails before saving if unavailable. With no grouping model, `--no-group --open` still provides ordinary code review. `--wait` waits for the matching grouping job; `--run-review` additionally requests AI correctness analysis. Background jobs use captured model settings and immutable source. They continue while the app terminal runs and recover unfinished work after restart.
 
-- macOS: `~/Library/Application Support/Senslop/`
-- Windows: `%LOCALAPPDATA%/Senslop/`, with the normal user AppData fallback
-- Linux: `$XDG_DATA_HOME/senslop/`, or `~/.local/share/senslop/` when unset or not absolute
+`inspect` attaches to the running app and creates a review. Its existing `inspect --working-tree --json` mode remains a standalone frozen-snapshot export: it starts no app, saves no review, opens no browser, and requires an explicit source. Use `reviews create --json` for saved-review automation. Standalone inspection retains its eligibility information and exit code 2 for ineligible selections; ordinary saved reviews accept small changes.
 
-These records stay outside repositories and temporary build directories. Temporary `senslop-workspace-*` session directories carry capability-protected handoff files and are disposable; normal shutdown preserves SQLite. Schema versions initialize transactionally and upgrade automatically. A newer unsupported database version produces a recoverable error instead of destructive reset. Repository identity uses its canonical absolute root; moving a repository starts a separate history.
+Use `reviews show ID`, `reviews files ID`, `reviews diff ID --file PATH`, and `reviews diff ID --file PATH --side before` to read frozen data. Reads leave browser selection unchanged. `reviews open ID` activates a saved snapshot; add `--open` to launch the browser. `reviews select ID PATH` selects a file. Use `current` instead of a snapshot ID to target the active review.
 
-**Providers** supports OpenRouter, ChatGPT with an OpenAI API key, Google, Anthropic, Grok, llama.cpp, LM Studio, Ollama, Vercel AI Gateway, Mistral, Deepseek, and OpenCode Zen. ChatGPT subscriptions do not supply OpenAI API keys. Open **Settings** in the selected-file header for Appearance, Editor, and AI. Configure Providers lives inside AI, below task model selection. Choose one model for all tasks or assign Grouping, Context, Review, and Explain independently; save editable grouping instructions there. Editor controls include a live sample diff preview of every display setting. Search or use the collapsible side contents list; local-provider configuration uses breadcrumbs inside the same dialog. Remote providers save their API key when you press Enter or leave the key form. Shared password inputs provide reveal/hide controls. There is no connection-name or model input; model selection uses the shared Combobox in AI settings and chat. Local configuration offers context-window overrides for llama.cpp/Ollama, editable endpoints, and an optional default. Presets use Ollama at `http://localhost:11434`, LM Studio at `http://localhost:1234/v1`, and llama.cpp at `http://localhost:8080/v1`. Custom compatible endpoints are supported; remote URLs require HTTPS.
+`reviews list` supports `--search`, `--offset`, and `--limit`. `reviews rename`, `reviews delete`, and `reviews export` manage saved snapshots. Export includes notes, progress, grouping, and AI runs. File completion uses explicit, repeatable `reviews complete ID PATH` and `reviews incomplete ID PATH` commands.
 
-API keys use `@napi-rs/keyring` with macOS Keychain, Windows Credential Manager, or Linux Secret Service. Linux needs an available session D-Bus and an unlocked Secret Service implementation, such as GNOME Keyring or KWallet with Secret Service enabled. Supported platform binaries install as optional npm dependencies; no native compilation step is needed on supported targets. A locked or unavailable credential store blocks credential saving and offers retry. There is no plaintext or in-memory fallback. Failed old-key cleanup stays queued until you retry it.
+## Sync and analyze
 
-Keys are never returned to the browser after submission. Editing shows configured state and an empty replacement field. Changing an endpoint with a saved key requires a replacement key or explicit removal. After secure saving, key blur/Enter and local configuration submission automatically check the connection using metadata only; no repository source or inference request is sent. Failed checks keep the saved connection and show destructive feedback that remains visible across settings refreshes until another check replaces it or settings close. Retry uses the saved credential. Public model catalogs, including Vercel/OpenCode, may establish reachability without verifying a key; the UI says so. Model discovery and manual model entry are available in the shared model picker. Selecting a task model enables automatic grouping for new snapshots and manual reviews.
+```sh
+senslop reviews sync current --mode keep --group --wait --json
+senslop reviews sync current --mode new --no-group --json
+senslop groups run current --wait --json
+senslop reviews run current --wait --json
+senslop runs list --review current --json
+```
 
-Connection errors distinguish unavailable servers, invalid credentials, invalid metadata, unsupported catalogs, and credential-store problems. Review save errors retain the draft and show accessible feedback; keep the CLI running and retry after resolving filesystem permissions. Node.js 24 currently emits its experimental SQLite warning; SQLite does not require a separate native dependency.
+`keep` updates the current review, retains notes and AI history, and preserves completion for unchanged files. `new` creates a separate newer-edits review, retaining the previous review in history. Sync applies only to the active working-tree review on the same branch and HEAD. A branch/HEAD change requires a new review. Old AI results remain associated with their captured round.
 
-## Local AI review
+`groups show` reads current grouping, summaries, rationale, relationships, and order. `groups run` explicitly enables grouping for the snapshot and starts or reruns it. `runs show`, `runs watch`, `runs cancel`, and `runs retry` work with grouping and correctness jobs. `runs rename` and `runs delete` manage saved correctness reviews. `runs export RUN_ID` prints combined fix guidance; `--finding N` selects one issue, and `--json` returns structured results. These commands generate instructions and never apply code changes.
 
-Grouping and reviews run as local Inngest jobs with immutable source, captured model assignments, retries, cancellation, and saved results. Closing the browser keeps these jobs running while the CLI is open. Stopping the CLI pauses execution; restart in the same repository to requeue unfinished saved jobs and reuse completed analysis checkpoints. An interrupted model request may run again. Run only one workspace per repository. The app persists job state in SQLite because this engine mode does not restore its embedded queue. The engine keeps private keys and history under `jobs/<repository-id>/` in the application data directory. Installation downloads the pinned platform engine using `inngest-cli`'s official installer; retain package install scripts. The application generates local event/signing keys itself. The pinned engine binds its HTTP services to loopback; its upstream internal Connect executor gRPC listener still binds all interfaces despite the loopback advertised IP. This internal listener needs upstream binding support or deployment-level isolation before a hardened distributed release.
+`--timeout SECONDS` bounds waits; default analysis timeout is 600 seconds. A timeout retains the saved job so an agent can reconnect with `runs watch`. Failed or canceled analysis returns an unsuccessful exit status; it is distinct from a completed review with no findings. AI requests may send captured code to the chosen provider and incur that provider's charges. Source access remains read-only.
 
-The sidebar groups files in reading order and derives completion from all group members. The file header's Summary popover or mobile sheet explains the change without taking diff space. Agents replaces the notes panel with Chat and Review tabs; notes remain accessible through Add note and Browse notes. Chat and Explain stream Markdown, can be stopped/retried, and use read-only source, symbols, references, dependencies, related tests, and the Context model. Saved conversation/review histories paginate and search locally. Fix with AI and Fix all with AI copy instructions; they do not edit source. No agent web search is included.
+## Notes and settings
 
-JS, TS, JSX, and TSX have compiler-backed analysis. Other captured text can be read by AI. Missing dependencies, extended/nested configs and dynamic behavior remain explicit analysis limitations. Only captured source is analyzed, with 2,000-file/20 MiB context limits, eight agent steps, four context requests, eight-minute job and 150-second foreground deadlines. Choose task models supporting tools and structured output. Provider requests can send captured code to the selected provider and incur its charges; local orchestration does not eliminate model costs.
+```sh
+senslop notes add current src/example.ts --body 'Check this behavior'
+senslop notes add current src/example.ts --side after --start 12 --end 14 --body-file comment.txt
+senslop notes list current --json
+senslop settings show --section ai --json
+senslop settings set groupingMode always
+senslop settings set autoAdvance true --section review
+senslop settings set view unified --section ui
+senslop settings set prompt --value-file grouping-instructions.txt
+```
 
-Verify real local orchestration with `RUN_LOCAL_AI_TESTS=1 pnpm exec vitest run packages/cli/src/features/workspace/tests/inngest-workspace.test.ts` after building. It uses an isolated deterministic provider, not a live model quality evaluation.
+Notes can be listed, edited, deleted, and filtered by file or text. Line comments use exact frozen source and validated coordinates. `--body-file -` reads stdin.
 
-## Installed artifact verification
+Settings support `ai`, `review`, and `ui` sections. `settings set KEY VALUE` patches a dotted key; JSON values can represent booleans, numbers, null, models, or nested objects. `--file PATH` accepts a JSON object patch; `--value-file PATH` reads a string. Both accept `-` for stdin. Unrelated values are preserved. AI settings include a shared model or separate Grouping, Context, Review, and Explain assignments. Read `providers models CONNECTION_ID` to obtain exact model identifiers.
 
-After building, run `SENSLOP_PACK_TEST=1 pnpm exec vitest run packages/cli/tests/packaged-workspace.test.ts`. The check installs the archive in a clean temporary directory, verifies all terminal and browser selections, notes/progress across process restart, repository isolation, review deletion, provider metadata requests, and a disposable OS credential. It checks capability/origin protection, JSON output, static assets, and parent-owned shutdown. `RUN_OS_CREDENTIAL_TESTS=1` enables the smaller direct credential-store check. Both require access to an unlocked OS store and remove test keys afterward.
+CLI writes automatically refresh the open browser's reviews, analysis, notes, completion, providers, and settings. Unsaved AI instruction drafts are preserved when settings refresh. Existing keyboard shortcuts remain available in the browser.
+
+## Providers and credentials
+
+`providers list`, `providers save`, `providers default`, `providers test`, `providers models`, `providers delete`, and `providers cleanup` use the same services as the UI. For example:
+
+```sh
+senslop providers save --provider ollama
+senslop providers save --provider llama-cpp --endpoint http://localhost:8080/v1
+senslop providers models CONNECTION_ID --json
+senslop providers save --provider chatgpt --key-stdin < private-key.txt
+```
+
+Interactive API keys use hidden prompts. Automation uses stdin or a connection JSON input through `--file`; keys are never returned. Saves perform a metadata check and preserve the saved connection if that check fails. `--id` updates a connection; endpoint changes with saved credentials require a replacement key or explicit removal.
+
+Subscription connections use `providers sign-in chatgpt-subscription` or `providers sign-in claude-code`; `--open --wait` opens their browser approval flow and waits for it. Sign-in status and cancellation are available through their scoped commands. `providers sign-out` disconnects an existing subscription. Hosted Senslop `login`, `status`, and `logout` remain separate from provider connections and local review; hosted login/logout use human-readable feedback rather than JSON.
+
+Secrets use macOS Keychain, Windows Credential Manager, or Linux Secret Service through the existing credential abstraction. An unavailable or locked store blocks saving; there is no plaintext fallback. Linux requires a session D-Bus and an unlocked Secret Service. Nonsecret preferences and reviews live in the OS application-data directory, outside repositories. `SENSLOP_DATA_DIRECTORY` can select an isolated data directory for testing; use the same absolute path in both app and command terminals.
+
+## Agent skill and help
+
+```sh
+senslop skills
+senslop skills install --agent agents --scope project
+senslop skills install --agent claude --scope project
+senslop skills install --agent agents --scope user
+senslop skills install --agent claude --scope user
+senslop skills install --all
+senslop skills install --all --symlink --json
+senslop skills install --all --no-symlink --json
+senslop help --json
+senslop reviews create --help
+```
+
+The CLI archive includes the same `senslop-review` skill for Claude and all other agents. It teaches agents to select changes, discover the app, prepare and open a review, verify readiness, and sync later edits. `--agent agents`, labeled "all other agents", writes `.agents/skills/senslop-review/SKILL.md` for agents using that convention, including Codex. `--agent claude` writes `.claude/skills/senslop-review/SKILL.md`. Use `--all` to install for both targets and go directly to the symlink question. `--agent` accepts only `agents` or `claude` and installs only that target. `--scope user` uses the corresponding directory in the user's home instead of the repository root. Installation is explicit, idempotent, and refuses to overwrite a different existing skill. It does not modify AGENTS.md, CLAUDE.md, or unrelated skills.
+
+Running `senslop skills` or `senslop skills install` without target flags opens a Clack multiselect. Use Space to toggle Claude and all other agents, then Enter to confirm. No options are preselected; submitting an empty selection installs both by default. Canceling exits without writing files. Automated commands require an explicit `--agent` or `--all`.
+
+When both targets are selected, an interactive terminal asks whether to share one file through a symlink. Yes creates a relative link from `.claude/skills/senslop-review/SKILL.md` to the real file in `.agents/skills/senslop-review/SKILL.md`; no creates two independent files. Automation must choose `--symlink` or `--no-symlink` explicitly. Matching bundled copies can switch between these modes; custom skills and unrelated or broken symlinks are preserved. If the operating system cannot create a symlink, retry with `--no-symlink`.
+
+Help and accepted options share one command catalog. Every command supports scoped `--help`; `help --json` exposes command/option descriptions, provider IDs, and exit codes. Use the installed help as the authoritative command reference.
+
+Machine-oriented commands write undecorated JSON to stdout and structured errors to stderr. Noninteractive commands never wait for prompts. Deletion and provider sign-out require `--yes` outside an interactive terminal. Exit codes are 0 for success, 1 for operation failure, 2 for invalid usage or standalone snapshot ineligibility, 3 for an unavailable app, 4 for failed/canceled analysis, and 5 for a wait timeout.
+
+## Development and verification
+
+Run `pnpm dev:local` in the repository to start the source app and worker. Use `node --import tsx packages/cli/src/index.ts COMMAND` from another terminal for source CLI commands, or pass `--repo PATH`. UI edits use Fast Refresh; CLI calls load current source on each invocation. Restart the app terminal after changing launcher logic. Installed users run the bundled production app.
+
+Build the local app before the CLI with the package build commands. The archive includes standalone Next.js, shared assets, native runtime dependencies, and the skill; it excludes source workspaces and real environment files. The package remains private and is not published.
+
+Run the ordinary suite with `pnpm test`. `SENSLOP_AGENT_TEST=1 pnpm exec vitest run packages/cli/tests/agent-workflow.test.ts` exercises the production bundle and real local engine through independent CLI processes, using an isolated repository/data directory and deterministic loopback provider. This checks orchestration rather than real model quality. Existing opt-in development, installed-package, subscription, and OS credential tests remain available in their test files.
