@@ -16,7 +16,7 @@ import {
   normalizeBuddyPosition,
   resolveBuddyPosition,
 } from "../lib/buddy-position";
-import { getBuddyPresentation } from "../lib/formatters";
+import { formatBuddyCharacter, getBuddyPresentation } from "../lib/formatters";
 import { BuddySprite } from "./buddy-sprite";
 
 type FloatingBuddyProps = {
@@ -114,7 +114,8 @@ export const FloatingBuddy = ({
     const timer = setTimeout(() => setLanding(false), 450);
     return () => clearTimeout(timer);
   }, [landing]);
-  const presentation = getBuddyPresentation(state);
+  const { name } = formatBuddyCharacter(preferences.character);
+  const presentation = getBuddyPresentation(state, preferences.character);
   const mood: BuddyMood = dragging
     ? "pickup"
     : landing
@@ -157,7 +158,7 @@ export const FloatingBuddy = ({
     >
       <motion.button
         type="button"
-        aria-label="Move Pip. Drag to place, use arrow keys to move, or press Home to reset."
+        aria-label={`Move ${name}. Drag to place, use arrow keys to move, or press Home to reset.`}
         aria-describedby="pip-instructions"
         data-mood={mood}
         className={cn("pip-handle", dragging && "pip-dragging")}
@@ -226,7 +227,12 @@ export const FloatingBuddy = ({
         }}
       >
         <span className="pip-motion" data-mood={mood} data-still={still}>
-          <BuddySprite mood={mood} still={still} size={preferences.size} />
+          <BuddySprite
+            character={preferences.character}
+            mood={mood}
+            still={still}
+            size={preferences.size}
+          />
           {!still && (mood === "celebrate" || mood === "dance") && (
             <span className="pip-confetti" aria-hidden="true">
               {Array.from({ length: 12 }, (_, index) => (
@@ -264,8 +270,8 @@ export const FloatingBuddy = ({
         )}
       </motion.button>
       <p id="pip-instructions" className="sr-only">
-        Move Pip anywhere in the window. Hide Pip or pause animations in
-        Appearance settings.
+        Move {name} anywhere in the window. Hide your buddy or pause animations
+        in Appearance settings.
       </p>
       <p
         role="status"

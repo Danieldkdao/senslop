@@ -1,3 +1,4 @@
+import { defaultBuddyCharacter } from "../constants";
 import type { BuddyCharacter, BuddyMood, BuddyState } from "../types";
 
 export const formatBuddyCharacter = (character: BuddyCharacter) => {
@@ -48,6 +49,7 @@ export const getBuddyReactionTiming = (mood: BuddyMood) => {
 
 export const getBuddyPresentation = (
   state: BuddyState,
+  character: BuddyCharacter = defaultBuddyCharacter,
 ): { mood: BuddyMood; message: string } => {
   if (state.reaction) return state.reaction;
   const activities = Object.values(state.activities);
@@ -57,7 +59,10 @@ export const getBuddyPresentation = (
     return { mood: "grouping", message: "Organizing your changes…" };
   if (activities.includes("working"))
     return { mood: "working", message: "Reviewing your changes…" };
-  return { mood: "idle", message: "Pip is here with you." };
+  return {
+    mood: "idle",
+    message: `${formatBuddyCharacter(character).name} is here with you.`,
+  };
 };
 
 export const getBuddyFrames = (

@@ -9,11 +9,13 @@ import {
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { BuddyProvider, useBuddy } from "../components/buddy-provider";
 import { defaultUiPreferences } from "../../settings/constants";
+import type { BuddyCharacter } from "../types";
 
 const saved = vi.hoisted(() => ({
   visible: true,
   animations: true,
   size: 96,
+  character: "pip" as BuddyCharacter,
   save: vi.fn(),
 }));
 vi.mock("../../settings/hooks/use-ui-preferences", () => ({
@@ -24,6 +26,7 @@ vi.mock("../../settings/hooks/use-ui-preferences", () => ({
         visible: saved.visible,
         animations: saved.animations,
         size: saved.size,
+        character: saved.character,
         position: null,
       },
     },
@@ -53,6 +56,7 @@ beforeEach(() => {
   saved.visible = true;
   saved.animations = true;
   saved.size = defaultUiPreferences.buddy.size;
+  saved.character = defaultUiPreferences.buddy.character;
   saved.save.mockReset();
   vi.stubGlobal(
     "matchMedia",
@@ -62,6 +66,25 @@ beforeEach(() => {
       removeEventListener: vi.fn(),
     })),
   );
+});
+
+test("selecting another buddy updates its accessible name and sprite sheet", () => {
+  const { rerender } = render(
+    <BuddyProvider>
+      <Actions />
+    </BuddyProvider>,
+  );
+  saved.character = "pebble";
+  rerender(
+    <BuddyProvider>
+      <Actions />
+    </BuddyProvider>,
+  );
+  expect(screen.queryByRole("button", { name: /move pip/i })).toBeNull();
+  const buddy = screen.getByRole("button", { name: /move pebble/i });
+  expect(
+    buddy.querySelector(".pip-sprite-fallback")?.getAttribute("style"),
+  ).toContain("/buddy/pebble-poses.png");
 });
 
 test("resizing updates the canvas and placement using the new full dimensions", () => {

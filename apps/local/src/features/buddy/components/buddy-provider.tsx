@@ -11,7 +11,10 @@ import {
 } from "react";
 import { useUiPreferences } from "../../settings/hooks/use-ui-preferences";
 import { createBuddyState, reduceBuddyState } from "../lib/buddy-state";
-import { getBuddyReactionTiming } from "../lib/formatters";
+import {
+  formatBuddyCharacter,
+  getBuddyReactionTiming,
+} from "../lib/formatters";
 import type { BuddyEvent } from "../types";
 import { FloatingBuddy } from "./floating-buddy";
 
@@ -48,9 +51,9 @@ export const BuddyProvider = ({ children }: { children: ReactNode }) => {
       type: "reaction",
       id: "session-welcome",
       mood: "wave",
-      message: "Pip is here with you.",
+      message: `${formatBuddyCharacter(ui.values.buddy.character).name} is here with you.`,
     });
-  }, [enabled, report]);
+  }, [enabled, report, ui.values.buddy.character]);
   useEffect(() => {
     const theme = ui.values.applicationTheme;
     if (!ui.preferences.data || theme === null) return;
