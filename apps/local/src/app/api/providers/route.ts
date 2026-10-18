@@ -1,12 +1,14 @@
 import { z } from "zod";
+import { isSubscriptionProvider } from "@senslop/contracts";
 import {
   getWorkspace,
   localWorkspaceError,
   protectLocalRoute,
   readLocalBody,
-} from "@/features/workspace/lib/server-workspace";
-import { ProviderService } from "@/features/providers/lib/provider-service";
-import { osCredentials } from "@/services/credentials/os-credentials";
+} from "../../../features/workspace/lib/server-workspace";
+import { ProviderService } from "../../../features/providers/lib/provider-service";
+import { osCredentials } from "../../../services/credentials/os-credentials";
+import { getSubscriptionService } from "../../../services/subscriptions/server-subscriptions";
 
 const providerActionSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("save"), connection: z.unknown() }).strict(),
@@ -68,8 +70,22 @@ export const POST = async (request: Request) => {
         await service.setDefault(action.id);
         return Response.json(null);
       case "test":
-      case "models":
+      case "models": {
+        const { connection } = await service.resolve(action.id);
+        if (isSubscriptionProvider(connection.provider)) {
+          const catalog = await getSubscriptionService().models(
+            action.id,
+            request.signal,
+          );
+          return Response.json({
+            supported: true,
+            models: catalog.models.map((model) => model.id),
+            message:
+              "Subscription connection metadata received. No repository source was sent.",
+          });
+        }
         return Response.json(await service.probe(action.id, action.action));
+      }
       case "cleanup":
         return Response.json({ warning: await service.cleanup() });
     }

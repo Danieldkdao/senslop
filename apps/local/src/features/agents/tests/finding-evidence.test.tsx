@@ -106,6 +106,34 @@ test("missing snapshot contents never invent a comparison from the evidence exce
   expect(screen.getByText(/Diff unavailable/)).toBeTruthy();
   expect(screen.getByRole("button", { name: "a.ts" })).toBeTruthy();
 });
+
+test.each([
+  { side: "before" as const, start: 2, end: 2, label: "Old line 2" },
+  { side: "after" as const, start: 4, end: 6, label: "New lines 4–6" },
+])(
+  "missing snapshot contents show saved $side evidence without navigation",
+  async ({ side, start, end, label }) => {
+    const navigate = vi.fn();
+    const saved = {
+      ...finding,
+      side,
+      start,
+      end,
+      code: "<source>\n  saved.value",
+    };
+    const user = userEvent.setup();
+    const { container } = render(
+      <FindingEvidence finding={saved} onEvidence={navigate} />,
+    );
+    expect(container.querySelector("pre code")?.textContent).toBe(saved.code);
+    expect(screen.getByText(label)).toBeTruthy();
+    const header = screen.getByRole("button", { name: saved.path });
+    expect(header.hasAttribute("disabled")).toBe(true);
+    await user.click(header);
+    expect(navigate).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("editor")).toBeNull();
+  },
+);
 test("editor loading and failure preserve the evidence header", () => {
   state.ready = false;
   const { rerender } = render(

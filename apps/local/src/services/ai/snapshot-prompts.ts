@@ -99,7 +99,9 @@ export const processSnapshotBatches = async (
           batch.length > 1);
       // Coverage and schema retries strictly halve the file set, ending at one file.
       const isolateFiles =
-        (error instanceof AiReviewRepairError || schemaTooComplex) &&
+        (error instanceof AiGroupingRepairError ||
+          error instanceof AiReviewRepairError ||
+          schemaTooComplex) &&
         batch.length > 1;
       if (!canNarrow || (attempt >= 3 && !isolateFiles)) throw error;
       let smaller: SnapshotChange[][];

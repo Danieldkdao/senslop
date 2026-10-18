@@ -62,3 +62,30 @@ test("review preference patches persist and reject unknown keys", async () => {
   });
   expect((await patchReview(request({ unrelated: false }))).status).toBe(400);
 });
+
+test.each(["always", "ask"] as const)(
+  "unrelated AI patches preserve the saved %s grouping mode",
+  async (groupingMode) => {
+    const agents = new AgentStore(state.store, "/repo");
+    agents.saveSettings({ ...agents.settings(), groupingMode });
+    const model = {
+      connectionId: crypto.randomUUID(),
+      modelId: "review-model",
+      name: "Review model",
+    };
+    for (const patch of [
+      { prompt: "Keep prerequisites first" },
+      { roles: { review: model } },
+    ]) {
+      const response = await patchAi(request(patch));
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({ groupingMode });
+      expect(agents.settings().groupingMode).toBe(groupingMode);
+    }
+    expect(agents.settings()).toMatchObject({
+      groupingMode,
+      prompt: "Keep prerequisites first",
+      roles: { review: model },
+    });
+  },
+);

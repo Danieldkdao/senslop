@@ -10,6 +10,7 @@ import { useUiPreferences } from "../../settings/hooks/use-ui-preferences";
 import { useDiffHighlighter } from "../../review/hooks/use-diff-highlighter";
 import { getDiffOptions, getDiffStyle } from "../../review/lib/diff-options";
 import { findingDiff } from "../lib/finding-diff";
+import { formatExplanationRange } from "../lib/formatters";
 import { DiffRenderState } from "../../review/components/diff-render-state";
 import type { FindingSchema } from "../schemas";
 
@@ -49,7 +50,7 @@ export const FindingEvidence = ({
     <Button
       variant="link"
       className="h-auto w-full min-w-0 justify-start whitespace-normal p-0 text-left text-base"
-      disabled={!onEvidence}
+      disabled={!onEvidence || !patch}
       onClick={() => onEvidence?.(finding)}
     >
       <span className="min-w-0 wrap-anywhere">{finding.path}</span>
@@ -63,9 +64,21 @@ export const FindingEvidence = ({
             {header}
           </div>
           {!patch ? (
-            <p className="p-3 text-base text-muted-foreground">
-              Diff unavailable for this review round.
-            </p>
+            <div className="flex min-w-0 flex-col gap-2 p-3">
+              <p className="text-base text-muted-foreground">
+                Diff unavailable for this review round. Saved excerpt:
+              </p>
+              <p className="text-base text-muted-foreground">
+                {formatExplanationRange({
+                  side: finding.side === "before" ? "deletions" : "additions",
+                  start: finding.start,
+                  end: finding.end,
+                })}
+              </p>
+              <pre className="max-h-80 max-w-full overflow-auto text-base">
+                <code>{finding.code}</code>
+              </pre>
+            </div>
           ) : (
             <DiffRenderState
               error={highlighter.error}

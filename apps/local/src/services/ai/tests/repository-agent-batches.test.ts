@@ -1793,51 +1793,72 @@ test("group ordering cannot discard already validated summaries when both placem
   ).toBe(true);
 });
 
-test("incomplete multi-file grouping narrows the failed batch instead of losing the entire review", async () => {
-  const selected = files
-    .slice(0, 3)
-    .map((file) => ({ ...file, diff: "small patch" }));
-  let smallCalls = 0;
-  state.model = new MockLanguageModelV4({
-    doGenerate: async (options) => {
-      requests.push(options);
-      const properties =
-        options.responseFormat?.type === "json"
-          ? (options.responseFormat.schema?.properties as Record<
-              string,
-              unknown
-            >)
-          : undefined;
-      if (properties?.files) return response({ groups: [], files: [] });
-      if (text(options).includes("Order these prepared files"))
+test.each([3, 10])(
+  "incomplete grouping of %i files narrows down to individual files instead of losing the entire review",
+  async (count) => {
+    state.contextWindow = 128000;
+    const selected = Array.from({ length: count }, (_, index) => ({
+      ...files[0]!,
+      path: `${index}.ts`,
+      diff: "small patch",
+    }));
+    let smallCalls = 0;
+    state.model = new MockLanguageModelV4({
+      doGenerate: async (options) => {
+        requests.push(options);
+        const properties =
+          options.responseFormat?.type === "json"
+            ? (options.responseFormat.schema?.properties as Record<
+                string,
+                unknown
+              >)
+            : undefined;
+        if (properties?.files) return response({ groups: [], files: [] });
+        if (text(options).includes("Order these prepared files"))
+          return response({
+            groups: [
+              {
+                title: "Flow",
+                rationale: "Review",
+                files: selected.map((_, index) => index),
+              },
+            ],
+          });
+        const input = batch(options);
+        if (input.changes.length === 1) smallCalls++;
         return response({
-          groups: [{ title: "Flow", rationale: "Review", files: [0, 1, 2] }],
+          groups: [
+            {
+              title: "Flow",
+              rationale: "Review",
+              files: input.changes.slice(0, 1).map((file) => ({
+                path: file.path,
+                summary: "Verified summary",
+                related: [],
+              })),
+            },
+          ],
         });
-      const input = batch(options);
-      if (input.changes.length === 1) smallCalls++;
-      return response({
-        groups: [
-          {
-            title: "Flow",
-            rationale: "Review",
-            files: input.changes.slice(0, 1).map((file) => ({
-              path: file.path,
-              summary: "Verified summary",
-              related: [],
-            })),
-          },
-        ],
-      });
-    },
-  });
-  const result = await (await agent(selected)).grouping();
-  expect(
-    result.groups
-      .flatMap((group) => group.files.map((file) => file.path))
-      .sort(),
-  ).toEqual(["0.ts", "1.ts", "2.ts"]);
-  expect(smallCalls).toBeGreaterThan(0);
-});
+      },
+    });
+    const result = await (
+      await agent(selected, undefined, undefined, undefined, undefined, {
+        groupingInputTokens: 32000,
+        groupingMaxFiles: 12,
+        groupingOutputTokens: 16000,
+        groupingSteps: 2,
+        batchConcurrency: 1,
+      })
+    ).grouping();
+    expect(
+      result.groups
+        .flatMap((group) => group.files.map((file) => file.path))
+        .sort(),
+    ).toEqual(selected.map((file) => file.path).sort());
+    expect(batch(requests[0]!).changes).toHaveLength(count);
+    expect(smallCalls).toBe(count);
+  },
+);
 
 test("malformed final ordering JSON retains validated groups after bounded format correction", async () => {
   const selected = files

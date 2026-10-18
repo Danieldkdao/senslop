@@ -74,3 +74,94 @@ test("noninteractive destructive commands require explicit confirmation before m
   ).rejects.toThrow(/--yes/);
   expect(request).not.toHaveBeenCalled();
 });
+
+test("subscription sign-in bounds an unresponsive status request by --timeout", async () => {
+  const { request, client } = fixture();
+  request.mockResolvedValueOnce({
+    id: "sign-in-flow",
+    status: "pending",
+    url: null,
+    error: null,
+  });
+  request.mockImplementationOnce(
+    async (_path, _body, _method, signal?: AbortSignal) => {
+      if (!signal) throw new Error("Status request is missing its timeout");
+      return new Promise((_resolve, reject) => {
+        signal.addEventListener("abort", () => reject(signal.reason), {
+          once: true,
+        });
+      });
+    },
+  );
+  await expect(
+    executeProviderCommand(
+      client,
+      parseCliCommand([
+        "providers",
+        "sign-in",
+        "claude-code",
+        "--wait",
+        "--timeout",
+        "1",
+        "--json",
+      ]),
+    ),
+  ).rejects.toMatchObject({
+    exitCode: 5,
+    code: "timeout",
+    details: { requestId: "sign-in-flow" },
+    message: expect.stringContaining("providers sign-in-status"),
+  });
+  expect(request).toHaveBeenCalledTimes(2);
+});
+
+test("subscription sign-in returns completed status before its deadline", async () => {
+  const { request, client } = fixture();
+  const completed = {
+    id: "sign-in-flow",
+    status: "complete",
+    url: null,
+    error: null,
+  };
+  request.mockResolvedValueOnce({ ...completed, status: "pending" });
+  request.mockResolvedValueOnce(completed);
+  await expect(
+    executeProviderCommand(
+      client,
+      parseCliCommand([
+        "providers",
+        "sign-in",
+        "chatgpt-subscription",
+        "--wait",
+        "--timeout",
+        "2",
+        "--json",
+      ]),
+    ),
+  ).resolves.toEqual(completed);
+});
+
+test("subscription sign-in preserves status request errors before its deadline", async () => {
+  const { request, client } = fixture();
+  request.mockResolvedValueOnce({
+    id: "sign-in-flow",
+    status: "pending",
+    url: null,
+    error: null,
+  });
+  request.mockRejectedValueOnce(new Error("Local app disconnected"));
+  await expect(
+    executeProviderCommand(
+      client,
+      parseCliCommand([
+        "providers",
+        "sign-in",
+        "claude-code",
+        "--wait",
+        "--timeout",
+        "2",
+        "--json",
+      ]),
+    ),
+  ).rejects.toThrow("Local app disconnected");
+});

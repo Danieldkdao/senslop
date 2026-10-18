@@ -63,7 +63,10 @@ export type AiSettingsSchema = z.infer<typeof aiSettingsSchema>;
 
 export const aiSettingsPatchSchema = aiSettingsSchema
   .partial()
-  .extend({ roles: aiSettingsSchema.shape.roles.partial().optional() })
+  .extend({
+    groupingMode: z.enum(groupingModes).optional(),
+    roles: aiSettingsSchema.shape.roles.partial().optional(),
+  })
   .strict();
 export type AiSettingsPatchSchema = z.infer<typeof aiSettingsPatchSchema>;
 export const groupingSchema = z.object({

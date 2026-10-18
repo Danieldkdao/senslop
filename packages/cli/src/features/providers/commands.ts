@@ -85,21 +85,30 @@ export const executeProviderCommand = async (
       if (values.wait) {
         if (!values.json && signIn.url)
           process.stderr.write(`Complete provider sign-in: ${signIn.url}\n`);
-        const deadline =
-          Date.now() + integerOption(values, "timeout", 600, 1, 3600) * 1000;
-        while (signIn.status === "pending") {
-          if (Date.now() >= deadline)
-            throw new CliError(
-              "Timed out waiting for provider sign-in. Use providers sign-in-status to reconnect.",
-              "timeout",
-              5,
-              { requestId: signIn.id },
+        const timeout = integerOption(values, "timeout", 600, 1, 3600) * 1000;
+        const deadline = Date.now() + timeout;
+        const signal = AbortSignal.timeout(timeout);
+        try {
+          while (signIn.status === "pending" && Date.now() < deadline) {
+            await sleep(Math.min(500, Math.max(0, deadline - Date.now())));
+            signal.throwIfAborted();
+            signIn = await client.request<SignIn>(
+              `/api/providers/subscriptions?id=${signIn.id}`,
+              undefined,
+              "GET",
+              signal,
             );
-          await sleep(500);
-          signIn = await client.request<SignIn>(
-            `/api/providers/subscriptions?id=${signIn.id}`,
-          );
+          }
+        } catch (error) {
+          if (!signal.aborted) throw error;
         }
+        if (signIn.status === "pending" || signal.aborted)
+          throw new CliError(
+            "Timed out waiting for provider sign-in. Use providers sign-in-status to reconnect.",
+            "timeout",
+            5,
+            { requestId: signIn.id },
+          );
         if (signIn.status !== "complete")
           throw new CliError(signIn.error ?? `Sign-in ${signIn.status}.`);
       }
