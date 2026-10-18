@@ -59,6 +59,7 @@ test("UI preferences survive database restart and partial saves preserve unrelat
   await patch({ editor: { fontSize: 22 } });
   await patch({ buddy: { visible: false, position: { x: 0.25, y: 0.75 } } });
   expect((await patch({ buddy: { size: 120 } })).status).toBe(200);
+  expect((await patch({ buddy: { character: "lumi" } })).status).toBe(200);
   await patch({ buddy: { animations: false } });
   state.store.database.close();
   state.store = new LocalStore(join(directory, "preferences.db"));
@@ -78,6 +79,7 @@ test("UI preferences survive database restart and partial saves preserve unrelat
     view: "unified",
     panels: { "review-files": 24, "review-canvas": 48, "review-agents": 28 },
     buddy: {
+      character: "lumi",
       size: 120,
       visible: false,
       animations: false,
@@ -104,13 +106,37 @@ test("existing buddy preferences acquire the default size without losing saved p
       visible: false,
       animations: false,
       size: 96,
+      character: "pip",
       position: { x: 0.2, y: 0.8 },
     },
   });
   expect((await patch({ buddy: { size: 80 } })).status).toBe(200);
   await patch({ buddy: { position: null } });
   expect(await (await GET(request())).json()).toMatchObject({
-    buddy: { size: 80, visible: false, position: null },
+    buddy: { size: 80, visible: false, position: null, character: "pip" },
+  });
+});
+
+test("all five buddy choices save independently of size, visibility, and position", async () => {
+  open();
+  await patch({
+    buddy: { size: 112, visible: false, position: { x: 0.1, y: 0.9 } },
+  });
+  for (const character of ["pip", "momo", "nori", "lumi", "pebble"]) {
+    const response = await patch({ buddy: { character } });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      buddy: {
+        character,
+        size: 112,
+        visible: false,
+        position: { x: 0.1, y: 0.9 },
+      },
+    });
+  }
+  await patch({ buddy: { animations: false } });
+  expect(await (await GET(request())).json()).toMatchObject({
+    buddy: { character: "pebble", animations: false },
   });
 });
 
@@ -126,6 +152,7 @@ test("invalid, unauthorized, and unavailable writes do not report success", asyn
     { buddy: { size: 79 } },
     { buddy: { size: 121 } },
     { buddy: { size: 96.5 } },
+    { buddy: { character: "unknown" } },
   ])
     expect((await patch(body)).status).toBe(400);
   state.allowed = false;

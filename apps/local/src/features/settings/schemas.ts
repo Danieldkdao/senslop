@@ -1,6 +1,12 @@
 import { z } from "zod";
 import { applicationThemes } from "@/lib/constants";
-import { buddyMaxSize, buddyMinSize, buddySize } from "../buddy/constants";
+import {
+  buddyCharacters,
+  buddyMaxSize,
+  buddyMinSize,
+  buddySize,
+  defaultBuddyCharacter,
+} from "../buddy/constants";
 import {
   defaultDiffSettings,
   diffFonts,
@@ -44,6 +50,7 @@ export const buddyPreferencesSchema = z
   .object({
     visible: z.boolean(),
     animations: z.boolean(),
+    character: z.enum(buddyCharacters),
     size: z.number().int().min(buddyMinSize).max(buddyMaxSize),
     position: z
       .object({ x: z.number().min(0).max(1), y: z.number().min(0).max(1) })
@@ -62,11 +69,15 @@ export const uiPreferencesSchema = z
     buddy: buddyPreferencesSchema
       .extend({
         size: buddyPreferencesSchema.shape.size.default(buddySize),
+        character: buddyPreferencesSchema.shape.character.default(
+          defaultBuddyCharacter,
+        ),
       })
       .default(() => ({
         visible: true,
         animations: true,
         size: buddySize,
+        character: defaultBuddyCharacter,
         position: null,
       })),
   })

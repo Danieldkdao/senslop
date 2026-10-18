@@ -1,5 +1,6 @@
-import type { buddyMoods } from "./constants";
+import type { buddyCharacters, buddyMoods } from "./constants";
 
+export type BuddyCharacter = (typeof buddyCharacters)[number];
 export type BuddyMood = (typeof buddyMoods)[number];
 export type BuddyActivity = "thinking" | "working" | "grouping";
 export type BuddyPosition = { x: number; y: number };
