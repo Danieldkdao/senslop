@@ -1,0 +1,141 @@
+{
+  "tool": "built-in image_gen",
+  "character": "nori",
+  "reference": "../buddy-concepts/nori-axolotl-buddy.png",
+  "columns": 4,
+  "rows": 4,
+  "poseSize": 313,
+  "poseOrder": [
+    "resting",
+    "blink",
+    "thinking-right",
+    "thinking-left",
+    "working-paper",
+    "grouping-blocks",
+    "happy",
+    "celebrating",
+    "crying",
+    "wiping-tears",
+    "pickup",
+    "landing",
+    "wave",
+    "sleep",
+    "proud-clipboard",
+    "looking-around"
+  ],
+  "pixelorama": "Imported the final atlas as a regular 4x4 spritesheet with 16 full-resolution 313x313 frames and saved as an editable Pixelorama project. No 48px downscaling. Runtime uses the same rendering and animation sequences as Pip.",
+  "finalSource": "../../../apps/local/public/buddy/nori-poses.png",
+  "editableProject": "nori-reactions.pxo",
+  "runtimeAtlas": "apps/local/public/buddy/nori-poses.png",
+  "initialPrompt": "Use case: identity-preserve. Asset: production pixel-art animation sprite atlas for Senslop.\nReference image 1 is the EXACT character identity to preserve. Reference image 2 is Pip's existing 4x4 pose atlas, used ONLY as the pose order and sprite layout guide, NOT as character anatomy. Create the character from reference 1 in every cell of a TRANSPARENT square 4-column by 4-row sprite sheet with exactly 16 full-body poses. Same crisp pixel-cluster art style, palette, proportions, silhouette and facial design across all 16 cells. Every cell must be equal square size, same character scale, same foot baseline at 88% cell height, same center point, at least 7% padding inside each cell on every side. No clipping, no backgrounds, no labels, no grid lines, no shadows outside the sprites. Keep all parts within own cell.\nUse dark desaturated outline, three-tone pale periwinkle shading, pale cream highlights, tiny cheek accents; artwork must recolor well via luminance. Keep hands, eyes, body, ears/wings/tail/antenna consistent, no drift between poses. Do not substitute the Pip blob anatomy for this character.\nExact row-major pose order:\nROW 1: 0 neutral gentle open-eyed smile; 1 same idle pose eyes closed blink; 2 thinking looking upper right with one hand at chin; 3 thinking looking upper left with opposite hand at chin.\nROW 2: 4 focused working holding a small cream paper; 5 grouping carefully stacking three small square blocks; 6 happy eyes closed broad joyful smile arms raised; 7 celebration eyes open delighted mouth both arms raised, feet remain at standard baseline.\nROW 3: 8 sad crying tears both eyes downturned mouth arms low; 9 recovering wiping one tear with hand, hopeful small smile; 10 picked up surprised round mouth arms out feet dangling (entire sprite remains centered inside cell); 11 landing squashed down slightly eyes softly closed, grounded smile.\nROW 4: 12 friendly one-hand wave; 13 peaceful sleeping seated, eyes fully closed, no letters; 14 proud holding tiny clipboard with smile; 15 curious looking up, soft smile.\nCreate only this one consistent character in all 16 cells. Preserve genuinely transparent alpha outside each sprite. Pixelated bitmap game sprite, not smooth vector or painterly illustration. Square output whose dimensions divide evenly into four equal cells.\nCharacter invariants: Nori is the reference axolotl: rounded head, exactly three soft feathery external gill lobes on each side, large oval dark eyes, tiny smiling mouth, pale belly, stout little body with two hands and feet, one curved tail rising on viewer right. Keep the gills and tail in all poses.",
+  "prompt": "Use case: identity-preserve.\nImage 1: character identity and sixteen poses to preserve.\nImage 2: Pip production atlas, the REQUIRED scale, framing, detail and pixel-art quality benchmark.\nRebuild image 1 as a production sprite atlas at exactly the SAME square resolution as image 2: 1254 by 1254. Keep the exact character identity, palette and all 16 poses in identical row-major order. Improve the pixel-cluster craftsmanship to match Pip. Crisp dark outlines, coherent intentional pixel shapes, readable large glossy eyes and expressions; no blur, no smooth cartoon vector edges.\nCRITICAL CHANGE: remove the excessive empty space. EVERY character must fill 88\u201394 percent of its cell height, just like Pip. All bodies use equal scale and a shared ground baseline at 97 percent of their own cell. Keep ears, antennae, tail, wings, hands and feet fully INSIDE the cell. Character centered horizontally in each cell. No part may cross a cell boundary. Sleeping and squashed landing can be a little shorter while staying on the same ground baseline.\nExact UNIFORM FOUR COLUMNS FOUR ROWS grid. Cell boundaries at x/y 0,313.5,627,940.5,1254. Align pose centers with each cell, NOT a poster layout. Match Pip's large, tightly packed sprites rather than miniatures surrounded by big gutters. No grid lines. Preserve transparent alpha outside character.\nRows: neutral/blink/think-right/think-left; paper/three grouping blocks/happy eyes shut/celebrate eyes open; cry/wipe tear/picked up/landing; wave/sleep/proud clipboard/curious.\nSame anatomy, face and proportions throughout. No extra marks, text, confetti, floors, shadows outside body or backdrop. Rebuild clean full-resolution artwork, do not upscale the tiny 48-pixel exports.",
+  "atlasSize": [1254, 1254],
+  "atlasPacking": {
+    "tool": "sharp 0.35.5, existing Next.js tooling dependency; technical layout only, nearest-neighbor sampling",
+    "source": "exec-51d16a85-371d-4bfd-83ae-bb2ed5b40a1a.png",
+    "rowBoundaries": [0, 322, 627, 918, 1254],
+    "columnBoundaries": [0, 319, 626, 937, 1254],
+    "sourceBounds": [
+      {
+        "left": 17,
+        "top": 41,
+        "width": 302,
+        "height": 281
+      },
+      {
+        "left": 322,
+        "top": 41,
+        "width": 304,
+        "height": 281
+      },
+      {
+        "left": 628,
+        "top": 42,
+        "width": 306,
+        "height": 280
+      },
+      {
+        "left": 938,
+        "top": 42,
+        "width": 305,
+        "height": 280
+      },
+      {
+        "left": 17,
+        "top": 340,
+        "width": 301,
+        "height": 283
+      },
+      {
+        "left": 322,
+        "top": 342,
+        "width": 302,
+        "height": 281
+      },
+      {
+        "left": 626,
+        "top": 343,
+        "width": 310,
+        "height": 280
+      },
+      {
+        "left": 937,
+        "top": 337,
+        "width": 306,
+        "height": 285
+      },
+      {
+        "left": 17,
+        "top": 635,
+        "width": 299,
+        "height": 277
+      },
+      {
+        "left": 323,
+        "top": 640,
+        "width": 302,
+        "height": 272
+      },
+      {
+        "left": 626,
+        "top": 635,
+        "width": 310,
+        "height": 269
+      },
+      {
+        "left": 938,
+        "top": 642,
+        "width": 304,
+        "height": 264
+      },
+      {
+        "left": 13,
+        "top": 918,
+        "width": 303,
+        "height": 285
+      },
+      {
+        "left": 322,
+        "top": 926,
+        "width": 301,
+        "height": 275
+      },
+      {
+        "left": 632,
+        "top": 921,
+        "width": 305,
+        "height": 283
+      },
+      {
+        "left": 941,
+        "top": 919,
+        "width": 302,
+        "height": 285
+      }
+    ],
+    "normalization": "per-pose aspect-preserving fit, 300px maximum extent, landing 280px and sleep 270px",
+    "maxExtent": 300,
+    "baselinePadding": 5,
+    "atlasSize": 1254
+  }
+}
