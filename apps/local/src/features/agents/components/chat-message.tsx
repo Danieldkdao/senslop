@@ -44,7 +44,7 @@ export const ChatMessage = ({
           )}
         </>
       ) : (
-        <div className="flex flex-col mr-auto @md:w-fit min-w-0 gap-2">
+        <div className="mr-auto flex w-full min-w-0 max-w-full flex-col gap-2">
           <AgentActivity
             presentation={presentation}
             message={message}

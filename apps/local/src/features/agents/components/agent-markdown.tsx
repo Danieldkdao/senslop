@@ -29,7 +29,7 @@ export const AgentMarkdown = ({
     plugins={{ code }}
     skipHtml
     controls={false}
-    className="min-w-0 wrap-break-word text-base [&_pre]:text-base"
+    className="w-full min-w-0 max-w-full wrap-anywhere text-base [&_pre]:text-base [&_table]:wrap-normal"
     components={{
       img: () => null,
       a: ({ href, children }) => {
