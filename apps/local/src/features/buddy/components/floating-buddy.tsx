@@ -17,7 +17,7 @@ import {
   resolveBuddyPosition,
 } from "../lib/buddy-position";
 import { getBuddyPresentation } from "../lib/formatters";
-import { PipSprite } from "./pip-sprite";
+import { BuddySprite } from "./buddy-sprite";
 
 type FloatingBuddyProps = {
   state: BuddyState;
@@ -226,7 +226,7 @@ export const FloatingBuddy = ({
         }}
       >
         <span className="pip-motion" data-mood={mood} data-still={still}>
-          <PipSprite mood={mood} still={still} size={preferences.size} />
+          <BuddySprite mood={mood} still={still} size={preferences.size} />
           {!still && (mood === "celebrate" || mood === "dance") && (
             <span className="pip-confetti" aria-hidden="true">
               {Array.from({ length: 12 }, (_, index) => (

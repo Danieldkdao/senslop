@@ -13,7 +13,7 @@ import {
   type BuddyPreferencesSchema,
 } from "../../settings/schemas";
 import { buddyMaxSize, buddyMinSize } from "../constants";
-import { PipSprite } from "./pip-sprite";
+import { BuddySprite } from "./buddy-sprite";
 
 export const BuddySettings = () => {
   const id = useId();
@@ -71,7 +71,7 @@ export const BuddySettings = () => {
             aria-label="Pip preview"
             className="flex min-h-40 items-center justify-center rounded-lg border bg-muted/30 p-4"
           >
-            <PipSprite mood="idle" still size={size.field.value} />
+            <BuddySprite mood="idle" still size={size.field.value} />
           </div>
           <div className="flex flex-wrap items-center justify-between gap-3">
             <label htmlFor={`${id}-size`}>Buddy size</label>

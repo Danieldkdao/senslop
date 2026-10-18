@@ -2,24 +2,32 @@
 
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { cn } from "@/lib/utils";
-import { buddySize } from "../constants";
-import { getBuddyFrames } from "../lib/formatters";
-import type { BuddyMood } from "../types";
+import { buddySize, defaultBuddyCharacter } from "../constants";
+import { formatBuddyCharacter, getBuddyFrames } from "../lib/formatters";
+import type { BuddyCharacter, BuddyMood } from "../types";
 
-type PipSpriteProps = { mood: BuddyMood; still: boolean; size?: number };
+type BuddySpriteProps = {
+  mood: BuddyMood;
+  still: boolean;
+  size?: number;
+  character?: BuddyCharacter;
+};
 
 // Artwork cells stay fixed; the user's display size is independent of the atlas.
 const poseSize = 48;
 const sheetColumns = 4;
 const sheetRows = 4;
 
-export const PipSprite = ({
+export const BuddySprite = ({
   mood,
   still,
   size = buddySize,
-}: PipSpriteProps) => {
+  character = defaultBuddyCharacter,
+}: BuddySpriteProps) => {
   const canvas = useRef<HTMLCanvasElement>(null);
-  const [ready, setReady] = useState(false);
+  const { spriteSheet } = formatBuddyCharacter(character);
+  const [readySheet, setReadySheet] = useState<string | null>(null);
+  const ready = readySheet === spriteSheet;
   useEffect(() => {
     const target = canvas.current;
     if (!target) return;
@@ -52,7 +60,7 @@ export const PipSprite = ({
         size,
         size,
       );
-      setReady(true);
+      setReadySheet(spriteSheet);
     };
     const tint = () => {
       if (!loaded || stopped) return;
@@ -107,7 +115,7 @@ export const PipSprite = ({
       tint();
       advance();
     };
-    image.src = "/buddy/pip-poses.png";
+    image.src = spriteSheet;
     const observer = new MutationObserver(tint);
     observer.observe(document.documentElement, {
       attributes: true,
@@ -119,14 +127,19 @@ export const PipSprite = ({
       observer.disconnect();
       image.onload = null;
     };
-  }, [mood, still, size]);
+  }, [mood, still, size, spriteSheet]);
   return (
     <span
       aria-hidden="true"
       className="pip-sprite"
       style={{ "--buddy-size": `${size}px` } as CSSProperties}
     >
-      {!ready && <span className="pip-sprite-fallback" />}
+      {!ready && (
+        <span
+          className="pip-sprite-fallback"
+          style={{ backgroundImage: `url("${spriteSheet}")` }}
+        />
+      )}
       <canvas
         ref={canvas}
         width={size}

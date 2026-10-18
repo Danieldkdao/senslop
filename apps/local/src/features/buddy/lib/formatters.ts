@@ -1,4 +1,19 @@
-import type { BuddyMood, BuddyState } from "../types";
+import type { BuddyCharacter, BuddyMood, BuddyState } from "../types";
+
+export const formatBuddyCharacter = (character: BuddyCharacter) => {
+  switch (character) {
+    case "pip":
+      return { name: "Pip", spriteSheet: "/buddy/pip-poses.png" };
+    case "momo":
+      return { name: "Momo", spriteSheet: "/buddy/momo-poses.png" };
+    case "nori":
+      return { name: "Nori", spriteSheet: "/buddy/nori-poses.png" };
+    case "lumi":
+      return { name: "Lumi", spriteSheet: "/buddy/lumi-poses.png" };
+    case "pebble":
+      return { name: "Pebble", spriteSheet: "/buddy/pebble-poses.png" };
+  }
+};
 
 export const getBuddyReactionTiming = (mood: BuddyMood) => {
   switch (mood) {
