@@ -331,6 +331,31 @@ test("malformed structured output is bounded and does not leak source into logs"
   );
 });
 
+test("reasoning-only responses report a missing final answer without blaming schema support", async () => {
+  const model = new MockLanguageModelV4({
+    doGenerate: {
+      ...jsonResponse({}),
+      content: [{ type: "reasoning", text: "PRIVATE_REASONING" }],
+      usage: {
+        ...resultUsage,
+        outputTokens: { total: 196, text: 0, reasoning: 195 },
+      },
+    },
+  });
+  state.resolved = { model };
+  await expect((await resultAgent()).grouping()).rejects.toThrow(
+    /returned reasoning but no final answer/,
+  );
+  expect(model.doGenerateCalls).toHaveLength(2);
+  expect(console.warn).toHaveBeenCalledWith(
+    "[senslop:ai-result]",
+    expect.objectContaining({ failureKind: "reasoning-only" }),
+  );
+  expect(JSON.stringify(vi.mocked(console.warn).mock.calls)).not.toContain(
+    "PRIVATE_REASONING",
+  );
+});
+
 test("cancellation after malformed output prevents format correction", async () => {
   const abort = new AbortController();
   const model = new MockLanguageModelV4({

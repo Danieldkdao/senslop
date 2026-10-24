@@ -120,11 +120,16 @@ export const generateStructuredAnalysis = async ({
       });
       return output;
     } catch (error) {
+      let reasoningOnly = false;
       if (NoObjectGeneratedError.isInstance(error)) {
         if (error.finishReason === "length") {
           logger.info("output-limit", { agent: agent.id });
           throw new AiOutputLimitError();
         }
+        const emptyResponse = !(error.text ?? "").trim();
+        reasoningOnly =
+          emptyResponse &&
+          (error.usage?.outputTokenDetails.reasoningTokens ?? 0) > 0;
         let candidate: unknown;
         let parsed = false;
         try {
@@ -137,7 +142,13 @@ export const generateStructuredAnalysis = async ({
         console.warn("[senslop:ai-result]", {
           ...logger.context,
           agent: agent.id,
-          failureKind: parsed ? "schema-mismatch" : "invalid-json",
+          failureKind: reasoningOnly
+            ? "reasoning-only"
+            : emptyResponse
+              ? "empty-response"
+              : parsed
+                ? "schema-mismatch"
+                : "invalid-json",
           responseFormat: "structured-output",
           finishReason: error.finishReason,
           maxOutputTokens,
@@ -168,7 +179,9 @@ export const generateStructuredAnalysis = async ({
       }
       if (finalizing)
         throw new AiStructuredOutputError(
-          "The model did not produce a complete structured result after a format correction. Choose a model that supports structured output. Diagnostic details are available in the local server log.",
+          reasoningOnly
+            ? "The model server returned reasoning but no final answer after a format correction. Check the server's reasoning parser, chat template, and structured-output settings. This response does not establish whether the model supports structured output. Diagnostic details are available in the local server log."
+            : "The model did not produce a complete structured result after a format correction. Check the model server's structured-output support and response settings. Diagnostic details are available in the local server log.",
         );
       onProgress?.("Correcting structured output format");
       logger.info("result-correction-requested", {
