@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { compatibleModelsSchema } from "./compatible-models";
 
 export const providerIds = [
   "openrouter",
@@ -15,6 +16,7 @@ export const providerIds = [
   "mistral",
   "deepseek",
   "opencode",
+  "openai-compatible",
 ] as const;
 export type ProviderId = (typeof providerIds)[number];
 
@@ -78,6 +80,7 @@ export const providerConfigSchema = z.object({
     }, "Use HTTPS, or HTTP on localhost, without URL credentials, query, or fragment."),
   model: z.string().trim().max(200),
   contextWindow: z.number().int().min(256).max(2_000_000).nullable(),
+  models: compatibleModelsSchema.optional(),
 });
 export type ProviderConfigSchema = z.infer<typeof providerConfigSchema>;
 
@@ -94,7 +97,22 @@ export const saveConnectionSchema = providerConfigSchema
       ),
     removeKey: z.boolean().optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((connection, context) => {
+    if (connection.provider === "openai-compatible" && !connection.models)
+      context.addIssue({
+        code: "custom",
+        path: ["models"],
+        message: "Add at least one model.",
+      });
+    if (connection.provider !== "openai-compatible" && connection.models)
+      context.addIssue({
+        code: "custom",
+        path: ["models"],
+        message:
+          "Custom model definitions require an OpenAI-compatible provider.",
+      });
+  });
 export type SaveConnectionSchema = z.infer<typeof saveConnectionSchema>;
 
 export const storedConnectionSchema = providerConfigSchema

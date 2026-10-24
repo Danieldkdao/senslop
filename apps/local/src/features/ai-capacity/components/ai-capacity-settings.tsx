@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import {
+  isLocalEndpoint,
   isLocalInferenceProvider,
   isSubscriptionProvider,
   type ProviderConfigSchema,
@@ -138,7 +139,12 @@ export const AiCapacitySettings = ({
         outputTokens: output,
       },
     });
-  const local = isLocalInferenceProvider(connection.provider);
+  const local =
+    isLocalInferenceProvider(connection.provider) ||
+    (connection.provider === "openai-compatible" &&
+      "baseURL" in connection &&
+      typeof connection.baseURL === "string" &&
+      isLocalEndpoint(connection.baseURL));
   return (
     <fieldset
       aria-label="AI capacity"

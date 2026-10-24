@@ -13,6 +13,16 @@ export const formatSubscriptionRequirements = (
 
 export const formatProvider = (provider: ProviderId) => {
   switch (provider) {
+    case "openai-compatible":
+      return {
+        label: "OpenAI-Compatible",
+        icon: "OpenAI" as const,
+        baseURL: "https://api.openai.com/v1",
+        keyRequired: true,
+        contextWindow: true,
+        description:
+          "Connect your own OpenAI-compatible API and configure its models and capabilities.",
+      };
     case "openrouter":
       return {
         label: "OpenRouter",

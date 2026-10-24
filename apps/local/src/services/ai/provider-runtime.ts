@@ -19,6 +19,7 @@ import { createOllama } from "ollama-ai-provider-v2";
 import {
   defaultLocalContextWindow,
   isLocalInferenceProvider,
+  isLocalEndpoint,
   isSubscriptionProvider,
   type ProviderAccountSchema,
   type ProviderConfigSchema,
@@ -37,8 +38,12 @@ import { estimateInputTokenUpperBound } from "./context-budget";
 import { createChatGptSubscriptionModel } from "./chatgpt-subscription-model";
 import { createClaudeSubscriptionModel } from "./claude-subscription-model";
 import type { ConnectionCapacitySchema } from "../../features/ai-capacity/schemas";
+import { getCompatibleModel } from "../../features/providers/lib/compatible-models";
+import { createCompatibleModel } from "./compatible-provider";
+import { defaultConnectionCapacity } from "../../features/ai-capacity/lib/capacity";
 
 type ResolvedLanguageModel = {
+  toolsSupported?: boolean;
   model: LanguageModel;
   createModel?: (
     tools: ToolSet,
@@ -107,8 +112,15 @@ export const resolveLanguageModel = (
   fetcher: typeof fetch = fetch,
   capacity?: ConnectionCapacitySchema,
 ): ResolvedLanguageModel => {
-  const profile = capacity ? { ...capacity } : undefined;
-  const local = isLocalInferenceProvider(connection.provider);
+  const compatible = getCompatibleModel(connection, modelId);
+  const profile = capacity
+    ? { ...capacity }
+    : compatible
+      ? defaultConnectionCapacity(connection)
+      : undefined;
+  const local =
+    isLocalInferenceProvider(connection.provider) ||
+    (!!compatible && isLocalEndpoint(connection.baseURL));
   if (formatProvider(connection.provider).keyRequired && !apiKey)
     throw new AiServiceError(
       "This provider requires a saved API key. Open Configure to add it.",
@@ -157,6 +169,10 @@ export const resolveLanguageModel = (
   };
   const createModel = () => {
     switch (connection.provider) {
+      case "openai-compatible":
+        return {
+          model: createCompatibleModel(connection, apiKey!, modelId, safeFetch),
+        };
       case "chatgpt":
         return { model: createOpenAI(options).responses(modelId) };
       case "chatgpt-subscription":
@@ -270,6 +286,48 @@ export const resolveLanguageModel = (
       middleware: {
         specificationVersion: "v4",
         transformParams: async ({ params }) => {
+          if (compatible) {
+            if (!compatible.supportsChatCompletions)
+              params = {
+                ...params,
+                providerOptions: {
+                  ...params.providerOptions,
+                  openai: {
+                    ...params.providerOptions?.openai,
+                    forceReasoning: compatible.supportsThinking,
+                  },
+                },
+              };
+            if (
+              !compatible.supportsImages &&
+              params.prompt.some(
+                (message) =>
+                  typeof message.content !== "string" &&
+                  message.content.some(
+                    (part) =>
+                      part.type === "file" &&
+                      part.mediaType.startsWith("image/"),
+                  ),
+              )
+            )
+              throw new AiServiceError(
+                "This model is configured without support for images.",
+              );
+            params = {
+              ...params,
+              maxOutputTokens: Math.min(
+                params.maxOutputTokens ?? compatible.maxOutputTokens,
+                compatible.maxOutputTokens,
+                compatible.supportsChatCompletions
+                  ? compatible.maxCompletionTokens
+                  : Infinity,
+              ),
+              ...(compatible.supportsTools
+                ? {}
+                : { tools: undefined, toolChoice: { type: "none" as const } }),
+              ...(compatible.supportsThinking ? {} : { reasoning: undefined }),
+            };
+          }
           if (profile)
             params = {
               ...params,
@@ -353,6 +411,7 @@ export const resolveLanguageModel = (
     });
   return {
     ...resolved,
+    ...(compatible ? { toolsSupported: compatible.supportsTools } : {}),
     requestLimiter: limiter,
     model: wrapModel(resolved.model),
     ...(connection.provider === "claude-code"
