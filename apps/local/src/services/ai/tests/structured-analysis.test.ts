@@ -99,3 +99,51 @@ test.each([
     );
   },
 );
+
+test.each([
+  'PRIVATE_REASONING with an example {"answer":4,"parity":"even"}',
+  '{"answer":4',
+  '{"answer":"wrong type","parity":"even"}',
+])(
+  "rejects reasoning that is not a complete valid result: %s",
+  async (reasoning) => {
+    const { result, fetcher } = await generate({ reasoning });
+    await expect(result).rejects.toThrow(/no final answer/);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(JSON.stringify(vi.mocked(console.warn).mock.calls)).not.toContain(
+      reasoning,
+    );
+  },
+);
+
+test("does not replace an existing answer with JSON from reasoning", async () => {
+  const { result } = await generate({
+    content: JSON.stringify({ answer: 6, parity: "even" }),
+  });
+  await expect(result).resolves.toEqual({ answer: 6, parity: "even" });
+});
+
+test("does not recover reasoning JSON from other providers", async () => {
+  const { result } = await generate({ provider: "llama-cpp" });
+  await expect(result).rejects.toThrow(/no final answer/);
+});
+
+test("does not accept JSON when the server reports output truncation", async () => {
+  const { result, fetcher } = await generate({ finishReason: "length" });
+  await expect(result).rejects.toThrow(/completion budget/);
+  expect(fetcher).toHaveBeenCalledTimes(1);
+});
+
+test("does not mistake JSON in a tool step for the final result", async () => {
+  const { result } = await generate({
+    finishReason: "tool_calls",
+    toolCalls: [
+      {
+        id: "read-1",
+        type: "function",
+        function: { name: "readSource", arguments: "{}" },
+      },
+    ],
+  });
+  await expect(result).rejects.toThrow();
+});
