@@ -62,6 +62,58 @@ test("stream finish usage releases unused input and output reservations", async 
   await pending;
 });
 
+test("native context requests share the parent request's rolling quota history", async () => {
+  vi.useFakeTimers();
+  const limiter = createRequestLimiter({
+    initialConcurrency: 1,
+    maxConcurrency: 1,
+    allowNestedRequests: true,
+    limits: { requestsPerMinute: 2 },
+  });
+  const child = vi.fn(async () => {});
+  const pending = limiter.run(async () => {
+    await limiter.run(child);
+    await limiter.run(child);
+  });
+  await vi.advanceTimersByTimeAsync(59999);
+  expect(child).toHaveBeenCalledTimes(1);
+  await vi.advanceTimersByTimeAsync(1);
+  await pending;
+  expect(child).toHaveBeenCalledTimes(2);
+});
+
+test("different run policies share endpoint capacity without replacing earlier run limits", async () => {
+  const key = crypto.randomUUID();
+  const first = getRequestLimiter(key, "lm-studio", {
+    concurrency: 1,
+    requestsPerMinute: null,
+    inputTokensPerMinute: null,
+    outputTokensPerMinute: null,
+  });
+  const nextRun = getRequestLimiter(key, "lm-studio", {
+    concurrency: 4,
+    requestsPerMinute: null,
+    inputTokensPerMinute: null,
+    outputTokensPerMinute: null,
+  });
+  let release!: () => void;
+  const pending = first.run(
+    () =>
+      new Promise<void>((resolve) => {
+        release = resolve;
+      }),
+  );
+  await pause(1);
+  const operation = vi.fn(async () => {});
+  const queued = nextRun.run(operation);
+  await pause(5);
+  expect(operation).not.toHaveBeenCalled();
+  release();
+  await Promise.all([pending, queued]);
+  expect(first.state().concurrency).toBe(1);
+  expect(nextRun.state().concurrency).toBeGreaterThan(1);
+});
+
 test("streaming holds its request slot through consumption and releases on cancellation", async () => {
   const limiter = createRequestLimiter({
     initialConcurrency: 1,
