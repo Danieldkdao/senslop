@@ -4,6 +4,7 @@ import { z } from "zod";
 import type { ProviderConfigSchema } from "@senslop/contracts";
 import { resolveLanguageModel } from "../provider-runtime";
 import { formatAiError } from "../errors";
+import { defaultConnectionCapacity } from "../../../features/ai-capacity/lib/capacity";
 import {
   createReviewBatchSchema,
   createReviewRepairSchema,
@@ -20,6 +21,38 @@ const connection = (
   name: "Test",
   model: "",
   contextWindow: null,
+});
+
+test("subscription accounts keep the same capacity pool when access tokens rotate", async () => {
+  const config = {
+    ...connection("chatgpt-subscription"),
+    account: {
+      email: "test@example.test",
+      subject: crypto.randomUUID(),
+      plan: null,
+    },
+  };
+  const capacity = { ...defaultConnectionCapacity(config), concurrency: 1 };
+  let active = 0;
+  let peak = 0;
+  await Promise.all(
+    ["old-token", "refreshed-token"].map((token) => {
+      const resolved = resolveLanguageModel(
+        config,
+        token,
+        "fixture",
+        undefined,
+        capacity,
+      );
+      return resolved.requestLimiter!.run(async () => {
+        active++;
+        peak = Math.max(peak, active);
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        active--;
+      });
+    }),
+  );
+  expect(peak).toBe(1);
 });
 
 test("required credentials fail before creating a model or making requests", () => {
@@ -104,6 +137,61 @@ test("cloud model calls using the same provider credentials share an adaptive re
   await Promise.all(runs);
   expect(peak).toBe(2);
 });
+
+test.each(["lm-studio", "llama-cpp", "ollama"] as const)(
+  "%s serializes calls across models and saved credentials without ramping up",
+  async (provider) => {
+    let active = 0;
+    let peak = 0;
+    const fetcher: typeof fetch = async () => {
+      active++;
+      peak = Math.max(peak, active);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      active--;
+      return Response.json(
+        provider === "ollama"
+          ? {
+              model: "fixture",
+              created_at: "2026-10-18T00:00:00Z",
+              message: { role: "assistant", content: "ok" },
+              done: true,
+              done_reason: "stop",
+              prompt_eval_count: 1,
+              eval_count: 1,
+            }
+          : {
+              choices: [
+                {
+                  index: 0,
+                  message: { role: "assistant", content: "ok" },
+                  finish_reason: "stop",
+                },
+              ],
+              usage: {
+                prompt_tokens: 1,
+                completion_tokens: 1,
+                total_tokens: 2,
+              },
+            },
+      );
+    };
+    await Promise.all(
+      Array.from({ length: 16 }, (_, index) =>
+        generateText({
+          ...resolveLanguageModel(
+            connection(provider),
+            `local-key-${index % 2}`,
+            `model-${index % 3}`,
+            fetcher,
+          ),
+          prompt: "hello",
+          maxRetries: 0,
+        }),
+      ),
+    );
+    expect(peak).toBe(1);
+  },
+);
 
 test.each([
   ["chatgpt", "test-model", "/v1/responses", "authorization"],

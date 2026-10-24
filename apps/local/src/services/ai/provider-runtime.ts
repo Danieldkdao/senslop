@@ -19,6 +19,8 @@ import { createOllama } from "ollama-ai-provider-v2";
 import {
   defaultLocalContextWindow,
   isLocalInferenceProvider,
+  isSubscriptionProvider,
+  type ProviderAccountSchema,
   type ProviderConfigSchema,
 } from "@senslop/contracts";
 import { formatProvider } from "../../features/providers/lib/formatters";
@@ -34,6 +36,7 @@ import { getRequestLimiter } from "./request-limiter";
 import { estimateInputTokenUpperBound } from "./context-budget";
 import { createChatGptSubscriptionModel } from "./chatgpt-subscription-model";
 import { createClaudeSubscriptionModel } from "./claude-subscription-model";
+import type { ConnectionCapacitySchema } from "../../features/ai-capacity/schemas";
 
 type ResolvedLanguageModel = {
   model: LanguageModel;
@@ -61,11 +64,14 @@ export const getGenerationOptions = (
   connection: Pick<ProviderConfigSchema, "provider" | "contextWindow">,
   limit: number,
   answerTokens: number,
+  capacity?: ConnectionCapacitySchema,
 ) => {
   // OpenRouter counts reasoning and the final answer against the same completion limit.
   const maxOutputTokens = Math.min(
     answerTokens * (connection.provider === "openrouter" ? 2 : 1),
     Math.max(64, Math.floor(limit / 4)),
+    capacity?.outputTokens ?? Infinity,
+    capacity?.outputTokensPerMinute ?? Infinity,
   );
   return {
     maxOutputTokens,
@@ -95,11 +101,14 @@ export const getGenerationOptions = (
 };
 
 export const resolveLanguageModel = (
-  connection: ProviderConfigSchema,
+  connection: ProviderConfigSchema & { account?: ProviderAccountSchema },
   apiKey: string | null,
   modelId: string,
   fetcher: typeof fetch = fetch,
+  capacity?: ConnectionCapacitySchema,
 ): ResolvedLanguageModel => {
+  const profile = capacity ? { ...capacity } : undefined;
+  const local = isLocalInferenceProvider(connection.provider);
   if (formatProvider(connection.provider).keyRequired && !apiKey)
     throw new AiServiceError(
       "This provider requires a saved API key. Open Configure to add it.",
@@ -238,24 +247,38 @@ export const resolveLanguageModel = (
     }
   };
   const resolved = createModel();
-  // Google keys can share a project quota; conservatively share its endpoint budget across credentials.
+  // Local models share endpoint memory; Google keys can share a project quota.
   const key = createHash("sha256")
     .update(
       JSON.stringify({
-        provider: connection.provider,
+        provider: local ? "local-inference" : connection.provider,
         endpoint: options.baseURL,
-        credential:
-          connection.provider === "google" ? "shared-google-budget" : apiKey,
+        credential: local
+          ? "shared-local-server"
+          : connection.provider === "google"
+            ? "shared-google-budget"
+            : isSubscriptionProvider(connection.provider) && connection.account
+              ? connection.account.subject
+              : apiKey,
       }),
     )
     .digest("hex");
-  const limiter = getRequestLimiter(key, connection.provider);
+  const limiter = getRequestLimiter(key, connection.provider, profile);
   const wrapModel = (model: Exclude<LanguageModel, string>) =>
     wrapLanguageModel({
       model,
       middleware: {
         specificationVersion: "v4",
         transformParams: async ({ params }) => {
+          if (profile)
+            params = {
+              ...params,
+              maxOutputTokens: Math.min(
+                params.maxOutputTokens ?? profile.outputTokens,
+                profile.outputTokens,
+                profile.outputTokensPerMinute ?? Infinity,
+              ),
+            };
           if (params.responseFormat?.type !== "json") return params;
           const googleSchema =
             connection.provider === "google" ||
@@ -296,9 +319,30 @@ export const resolveLanguageModel = (
               responseFormat: params.responseFormat,
             }),
             actualInputTokens: (result) => result.usage.inputTokens.total,
+            outputTokens: params.maxOutputTokens ?? 0,
+            actualOutputTokens: (result) => result.usage.outputTokens.total,
           }),
         wrapStream: ({ doStream, params }) =>
           limiter.runStream(doStream, params.abortSignal, {
+            outputTokens: params.maxOutputTokens ?? 0,
+            actualInputTokens: (part) => {
+              const chunk = part as {
+                type: string;
+                usage?: { inputTokens?: { total?: number } };
+              };
+              return chunk.type === "finish"
+                ? chunk.usage?.inputTokens?.total
+                : undefined;
+            },
+            actualOutputTokens: (part) => {
+              const chunk = part as {
+                type: string;
+                usage?: { outputTokens?: { total?: number } };
+              };
+              return chunk.type === "finish"
+                ? chunk.usage?.outputTokens?.total
+                : undefined;
+            },
             inputTokens: estimateInputTokenUpperBound({
               prompt: params.prompt,
               tools: params.tools,
