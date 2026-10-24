@@ -4,12 +4,13 @@ import { useId, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Check, Dot, Pencil, Trash2, X } from "lucide-react";
+import { Check, Dot, FolderCheckIcon, Pencil, Trash2, X } from "lucide-react";
 import {
   Command,
   CommandDialog,
   CommandInput,
   CommandList,
+  CommandGroup,
   CommandItem,
 } from "@/components/ui/command";
 import { useConfirm } from "@/hooks/use-confirm";
@@ -18,8 +19,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import type { SavedReviewSummary } from "../types";
-import { formatReviewSummary, formatSnapshot } from "../lib/formatters";
+import {
+  formatReviewDirectory,
+  formatReviewSummary,
+  formatSnapshot,
+} from "../lib/formatters";
 import { useReviewHistory } from "../hooks/use-review-history";
+import { TooltipWrapper } from "@/components/ui/tooltip-wrapper";
 
 const renameSchema = z.object({
   title: z.string().trim().min(1, "Enter a review name.").max(200),
@@ -29,6 +35,7 @@ export type RenameSchema = z.infer<typeof renameSchema>;
 type ReviewHistoryProps = {
   open: boolean;
   currentReviewId?: string;
+  currentDirectory?: string;
   shortcutsEnabled?: boolean;
   onShortcutsEnabledChange?: (enabled: boolean) => void;
   onOpenChange: (open: boolean) => void;
@@ -196,6 +203,7 @@ const ReviewHistoryItem = ({
 export const ReviewHistory = ({
   open,
   currentReviewId,
+  currentDirectory,
   shortcutsEnabled,
   onShortcutsEnabledChange,
   onOpenChange,
@@ -207,13 +215,26 @@ export const ReviewHistory = ({
   const [selection, setSelection] = useState<string>();
   const history = useReviewHistory(search, open);
   const reviews = history.data ?? [];
+  const groups = new Map<string | null, SavedReviewSummary[]>();
+  for (const review of reviews) {
+    const group = groups.get(review.directory);
+    if (group) group.push(review);
+    else groups.set(review.directory, [review]);
+  }
+  const orderedGroups = [...groups].sort(([left], [right]) => {
+    if (left === currentDirectory) return -1;
+    if (right === currentDirectory) return 1;
+    if (left === null) return 1;
+    if (right === null) return -1;
+    return left.localeCompare(right);
+  });
   const loading =
     history.isPending || history.isFetching || history.isDebouncing;
   const selectedReview =
     selection ??
     (!search.trim() && reviews.some((review) => review.id === currentReviewId)
       ? currentReviewId
-      : reviews[0]?.id) ??
+      : orderedGroups[0]?.[1][0]?.id) ??
     "";
   const changeOpen = (value: boolean) => {
     if (!value) {
@@ -239,7 +260,7 @@ export const ReviewHistory = ({
           ref={inputRef}
           maxLength={200}
           aria-label="Search saved reviews"
-          placeholder="Search saved reviews…"
+          placeholder="Search review names or folder paths…"
           className="text-base"
           value={search}
           onValueChange={(value) => {
@@ -260,17 +281,43 @@ export const ReviewHistory = ({
               Searching local reviews…
             </p>
           ) : reviews.length ? (
-            reviews.map((review) => (
-              <ReviewHistoryItem
-                key={`${review.id}:${review.updatedAt}`}
-                review={review}
-                onAction={onAction}
-                onChanged={() => {
-                  void history.invalidate();
-                  requestAnimationFrame(() => inputRef.current?.focus());
-                }}
-                onOpen={() => changeOpen(false)}
-              />
+            orderedGroups.map(([directory, reviews]) => (
+              <CommandGroup
+                key={directory ?? ""}
+                heading={
+                  <div className="flex min-w-0 items-start gap-2">
+                    <div className="flex-1 min-w-0">
+                      <span className="break-all font-mono">
+                        {formatReviewDirectory(directory)}
+                      </span>
+                    </div>
+                    {directory === currentDirectory && (
+                      <TooltipWrapper content="Current folder">
+                        <span tabIndex={0} aria-label="Current folder">
+                          <FolderCheckIcon
+                            className="h-[6lh]"
+                            aria-hidden="true"
+                          />
+                        </span>
+                      </TooltipWrapper>
+                    )}
+                  </div>
+                }
+                className="**:[[cmdk-group-heading]]:text-base"
+              >
+                {reviews.map((review) => (
+                  <ReviewHistoryItem
+                    key={`${review.id}:${review.updatedAt}`}
+                    review={review}
+                    onAction={onAction}
+                    onChanged={() => {
+                      void history.invalidate();
+                      requestAnimationFrame(() => inputRef.current?.focus());
+                    }}
+                    onOpen={() => changeOpen(false)}
+                  />
+                ))}
+              </CommandGroup>
             ))
           ) : (
             <p className="p-6 text-muted-foreground">No saved reviews found.</p>
@@ -292,8 +339,6 @@ export const ReviewHistory = ({
           </label>
           <p className="text-muted-foreground">
             R opens this list. [ opens the previous review; ] opens the next.
-            Reviews are ordered newest first. Shortcuts pause while typing or
-            using a dialog.
           </p>
         </div>
       )}

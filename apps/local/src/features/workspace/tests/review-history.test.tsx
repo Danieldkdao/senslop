@@ -62,6 +62,108 @@ const review = {
   kind: "commit",
 };
 
+test("history groups reviews by full folder path with the current folder first and monospace headings", async () => {
+  const otherReview = {
+    ...review,
+    id: crypto.randomUUID(),
+    title: "Other project review",
+    directory: "/work/another",
+  };
+  const olderReview = {
+    ...review,
+    id: crypto.randomUUID(),
+    title: "Older review",
+  };
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        history: [
+          {
+            ...review,
+            id: crypto.randomUUID(),
+            title: "Legacy review",
+            directory: null,
+          },
+          otherReview,
+          review,
+          olderReview,
+        ],
+      }),
+    }),
+  );
+  render(
+    <ReviewHistory
+      open
+      currentDirectory={review.directory}
+      onOpenChange={vi.fn()}
+      onAction={vi.fn()}
+    />,
+    { wrapper: QueryProvider },
+  );
+  await screen.findByText(review.title);
+  const groups = screen.getAllByRole("group", {
+    name: /\/work\/current|\/work\/another|Folder not recorded/,
+  });
+  expect(groups).toHaveLength(3);
+  expect(groups[0]).toBe(
+    screen.getByRole("group", { name: /\/work\/current.*Current folder/ }),
+  );
+  expect(groups[1]).toBe(
+    screen.getByRole("group", { name: otherReview.directory }),
+  );
+  expect(groups[2]).toBe(
+    screen.getByRole("group", { name: "Folder not recorded" }),
+  );
+  expect(
+    within(groups[0]!)
+      .getAllByRole("option")
+      .map((option) => option.textContent),
+  ).toEqual([
+    expect.stringContaining(review.title),
+    expect.stringContaining(olderReview.title),
+  ]);
+  expect(
+    screen.getByText(review.directory).classList.contains("font-mono"),
+  ).toBe(true);
+  expect(
+    screen.getByText(otherReview.directory).classList.contains("font-mono"),
+  ).toBe(true);
+  expect(screen.getByLabelText("Current folder")).toBeTruthy();
+});
+
+test("folder searches use the debounced server query and retain folder grouping", async () => {
+  const fetcher = vi
+    .fn()
+    .mockResolvedValue({ ok: true, json: async () => ({ history: [review] }) });
+  vi.stubGlobal("fetch", fetcher);
+  const user = userEvent.setup();
+  render(
+    <ReviewHistory
+      open
+      currentDirectory={review.directory}
+      onOpenChange={vi.fn()}
+      onAction={vi.fn()}
+    />,
+    { wrapper: QueryProvider },
+  );
+  await screen.findByText(review.title);
+  await user.type(
+    screen.getByLabelText("Search saved reviews"),
+    "/work/current",
+  );
+  await waitFor(() =>
+    expect(fetcher).toHaveBeenCalledWith(
+      "/api/workspace?history=1&search=%2Fwork%2Fcurrent",
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    ),
+  );
+  expect(
+    await screen.findByRole("group", { name: /\/work\/current/ }),
+  ).toBeTruthy();
+});
+
 test("history initially highlights the current review and search can select a different review", async () => {
   Element.prototype.scrollIntoView = vi.fn();
   const currentReview = {

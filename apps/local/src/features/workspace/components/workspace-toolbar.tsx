@@ -157,6 +157,7 @@ export const WorkspaceToolbar = ({
       <ReviewHistory
         open={historyOpen}
         currentReviewId={preview?.id}
+        currentDirectory={metadata?.directory}
         shortcutsEnabled={shortcutsEnabled}
         onShortcutsEnabledChange={setShortcutsEnabled}
         onOpenChange={setHistoryOpen}

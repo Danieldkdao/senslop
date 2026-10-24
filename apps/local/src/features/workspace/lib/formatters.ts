@@ -9,6 +9,9 @@ export const formatRepository = (
     ? `${repository.branch}, ${repository.head.slice(0, 8)}`
     : "Git metadata unavailable. Check that this repository has a commit, then refresh.";
 
+export const formatReviewDirectory = (directory: string | null) =>
+  directory ?? "Folder not recorded";
+
 export const formatReviewSummary = (review: SavedReviewSummary) => ({
   date: new Date(review.createdAt).toLocaleString(),
   round: `Round ${review.round ?? 1}`,
