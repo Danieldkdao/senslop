@@ -110,5 +110,6 @@ export type ConnectionTicketSchema = z.infer<typeof connectionTicketSchema>;
 export * from "./preview";
 export * from "./local-review";
 export * from "./providers";
+export * from "./compatible-models";
 
 export * from "./provider-formatters";
