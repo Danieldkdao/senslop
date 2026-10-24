@@ -345,6 +345,26 @@ export const resolveLanguageModel = (
               ),
             };
           if (params.responseFormat?.type !== "json") return params;
+          if (connection.provider === "openrouter") {
+            const routing = params.providerOptions?.openrouter?.provider;
+            params = {
+              ...params,
+              providerOptions: {
+                ...params.providerOptions,
+                openrouter: {
+                  ...params.providerOptions?.openrouter,
+                  provider: {
+                    ...(routing &&
+                    typeof routing === "object" &&
+                    !Array.isArray(routing)
+                      ? routing
+                      : {}),
+                    require_parameters: true,
+                  },
+                },
+              },
+            };
+          }
           const googleSchema =
             connection.provider === "google" ||
             (connection.provider === "opencode" &&

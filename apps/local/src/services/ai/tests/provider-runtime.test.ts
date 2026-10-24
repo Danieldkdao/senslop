@@ -93,6 +93,32 @@ test.each(["lm-studio", "llama-cpp"] as const)(
   },
 );
 
+test("OpenRouter schema requests require a compatible upstream route", async () => {
+  let body: Record<string, unknown> = {};
+  await generateText({
+    ...resolveLanguageModel(
+      connection("openrouter"),
+      "fixture",
+      "openai/gpt-4o",
+      async (_url, init) => {
+        body = JSON.parse(String(init?.body));
+        return Response.json({
+          choices: [
+            {
+              index: 0,
+              message: { role: "assistant", content: '{"answer":"valid"}' },
+              finish_reason: "stop",
+            },
+          ],
+        });
+      },
+    ),
+    prompt: "Reply with JSON",
+    output: Output.object({ schema: z.object({ answer: z.string() }) }),
+  });
+  expect(body.provider).toMatchObject({ require_parameters: true });
+});
+
 test.each(["gpt-oss", "qwen3"])(
   "Ollama preserves %s's server thinking default",
   async (modelId) => {
