@@ -5,6 +5,7 @@ import {
   AiStructuredOutputError,
   AiOutputLimitError,
   AiServiceError,
+  AiContextBudgetError,
   isAiSchemaComplexityError,
 } from "./errors";
 import type { SnapshotChange } from "./types";
@@ -92,6 +93,7 @@ export const processSnapshotBatches = async (
       const schemaTooComplex = isAiSchemaComplexityError(error);
       const canNarrow =
         error instanceof AiOutputLimitError ||
+        error instanceof AiContextBudgetError ||
         (schemaTooComplex && batch.length > 1) ||
         ((error instanceof AiGroupingRepairError ||
           error instanceof AiReviewRepairError ||
@@ -101,6 +103,7 @@ export const processSnapshotBatches = async (
       const isolateFiles =
         (error instanceof AiGroupingRepairError ||
           error instanceof AiReviewRepairError ||
+          error instanceof AiContextBudgetError ||
           schemaTooComplex) &&
         batch.length > 1;
       if (!canNarrow || (attempt >= 3 && !isolateFiles)) throw error;
