@@ -1,5 +1,7 @@
 import "server-only";
 import { createHash } from "node:crypto";
+import { defaultConnectionCapacity } from "../../features/ai-capacity/lib/capacity";
+import { getCompatibleModel } from "../../features/providers/lib/compatible-models";
 import { AsyncLocalStorage } from "node:async_hooks";
 import {
   generateText,
@@ -17,6 +19,7 @@ import {
   AiOutputLimitError,
   AiGroupingRepairError,
   AiStructuredOutputError,
+  AiContextBudgetError,
 } from "./errors";
 import { getGenerationOptions, resolveLanguageModel } from "./provider-runtime";
 import {
@@ -24,7 +27,10 @@ import {
   staticReviewLimitation,
 } from "../../features/agents/lib/review-limitations";
 import { generateReviewSummary } from "./review-summary";
-import { mergeIncrementalGrouping } from "./incremental-grouping";
+import {
+  getIncrementalGroupingContext,
+  mergeIncrementalGrouping,
+} from "./incremental-grouping";
 import { sourceTools } from "../analysis/snapshot-analysis";
 import type { AnalysisContext } from "../analysis/types";
 import {
@@ -110,17 +116,51 @@ export const createRepositoryAgent = async ({
     aliases?: { key: string; title: string }[];
   };
 }) => {
-  const policy = { ...defaultAnalysisExecutionPolicy, ...executionPolicy };
+  settings = structuredClone(settings);
   const resolved = await resolveProviderConnection(
     local,
     selection.connectionId,
     selection.modelId,
     signal,
   );
-  const model = resolveLanguageModel(
+  const capacity = {
+    ...(settings.capacity?.[selection.connectionId] ??
+      defaultConnectionCapacity(resolved.connection)),
+  };
+  const configuredModel = getCompatibleModel(
     resolved.connection,
+    selection.modelId,
+  );
+  if (configuredModel) {
+    capacity.contextTokens = Math.min(
+      capacity.contextTokens,
+      configuredModel.contextWindow,
+    );
+    capacity.outputTokens = Math.min(
+      capacity.outputTokens,
+      configuredModel.maxOutputTokens,
+      configuredModel.supportsChatCompletions
+        ? configuredModel.maxCompletionTokens
+        : Infinity,
+    );
+  }
+  const runtimeConnection = {
+    ...resolved.connection,
+    contextWindow: capacity.contextTokens,
+  };
+  const policy = {
+    ...defaultAnalysisExecutionPolicy,
+    groupingInputTokens: capacity.groupingInputTokens,
+    groupingOutputTokens: capacity.outputTokens,
+    batchConcurrency: capacity.concurrency,
+    ...executionPolicy,
+  };
+  const model = resolveLanguageModel(
+    runtimeConnection,
     resolved.secret,
     selection.modelId,
+    undefined,
+    capacity,
   );
   const requestLimiter = model.requestLimiter;
   const batchConcurrency = () =>
@@ -138,7 +178,7 @@ export const createRepositoryAgent = async ({
         };
       }
     : undefined;
-  const limit = resolved.connection.contextWindow ?? 128000;
+  const limit = capacity.contextTokens;
   const tools = sourceTools(context);
   const querySchema = z.object({
     query: z
@@ -276,6 +316,8 @@ export const createRepositoryAgent = async ({
       estimateTokens({ name, description: value.description }),
     0,
   );
+  const activeRepositorySchemaTokens =
+    model.toolsSupported === false ? 0 : repositorySchemaTokens;
   const requestState = new AsyncLocalStorage<AiRequestState>();
   let foregroundContextCalls = 0;
   const diagnosticContext = {
@@ -346,18 +388,48 @@ export const createRepositoryAgent = async ({
         selection.modelId,
         signal,
       );
-      const resolvedContext = resolveLanguageModel(
+      const contextCapacity = {
+        ...(settings.capacity?.[selection.connectionId] ??
+          defaultConnectionCapacity(connection.connection)),
+      };
+      const configuredContext = getCompatibleModel(
         connection.connection,
-        connection.secret,
         selection.modelId,
       );
-      const contextLimit = connection.connection.contextWindow ?? 64000;
+      if (configuredContext) {
+        contextCapacity.contextTokens = Math.min(
+          contextCapacity.contextTokens,
+          configuredContext.contextWindow,
+        );
+        contextCapacity.outputTokens = Math.min(
+          contextCapacity.outputTokens,
+          configuredContext.maxOutputTokens,
+          configuredContext.supportsChatCompletions
+            ? configuredContext.maxCompletionTokens
+            : Infinity,
+        );
+      }
+      const contextConnection = {
+        ...connection.connection,
+        contextWindow: contextCapacity.contextTokens,
+      };
+      const resolvedContext = resolveLanguageModel(
+        contextConnection,
+        connection.secret,
+        selection.modelId,
+        undefined,
+        contextCapacity,
+      );
+      const contextLimit = contextCapacity.contextTokens;
       const contextGeneration = getGenerationOptions(
-        connection.connection,
+        contextConnection,
         contextLimit,
         2500,
+        contextCapacity,
       );
       const contextOutputTokens = contextGeneration.maxOutputTokens;
+      const contextSchemaTokens =
+        resolvedContext.toolsSupported === false ? 0 : repositorySchemaTokens;
       const prompt = `Retrieve compact evidence for snapshot ${snapshot.id}: ${query}`;
       const logger = createAiRequestLogger(
         {
@@ -385,7 +457,11 @@ export const createRepositoryAgent = async ({
           : {}),
         instructions,
         prompt,
-        tools: resolvedContext.createModel ? {} : repositoryTools,
+        tools:
+          resolvedContext.createModel ||
+          resolvedContext.toolsSupported === false
+            ? {}
+            : repositoryTools,
         stopWhen: isStepCount(resolvedContext.createModel ? 1 : 4),
         maxOutputTokens: contextOutputTokens,
         maxRetries: 2,
@@ -403,8 +479,7 @@ export const createRepositoryAgent = async ({
                 ? toolChoice
                 : (toolChoice?.type ?? "auto"),
             estimatedInputTokens:
-              estimateTokens({ instructions, messages }) +
-              repositorySchemaTokens,
+              estimateTokens({ instructions, messages }) + contextSchemaTokens,
           }),
         onStepEnd: logger.stepCompleted,
         prepareStep: ({ messages, instructions, stepNumber }) => {
@@ -414,7 +489,7 @@ export const createRepositoryAgent = async ({
             : instructions;
           assertContextBudget(
             estimateTokens({ instructions: stepInstructions, messages }) +
-              (finalizing ? 0 : repositorySchemaTokens),
+              (finalizing ? 0 : contextSchemaTokens),
             contextLimit,
             contextOutputTokens,
           );
@@ -471,7 +546,29 @@ export const createRepositoryAgent = async ({
     cycles,
     limitations: [...context.limitations, ...context.analysis.limitations],
   });
-  const generation = getGenerationOptions(resolved.connection, limit, 8000);
+  const batchContext = (batch: typeof changes) => {
+    const members = new Set(batch.map((change) => change.path));
+    return JSON.stringify({
+      snapshotId: snapshot.id,
+      source: snapshot.source,
+      changes: batch.map(({ path, oldPath, binary }) => ({
+        path,
+        oldPath,
+        binary,
+      })),
+      dependencies: dependencies.filter(
+        (edge) => members.has(edge.from) || members.has(edge.to),
+      ),
+      cycles: cycles.filter((cycle) => cycle.some((path) => members.has(path))),
+      limitations: [...context.limitations, ...context.analysis.limitations],
+    });
+  };
+  const generation = getGenerationOptions(
+    runtimeConnection,
+    limit,
+    8000,
+    capacity,
+  );
   const maxOutputTokens = generation.maxOutputTokens;
   const chatStepLimit = 8;
   const options = {
@@ -483,10 +580,13 @@ export const createRepositoryAgent = async ({
         }
       : {}),
     instructions,
-    tools: {
-      ...repositoryTools,
-      ...(assignedModel(settings, "context") ? { askContext } : {}),
-    },
+    tools:
+      model.toolsSupported === false
+        ? {}
+        : {
+            ...repositoryTools,
+            ...(assignedModel(settings, "context") ? { askContext } : {}),
+          },
     maxOutputTokens,
     maxRetries: 2,
     stopWhen: isStepCount(chatStepLimit),
@@ -502,13 +602,16 @@ export const createRepositoryAgent = async ({
       }: { messages: ModelMessage[]; instructions?: unknown },
       extraSchemaTokens = 0,
       reservedOutputTokens = maxOutputTokens,
+      toolsEnabled = true,
     ) => {
       signal.throwIfAborted();
       const compact = messages;
       assertContextBudget(
         estimateTokens({ instructions, messages: compact }) +
-          repositorySchemaTokens +
-          (assignedModel(settings, "context")
+          (toolsEnabled ? activeRepositorySchemaTokens : 0) +
+          (toolsEnabled &&
+          model.toolsSupported !== false &&
+          assignedModel(settings, "context")
             ? schemaTokens(askContext.inputSchema as z.ZodType)
             : 0) +
           extraSchemaTokens,
@@ -538,9 +641,10 @@ export const createRepositoryAgent = async ({
       const taskGeneration =
         mode === "grouping" || mode === "ordering"
           ? getGenerationOptions(
-              resolved.connection,
+              runtimeConnection,
               limit,
               policy.groupingOutputTokens * outputMultiplier,
+              capacity,
             )
           : generation;
       const state = requestState.getStore()!;
@@ -567,6 +671,7 @@ export const createRepositoryAgent = async ({
             { messages, instructions },
             schemaTokens(schema),
             taskGeneration.maxOutputTokens,
+            mode !== "ordering" && !(repair && mode === "grouping"),
           ).messages,
         onRequest: (requestId) => {
           state.requestId = requestId;
@@ -605,27 +710,46 @@ export const createRepositoryAgent = async ({
       );
     },
   });
+  const batchTokenBudget = (
+    prompt: string,
+    schema: z.ZodType,
+    maxTokens: number,
+    outputTokens: number,
+  ) =>
+    Math.min(
+      maxTokens,
+      capacity.inputTokensPerMinute === null
+        ? Infinity
+        : getBatchTokenBudget(
+            activeRepositorySchemaTokens +
+              schemaTokens(schema) +
+              estimateTokens({ instructions, prompt }) +
+              1024,
+            Math.floor((capacity.inputTokensPerMinute - 256) / 3 / 0.8),
+            0,
+          ),
+      getBatchTokenBudget(
+        activeRepositorySchemaTokens +
+          schemaTokens(schema) +
+          estimateTokens({ instructions, prompt }) +
+          1024,
+        limit,
+        outputTokens,
+      ),
+    );
   const batchesFor = (
     prompt: string,
     schema: z.ZodType,
-    maxTokens = 24000,
+    maxTokens = capacity.reviewInputTokens,
     maxFiles = 24,
     outputTokens = maxOutputTokens,
     batchChanges = changes,
+    reservedContextTokens = 0,
   ) =>
     batchSnapshotChanges(
       batchChanges,
-      Math.min(
-        maxTokens,
-        getBatchTokenBudget(
-          repositorySchemaTokens +
-            schemaTokens(schema) +
-            estimateTokens({ instructions, prompt }) +
-            1024,
-          limit,
-          outputTokens,
-        ),
-      ),
+      batchTokenBudget(prompt, schema, maxTokens, outputTokens) -
+        reservedContextTokens,
       maxFiles,
     );
   const batchInput = (
@@ -643,7 +767,10 @@ export const createRepositoryAgent = async ({
       previousSummaries,
     });
   return {
-    tools: options.tools,
+    tools: {
+      ...repositoryTools,
+      ...(assignedModel(settings, "context") ? { askContext } : {}),
+    },
     grouping: async () => {
       const retainedPaths = new Set(
         groupingSeed?.retained.groups.flatMap((group) =>
@@ -661,11 +788,12 @@ export const createRepositoryAgent = async ({
           groupingSeed.aliases,
           groupingSeed.context,
         );
-      const prompt = `Summarize and provisionally group ONLY the Batch input files, exactly once. Do not create a guide for the entire snapshot or examine unrelated changes. Other paths are supporting context, not output members. Prerequisites before consumers, tests last; keep summaries under 300 characters and rationales under 240; use at most three related paths per file. When a diff has offset/total, incorporate its previous summary without assuming omitted text is unchanged. Use repository tools only for focused questions necessary to explain this batch. User preferences guide grouping behavior, not output scope or format:\n${settings.prompt}${groupingSeed ? `\nExisting groups are placement context only. To add a changed file to an existing group, use its exact title identifier, not its display name. Choose a new title only for a new flow. Never return unchanged files. Existing groups: ${JSON.stringify({ groups: groupingSeed.context.groups.map((group) => ({ title: group.title, name: groupingSeed.aliases?.find((alias) => alias.key === group.title)?.title ?? group.title, rationale: group.rationale, files: group.files.map((file) => file.path) })) })}` : ""}`;
+      const prompt = `Summarize and provisionally group ONLY the Batch input files, exactly once. Do not create a guide for the entire snapshot or examine unrelated changes. Other paths are supporting context, not output members. Prerequisites before consumers, tests last; keep summaries under 300 characters and rationales under 240; use at most three related paths per file. When a diff has offset/total, incorporate its previous summary without assuming omitted text is unchanged. Use repository tools only for focused questions necessary to explain this batch. User preferences guide grouping behavior, not output scope or format:\n${settings.prompt}${groupingSeed ? "\nExisting groups are bounded placement candidates only. To add a changed file to an existing group, use its exact title identifier, not its display name. Choose a new title only for a new flow. Never return unchanged files. Saved groups and full membership remain preserved locally, including omitted groups." : ""}`;
       const groupingGeneration = getGenerationOptions(
-        resolved.connection,
+        runtimeConnection,
         limit,
         policy.groupingOutputTokens,
+        capacity,
       );
       const answerAllowance =
         groupingGeneration.maxOutputTokens /
@@ -674,6 +802,17 @@ export const createRepositoryAgent = async ({
         1,
         Math.min(policy.groupingMaxFiles, Math.floor(answerAllowance / 1000)),
       );
+      // Share the available input budget between placement hints and changed diffs.
+      const placementTokens = groupingSeed
+        ? Math.floor(
+            batchTokenBudget(
+              prompt,
+              groupingSchema,
+              policy.groupingInputTokens,
+              groupingGeneration.maxOutputTokens,
+            ) / 4,
+          )
+        : 0;
       const batches = batchesFor(
         prompt,
         groupingSchema,
@@ -681,6 +820,7 @@ export const createRepositoryAgent = async ({
         maxFiles,
         groupingGeneration.maxOutputTokens,
         groupingChanges,
+        placementTokens,
       );
       console.info("[senslop:ai-batches]", {
         ...diagnosticContext,
@@ -724,31 +864,28 @@ export const createRepositoryAgent = async ({
               );
               const members = [...new Set(part.map((change) => change.path))];
               const memberPaths = new Set(members);
-              const batchContext = JSON.stringify({
-                snapshotId: snapshot.id,
-                source: snapshot.source,
-                changes: part.map(({ path, oldPath, binary }) => ({
-                  path,
-                  oldPath,
-                  binary,
-                })),
-                dependencies: dependencies.filter(
-                  (edge) =>
-                    memberPaths.has(edge.from) || memberPaths.has(edge.to),
-                ),
-                cycles: cycles.filter((cycle) =>
-                  cycle.some((path) => memberPaths.has(path)),
-                ),
-                limitations: [
-                  ...context.limitations,
-                  ...context.analysis.limitations,
-                ],
-              });
+              const placementContext = groupingSeed
+                ? `\nExisting groups: ${getIncrementalGroupingContext(
+                    groupingSeed.context,
+                    groupingSeed.aliases ?? [],
+                    members,
+                    dependencies.flatMap((edge) =>
+                      memberPaths.has(edge.from)
+                        ? [edge.to]
+                        : memberPaths.has(edge.to)
+                          ? [edge.from]
+                          : [],
+                    ),
+                    placementTokens,
+                  )}`
+                : "";
+              const batchInstructions = `${prompt}${placementContext}`;
+              const scopedContext = batchContext(part);
               const previous = members.flatMap(
                 (path) => summaries.get(path) ?? [],
               );
               const batchSchema = createGroupingBatchSchema(members);
-              const batchPrompt = `${prompt}\nSnapshot context:\n${batchContext}\nBatch input:\n${batchInput(part, previous)}`;
+              const batchPrompt = `${batchInstructions}\nSnapshot context:\n${scopedContext}\nBatch input:\n${batchInput(part, previous)}`;
               const result = validateGrouping(
                 await checkpointed("grouping", batchPrompt, batchSchema, () =>
                   structured(
@@ -762,7 +899,7 @@ export const createRepositoryAgent = async ({
                       repairOptions(
                         members,
                         part,
-                        `${prompt}\n${batchContext}\nPrevious summaries: ${JSON.stringify(previous)}`,
+                        `${batchInstructions}\n${scopedContext}\nPrevious summaries: ${JSON.stringify(previous)}`,
                         "grouping",
                       ),
                     ),
@@ -784,8 +921,22 @@ export const createRepositoryAgent = async ({
         watchCapacity,
       );
       const candidates = batchCandidates.flat();
-      const retainBatchGroups = () => {
+      const retainBatchGroups = (
+        reason:
+          | "context-budget"
+          | "structured-output"
+          | "output-limit"
+          | "placement-repair",
+      ) => {
         signal.throwIfAborted();
+        console.warn("[senslop:ai-batches]", {
+          ...diagnosticContext,
+          event: "ordering-fallback",
+          reason,
+        });
+        onProgress?.(
+          "Keeping validated batch groups; global ordering could not complete",
+        );
         const seen = new Set<string>();
         return validateGrouping(
           {
@@ -854,8 +1005,10 @@ export const createRepositoryAgent = async ({
           );
           break;
         } catch (error) {
+          if (error instanceof AiContextBudgetError)
+            return retainBatchGroups("context-budget");
           if (error instanceof AiStructuredOutputError)
-            return retainBatchGroups();
+            return retainBatchGroups("structured-output");
           if (!(error instanceof AiOutputLimitError)) throw error;
           if (attempt === 0) {
             onProgress?.(
@@ -863,15 +1016,7 @@ export const createRepositoryAgent = async ({
             );
             continue;
           }
-          console.warn("[senslop:ai-batches]", {
-            ...diagnosticContext,
-            event: "ordering-fallback",
-            reason: "output-limit",
-          });
-          onProgress?.(
-            "Keeping validated batch groups; global ordering exceeded its completion budget",
-          );
-          return retainBatchGroups();
+          return retainBatchGroups("output-limit");
         }
       }
       const outlineGroups =
@@ -915,16 +1060,21 @@ export const createRepositoryAgent = async ({
         if (
           !(error instanceof AiGroupingRepairError) &&
           !(error instanceof AiStructuredOutputError) &&
-          !(error instanceof AiOutputLimitError)
+          !(error instanceof AiOutputLimitError) &&
+          !(error instanceof AiContextBudgetError)
         )
           throw error;
         signal.throwIfAborted();
-        return retainBatchGroups();
+        return retainBatchGroups(
+          error instanceof AiContextBudgetError
+            ? "context-budget"
+            : "placement-repair",
+        );
       }
     },
     review: async () => {
       const schema = reviewBatchSchema;
-      const prompt = `Review this batch of selected changes for concrete correctness bugs. Use the Context agent and repository tools to verify relevant callers, declarations and tests across the snapshot. Read captured diagnostics for files with nonzero diagnosticCounts and distinguish compiler facts from inference. Offset/total identifies part of a large diff; use readDiff and readSource when more evidence is needed. No speculative findings. Each finding needs an exact contiguous source excerpt, side before/after, 1-based start/end line and a useful fix prompt. Return one files assessment per batch path, including findings: [] when no bug is established. Write each problem as one concise paragraph, ideally 40–80 words, explaining the trigger, failure, impact and essential evidence, ending with one short sentence suggesting a focused fix. Do not generate additional description paragraphs. Use Markdown code spans for identifiers. Each fixPrompt is short Markdown guidance with the targeted change and relevant verification in 1–2 sentences. Do not repeat the problem, location or excerpt in fixPrompt; the application wraps it in a review comment and adds: For this issue, determine whether it is valid and should be fixed. If so, fix it directly. Style example — problem: If another program takes the saved workspace port between sessions, \`workspacePort\` keeps returning that occupied port. The availability check fails without replacing it. Every retry uses the same port, so the repository cannot reopen. When no workspace owns the repository, choose and save another available port. Fix guidance: When no workspace owns the repository, choose and save another available port; test startup with the saved port occupied. This example illustrates writing style only and is not evidence of an issue in this snapshot. Omit unrelated pre-existing bugs. Report only specific evidence gaps that materially limit a conclusion. Do not repeat the static read-only scope or shared snapshot limitations for every batch; the application records those centrally. Zero diagnostics, lists of files checked and successful tool reads are not limitations.\nSnapshot context:\n${initial}`;
+      const prompt = `Review this batch of selected changes for concrete correctness bugs. Use the Context agent and repository tools to verify relevant callers, declarations and tests across the snapshot. Read captured diagnostics for files with nonzero diagnosticCounts and distinguish compiler facts from inference. Offset/total identifies part of a large diff; use readDiff and readSource when more evidence is needed. No speculative findings. Each finding needs an exact contiguous source excerpt, side before/after, 1-based start/end line and a useful fix prompt. Return one files assessment per batch path, including findings: [] when no bug is established. Write each problem as one concise paragraph, ideally 40–80 words, explaining the trigger, failure, impact and essential evidence, ending with one short sentence suggesting a focused fix. Do not generate additional description paragraphs. Use Markdown code spans for identifiers. Each fixPrompt is short Markdown guidance with the targeted change and relevant verification in 1–2 sentences. Do not repeat the problem, location or excerpt in fixPrompt; the application wraps it in a review comment and adds: For this issue, determine whether it is valid and should be fixed. If so, fix it directly. Style example — problem: If another program takes the saved workspace port between sessions, \`workspacePort\` keeps returning that occupied port. The availability check fails without replacing it. Every retry uses the same port, so the repository cannot reopen. When no workspace owns the repository, choose and save another available port. Fix guidance: When no workspace owns the repository, choose and save another available port; test startup with the saved port occupied. This example illustrates writing style only and is not evidence of an issue in this snapshot. Omit unrelated pre-existing bugs. Report only specific evidence gaps that materially limit a conclusion. Do not repeat the static read-only scope or shared snapshot limitations for every batch; the application records those centrally. Zero diagnostics, lists of files checked and successful tool reads are not limitations. Other files remain available through repository tools for focused supporting evidence.`;
       const batches = batchesFor(prompt, schema);
       console.info("[senslop:ai-batches]", {
         ...diagnosticContext,
@@ -957,18 +1107,20 @@ export const createRepositoryAgent = async ({
               onProgress?.(
                 `Reviewing batch ${index + 1} of ${batches.length}${attempt ? ` — smaller request ${attempt}` : ""}`,
               );
+              const scopedContext = batchContext(part);
+              const batchPrompt = `${prompt}\nSnapshot context:\n${scopedContext}\nBatch input:\n${batchInput(part)}`;
               batchResults[index]!.push(
                 validateReview(
                   await checkpointed(
                     "review",
-                    { prompt, part },
+                    batchPrompt,
                     correctnessSchema,
                     () =>
                       structured(
                         createReviewBatchSchema([
                           ...new Set(part.map((file) => file.path)),
                         ]),
-                        `${prompt}\nBatch input:\n${batchInput(part)}`,
+                        batchPrompt,
                         `Review batch ${index + 1} of ${batches.length}`,
                       ).then((candidate) =>
                         repairReviewResult(
@@ -976,7 +1128,7 @@ export const createRepositoryAgent = async ({
                           repairOptions(
                             [...new Set(part.map((file) => file.path))],
                             part,
-                            initial,
+                            scopedContext,
                             "review",
                           ),
                         ),
@@ -1013,9 +1165,10 @@ export const createRepositoryAgent = async ({
         snapshot,
       );
       const summaryGeneration = getGenerationOptions(
-        resolved.connection,
+        runtimeConnection,
         limit,
         1024,
+        capacity,
       );
       validated.summary = await generateReviewSummary({
         findings: validated.findings,
@@ -1023,7 +1176,7 @@ export const createRepositoryAgent = async ({
         createModel: model.createModel,
         providerOptions: {
           ...model.providerOptions,
-          ...getGenerationOptions(resolved.connection, limit, 1024)
+          ...getGenerationOptions(runtimeConnection, limit, 1024, capacity)
             .providerOptions,
         },
         signal,

@@ -2,8 +2,10 @@ import { expect, test } from "vitest";
 import {
   prepareIncrementalGrouping,
   mergeIncrementalGrouping,
+  getIncrementalGroupingContext,
 } from "../incremental-grouping";
 import type { SavedReviewSchema } from "@senslop/contracts";
+import { estimateTokens } from "../context-budget";
 
 const previous = {
   files: [
@@ -32,6 +34,48 @@ const groups = {
     },
   ],
 };
+
+test.each([300, 600])(
+  "placement context fits %s tokens and prioritizes changed files and dependencies",
+  (budget) => {
+    const context = {
+      groups: Array.from({ length: 40 }, (_, index) => ({
+        title: `existing-group-${index}`,
+        rationale: "SAVED RATIONALE ".repeat(100),
+        files: [{ path: `file-${index}`, summary: "KEEP", related: [] }],
+      })),
+    };
+    const original = structuredClone(context);
+    const aliases = context.groups.map((group) => ({
+      key: group.title,
+      title: "Shared display name",
+    }));
+    const rendered = getIncrementalGroupingContext(
+      context,
+      aliases,
+      ["file-39"],
+      ["file-38"],
+      budget,
+    );
+    const payload = JSON.parse(rendered) as {
+      groups: { title: string; name: string; files: string[] }[];
+      omittedGroups: number;
+    };
+    expect(estimateTokens(rendered)).toBeLessThanOrEqual(budget);
+    expect(payload.groups.slice(0, 2).map((group) => group.title)).toEqual([
+      "existing-group-39",
+      "existing-group-38",
+    ]);
+    expect(payload.groups[0]!.files).toEqual(["file-39"]);
+    expect(payload.groups.slice(0, 2).map((group) => group.name)).toEqual([
+      "Shared display name",
+      "Shared display name",
+    ]);
+    expect(payload.omittedGroups).toBeGreaterThan(0);
+    expect(rendered).not.toContain("SAVED RATIONALE");
+    expect(context).toEqual(original);
+  },
+);
 
 test("incremental grouping regenerates only changed/new files and prunes removed paths", () => {
   const seed = prepareIncrementalGrouping(snapshot, previous, groups);

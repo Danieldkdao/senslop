@@ -1,4 +1,4 @@
-import { APICallError, RetryError } from "ai";
+import { APICallError, RetryError, TypeValidationError } from "ai";
 import { ZodError } from "zod";
 
 export class AiServiceError extends Error {
@@ -8,6 +8,13 @@ export class AiServiceError extends Error {
   ) {
     super(message);
     this.name = "AiServiceError";
+  }
+}
+
+export class AiContextBudgetError extends AiServiceError {
+  constructor(message: string) {
+    super(message);
+    this.name = "AiContextBudgetError";
   }
 }
 
@@ -47,6 +54,42 @@ export class AiTransientError extends Error {
     this.name = "AiTransientError";
   }
 }
+
+const isAiRefusalError = (error: unknown): boolean => {
+  if (RetryError.isInstance(error)) return isAiRefusalError(error.lastError);
+  if (
+    !APICallError.isInstance(error) ||
+    error.statusCode !== 200 ||
+    !TypeValidationError.isInstance(error.cause)
+  )
+    return false;
+  const value = error.cause.value;
+  if (
+    !value ||
+    typeof value !== "object" ||
+    !("output" in value) ||
+    !Array.isArray(value.output)
+  )
+    return false;
+  return value.output.some((item: unknown) => {
+    if (!item || typeof item !== "object") return false;
+    const message = item as Record<string, unknown>;
+    return (
+      message.type === "message" &&
+      message.role === "assistant" &&
+      Array.isArray(message.content) &&
+      message.content.some(
+        (part: unknown) =>
+          !!part &&
+          typeof part === "object" &&
+          "type" in part &&
+          part.type === "refusal" &&
+          "refusal" in part &&
+          typeof part.refusal === "string",
+      )
+    );
+  });
+};
 
 export const getAiErrorStatus = (error: unknown, depth = 0): number | null => {
   if (depth > 5) return null;
@@ -250,6 +293,8 @@ export const getAiProviderBackoff = (error: unknown) => {
 };
 
 export const formatAiError = (error: unknown) => {
+  if (isAiRefusalError(error))
+    return "The provider blocked this response. Try rephrasing the request or choose another model.";
   if (error instanceof ZodError)
     return "The analysis result was invalid and could not be saved. Retry analysis or choose another model.";
   if (
@@ -282,6 +327,7 @@ export const formatAiError = (error: unknown) => {
 };
 
 export const isFatalAiError = (error: unknown) => {
+  if (isAiRefusalError(error)) return true;
   if (error instanceof AiServiceError || error instanceof ZodError) return true;
   const status = getAiErrorStatus(error);
   return (

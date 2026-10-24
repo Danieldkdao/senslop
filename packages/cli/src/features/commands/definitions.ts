@@ -476,7 +476,7 @@ export const commandDefinitions: CommandDefinition[] = [
   {
     name: "providers save",
     description:
-      "Create/update a connection using flags or --file JSON. Interactive API keys use a hidden prompt; automation uses --key-stdin.",
+      "Create/update a connection using flags or --file JSON. New OpenAI-compatible providers require --file with model definitions. Interactive API keys use a hidden prompt; automation uses --key-stdin.",
     options: [
       "file",
       "provider",

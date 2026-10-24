@@ -1,10 +1,12 @@
 import { APICallError } from "ai";
+import { isLocalInferenceProvider } from "@senslop/contracts";
 import { AsyncLocalStorage } from "node:async_hooks";
 import {
   getAiErrorStatus,
   getAiProviderBackoff,
   isRetryableAiError,
   AiServiceError,
+  AiContextBudgetError,
 } from "./errors";
 import {
   initialProviderConcurrency,
@@ -13,35 +15,51 @@ import {
   providerRateWindowMs,
   googleRequestLimits,
 } from "./constants";
-import type { ProviderRequestLimits } from "./types";
+import type {
+  ProviderRequestLimits,
+  RequestCapacity,
+  RequestBudget,
+  RequestLimiter,
+  RequestReservation,
+} from "./types";
+import type { ConnectionCapacitySchema } from "../../features/ai-capacity/schemas";
+import { capacityBounds } from "../../features/ai-capacity/constants";
 
-export const createRequestLimiter = ({
-  initialConcurrency = initialProviderConcurrency,
-  maxConcurrency = maximumAnalysisConcurrency,
-  allowNestedRequests = false,
-  limits = {},
-  onChange,
-}: {
-  initialConcurrency?: number;
-  maxConcurrency?: number;
-  allowNestedRequests?: boolean;
-  limits?: ProviderRequestLimits;
-  onChange?: (state: {
-    concurrency: number;
-    active: number;
-    queued: number;
-    reason: string;
-    delayMs: number;
-  }) => void;
-} = {}) => {
+export const createRequestLimiter = (
+  {
+    initialConcurrency = initialProviderConcurrency,
+    maxConcurrency = maximumAnalysisConcurrency,
+    allowNestedRequests = false,
+    limits = {},
+    onChange,
+  }: {
+    initialConcurrency?: number;
+    maxConcurrency?: number;
+    allowNestedRequests?: boolean;
+    limits?: ProviderRequestLimits;
+    onChange?: (state: {
+      concurrency: number;
+      active: number;
+      queued: number;
+      reason: string;
+      delayMs: number;
+    }) => void;
+  } = {},
+  reservations: RequestReservation[] = [],
+): RequestLimiter => {
   let concurrency = Math.max(1, Math.min(initialConcurrency, maxConcurrency));
   let active = 0;
   let successes = 0;
   let pauseUntil = 0;
   let probeAfter = 0;
   let timer: ReturnType<typeof setTimeout> | undefined;
-  const queue: { inputTokens: number; start: () => void }[] = [];
-  const reservations: { startedAt: number; inputTokens: number }[] = [];
+  const queue: {
+    inputTokens: number;
+    outputTokens: number;
+    capacity: RequestCapacity;
+    start: () => void;
+  }[] = [];
+  const activeCapacities = new Set<RequestCapacity>();
   const subscribers = new Set<() => void>();
   const demands = new Set<() => number>();
   const execution = new AsyncLocalStorage<{
@@ -58,6 +76,16 @@ export const createRequestLimiter = ({
     timer = undefined;
     if (!queue.length) return;
     while (active < concurrency && queue.length) {
+      const next = queue[0]!;
+      if (
+        active >=
+        Math.min(
+          next.capacity.concurrency,
+          ...[...activeCapacities].map((capacity) => capacity.concurrency),
+        )
+      )
+        return;
+      const limits = next.capacity.limits;
       const now = Date.now();
       while (
         reservations[0] &&
@@ -69,6 +97,10 @@ export const createRequestLimiter = ({
         0,
       );
       let requests = reservations.length;
+      let outputTokens = reservations.reduce(
+        (total, entry) => total + entry.outputTokens,
+        0,
+      );
       let budgetDelay = 0;
       for (const reservation of reservations) {
         if (
@@ -76,10 +108,13 @@ export const createRequestLimiter = ({
             inputTokens + queue[0]!.inputTokens <=
               limits.inputTokensPerMinute) &&
           (limits.requestsPerMinute === undefined ||
-            requests < limits.requestsPerMinute)
+            requests < limits.requestsPerMinute) &&
+          (limits.outputTokensPerMinute === undefined ||
+            outputTokens + next.outputTokens <= limits.outputTokensPerMinute)
         )
           break;
         inputTokens -= reservation.inputTokens;
+        outputTokens -= reservation.outputTokens;
         requests--;
         budgetDelay = reservation.startedAt + providerRateWindowMs - now;
       }
@@ -91,10 +126,19 @@ export const createRequestLimiter = ({
       queue.shift()!.start();
     }
   };
-  const acquire = (inputTokens: number, signal?: AbortSignal) =>
+  const acquire = (
+    inputTokens: number,
+    outputTokens: number,
+    capacity: RequestCapacity,
+    signal?: AbortSignal,
+  ) =>
     new Promise<{
       release: () => void;
-      reservation: { startedAt: number; inputTokens: number };
+      reservation: {
+        startedAt: number;
+        inputTokens: number;
+        outputTokens: number;
+      };
     }>((resolve, reject) => {
       if (signal?.aborted) {
         reject(signal.reason);
@@ -108,10 +152,17 @@ export const createRequestLimiter = ({
       };
       const entry = {
         inputTokens,
+        outputTokens,
+        capacity,
         start: () => {
           signal?.removeEventListener("abort", canceled);
           active++;
-          const reservation = { startedAt: Date.now(), inputTokens };
+          activeCapacities.add(capacity);
+          const reservation = {
+            startedAt: Date.now(),
+            inputTokens,
+            outputTokens,
+          };
           reservations.push(reservation);
           let released = false;
           resolve({
@@ -120,6 +171,7 @@ export const createRequestLimiter = ({
               if (released) return;
               released = true;
               active--;
+              activeCapacities.delete(capacity);
               pump();
             },
           });
@@ -132,36 +184,54 @@ export const createRequestLimiter = ({
   const run = async <T>(
     operation: () => PromiseLike<T>,
     signal?: AbortSignal,
-    budget: {
-      inputTokens?: number;
-      actualInputTokens?: (result: T) => number | undefined;
-    } = {},
+    budget: RequestBudget<T> = {},
   ): Promise<T> => {
     const parent = allowNestedRequests ? execution.getStore() : undefined;
     if (parent?.active) return parent.run(operation, signal, budget);
     const inputTokens = Math.ceil(budget.inputTokens ?? 0);
+    const outputTokens = Math.ceil(budget.outputTokens ?? 0);
+    const capacity = {
+      ...(budget.capacity ?? { concurrency: maxConcurrency, limits }),
+    };
     if (
       !Number.isFinite(inputTokens) ||
       inputTokens < 0 ||
-      (limits.inputTokensPerMinute !== undefined &&
-        inputTokens > limits.inputTokensPerMinute)
+      (capacity.limits.inputTokensPerMinute !== undefined &&
+        inputTokens > capacity.limits.inputTokensPerMinute)
+    )
+      throw new AiContextBudgetError(
+        "Estimated request input exceeds the configured input token allowance per minute. Increase that allowance or use smaller batches.",
+      );
+    if (
+      !Number.isFinite(outputTokens) ||
+      outputTokens < 0 ||
+      (capacity.limits.outputTokensPerMinute !== undefined &&
+        outputTokens > capacity.limits.outputTokensPerMinute)
     )
       throw new AiServiceError(
-        "Estimated request input exceeds the provider's token allowance per minute. Split the request into smaller batches.",
+        "Reserved request output exceeds the configured output token allowance per minute. Lower maximum output tokens or raise that allowance.",
       );
-    const { release, reservation } = await acquire(inputTokens, signal);
+    const { release, reservation } = await acquire(
+      inputTokens,
+      outputTokens,
+      capacity,
+      signal,
+    );
     const startedAt = Date.now();
     let nestedRun: typeof run | undefined;
     const scope = {
       active: true,
       // Native MCP calls await Context inside the parent request; serialize children in its slot.
       run: ((operation, signal, budget) => {
-        nestedRun ??= createRequestLimiter({
-          initialConcurrency: 1,
-          maxConcurrency: 1,
-          limits,
-          allowNestedRequests: true,
-        }).run;
+        nestedRun ??= createRequestLimiter(
+          {
+            initialConcurrency: 1,
+            maxConcurrency: 1,
+            limits,
+            allowNestedRequests: true,
+          },
+          reservations,
+        ).run;
         return nestedRun(operation, signal, budget);
       }) as typeof run,
     };
@@ -175,11 +245,18 @@ export const createRequestLimiter = ({
         actualInputTokens >= 0
       )
         reservation.inputTokens = Math.ceil(actualInputTokens);
+      const actualOutputTokens = budget.actualOutputTokens?.(result);
+      if (
+        actualOutputTokens !== undefined &&
+        Number.isFinite(actualOutputTokens) &&
+        actualOutputTokens >= 0
+      )
+        reservation.outputTokens = Math.ceil(actualOutputTokens);
       if (
         (queue.length || [...demands].some((pending) => pending() > 0)) &&
         startedAt >= probeAfter &&
         ++successes >= concurrency * 2 &&
-        concurrency < maxConcurrency
+        concurrency < Math.min(maxConcurrency, capacity.concurrency)
       ) {
         concurrency++;
         successes = 0;
@@ -220,8 +297,10 @@ export const createRequestLimiter = ({
   const runStream = async <T extends { stream: ReadableStream<unknown> }>(
     operation: () => PromiseLike<T>,
     signal?: AbortSignal,
-    budget: { inputTokens?: number } = {},
+    budget: RequestBudget<unknown> = {},
   ): Promise<T> => {
+    let actualInputTokens: number | undefined;
+    let actualOutputTokens: number | undefined;
     let resolveStarted!: (result: T) => void;
     let rejectStarted!: (error: unknown) => void;
     const started = {
@@ -262,7 +341,14 @@ export const createRequestLimiter = ({
                 if (part.done) {
                   controller.close();
                   ended.resolve();
-                } else controller.enqueue(part.value);
+                } else {
+                  actualInputTokens =
+                    budget.actualInputTokens?.(part.value) ?? actualInputTokens;
+                  actualOutputTokens =
+                    budget.actualOutputTokens?.(part.value) ??
+                    actualOutputTokens;
+                  controller.enqueue(part.value);
+                }
               } catch (error) {
                 controller.error(error);
                 ended.reject(error);
@@ -285,7 +371,11 @@ export const createRequestLimiter = ({
         }
       },
       signal,
-      budget,
+      {
+        ...budget,
+        actualInputTokens: () => actualInputTokens,
+        actualOutputTokens: () => actualOutputTokens,
+      },
     ).catch(started.reject);
     return started.promise;
   };
@@ -310,19 +400,62 @@ export const createRequestLimiter = ({
 
 const limiters = new Map<string, ReturnType<typeof createRequestLimiter>>();
 
-export const getRequestLimiter = (key: string, provider: string) => {
+export const getRequestLimiter = (
+  key: string,
+  provider: string,
+  profile?: Pick<
+    ConnectionCapacitySchema,
+    | "concurrency"
+    | "requestsPerMinute"
+    | "inputTokensPerMinute"
+    | "outputTokensPerMinute"
+  >,
+): RequestLimiter => {
   let limiter = limiters.get(key);
   if (!limiter) {
     limiter = createRequestLimiter({
-      ...(provider === "chatgpt-subscription" || provider === "claude-code"
-        ? { initialConcurrency: 1, maxConcurrency: 2 }
-        : {}),
+      maxConcurrency: capacityBounds.concurrency.max,
       allowNestedRequests: provider === "claude-code",
-      limits: provider === "google" ? googleRequestLimits : {},
       onChange: (state) =>
         console.info("[senslop:ai-capacity]", { provider, ...state }),
     });
     limiters.set(key, limiter);
   }
-  return limiter;
+  // Every model wrapper keeps its run's policy; endpoint history and active slots remain shared.
+  const capacity: RequestCapacity = {
+    concurrency:
+      profile?.concurrency ??
+      (isLocalInferenceProvider(provider)
+        ? 1
+        : provider === "chatgpt-subscription" || provider === "claude-code"
+          ? 2
+          : maximumAnalysisConcurrency),
+    limits: profile
+      ? {
+          requestsPerMinute: profile.requestsPerMinute ?? undefined,
+          inputTokensPerMinute: profile.inputTokensPerMinute ?? undefined,
+          outputTokensPerMinute: profile.outputTokensPerMinute ?? undefined,
+        }
+      : provider === "google"
+        ? { ...googleRequestLimits }
+        : {},
+  };
+  const shared = limiter;
+  return {
+    ...shared,
+    state: () => ({
+      ...shared.state(),
+      concurrency: Math.min(shared.state().concurrency, capacity.concurrency),
+    }),
+    run: <T>(
+      operation: () => PromiseLike<T>,
+      signal?: AbortSignal,
+      budget?: RequestBudget<T>,
+    ) => shared.run(operation, signal, { ...budget, capacity }),
+    runStream: <T extends { stream: ReadableStream<unknown> }>(
+      operation: () => PromiseLike<T>,
+      signal?: AbortSignal,
+      budget?: RequestBudget<unknown>,
+    ) => shared.runStream(operation, signal, { ...budget, capacity }),
+  };
 };

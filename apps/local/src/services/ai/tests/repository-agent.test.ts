@@ -2,12 +2,14 @@ import { beforeEach, expect, test, vi } from "vitest";
 import { MockLanguageModelV4 } from "ai/test";
 import { createRepositoryAgent } from "../repository-agent";
 import { defaultAiSettings } from "../../../features/agents/constants";
+import type { ProviderConfigSchema } from "@senslop/contracts";
 vi.mock("server-only", () => ({}));
 const state = vi.hoisted(() => ({
   resolved: {} as object,
   contextResolved: {} as object,
   contextWindow: null as number | null,
-  provider: "lm-studio" as "lm-studio" | "openrouter" | "ollama",
+  provider: "lm-studio" as ProviderConfigSchema["provider"],
+  models: undefined as ProviderConfigSchema["models"],
 }));
 vi.mock("../../../features/providers/lib/provider-service", () => ({
   ProviderService: class {
@@ -15,6 +17,7 @@ vi.mock("../../../features/providers/lib/provider-service", () => ({
       connection: {
         provider: state.provider,
         contextWindow: state.contextWindow,
+        models: state.models,
       },
       secret: null,
     });
@@ -34,6 +37,7 @@ vi.mock("../../credentials/os-credentials", () => ({ osCredentials: {} }));
 beforeEach(() => {
   state.contextWindow = null;
   state.provider = "lm-studio";
+  state.models = undefined;
   vi.spyOn(console, "info").mockImplementation(() => {});
   vi.spyOn(console, "warn").mockImplementation(() => {});
 });
@@ -81,6 +85,37 @@ const resultAgent = (signal = new AbortController().signal) =>
     executionPolicy: { groupingSteps: 4, groupingOutputTokens: 8000 },
   });
 
+test("custom model limits bound grouping even when connection capacity is larger", async () => {
+  state.provider = "openai-compatible";
+  state.contextWindow = 128000;
+  state.models = [
+    {
+      id: "model",
+      contextWindow: 16000,
+      maxOutputTokens: 1000,
+      maxCompletionTokens: 500,
+      supportsTools: false,
+      supportsImages: false,
+      supportsParallelToolCalls: false,
+      supportsPromptCacheKey: false,
+      supportsChatCompletions: true,
+      usesMaxTokens: false,
+      supportsThinking: false,
+    },
+  ];
+  const model = new MockLanguageModelV4({
+    doGenerate: jsonResponse(resultGroups),
+  });
+  state.resolved = { model, toolsSupported: false };
+  await (await resultAgent()).grouping();
+  expect(model.doGenerateCalls[0]!.maxOutputTokens).toBe(500);
+  expect(model.doGenerateCalls[0]!.tools ?? []).toHaveLength(0);
+  expect(console.info).toHaveBeenCalledWith(
+    "[senslop:ai-request]",
+    expect.objectContaining({ event: "started", contextWindow: 16000 }),
+  );
+});
+
 const jsonResponse = (value: unknown) => ({
   content: [{ type: "text" as const, text: JSON.stringify(value) }],
   finishReason: { unified: "stop" as const, raw: "stop" },
@@ -105,6 +140,52 @@ test("grouping uses native structured output and never exposes a result submissi
   await expect((await resultAgent()).grouping()).resolves.toEqual(resultGroups);
   expect(model.doGenerateCalls).toHaveLength(1);
 });
+
+test.each([
+  {
+    provider: "lm-studio" as const,
+    configured: null,
+    expectedContext: 16384,
+    expectedOutput: 2048,
+  },
+  {
+    provider: "ollama" as const,
+    configured: null,
+    expectedContext: 16384,
+    expectedOutput: 2048,
+  },
+  {
+    provider: "lm-studio" as const,
+    configured: 32768,
+    expectedContext: 32768,
+    expectedOutput: 2048,
+  },
+  {
+    provider: "openrouter" as const,
+    configured: null,
+    expectedContext: 128000,
+    expectedOutput: 16000,
+  },
+])(
+  "$provider with context $configured uses an honest bounded request budget",
+  async ({ provider, configured, expectedContext, expectedOutput }) => {
+    state.provider = provider;
+    state.contextWindow = configured;
+    const model = new MockLanguageModelV4({
+      doGenerate: jsonResponse(resultGroups),
+    });
+    state.resolved = { model };
+    await (await resultAgent()).grouping();
+    expect(model.doGenerateCalls[0]!.maxOutputTokens).toBe(expectedOutput);
+    expect(console.info).toHaveBeenCalledWith(
+      "[senslop:ai-request]",
+      expect.objectContaining({
+        event: "started",
+        contextWindow: expectedContext,
+      }),
+    );
+  },
+);
 
 test("format correction reuses frozen tool evidence and preserves reasoning required by multi-turn models", async () => {
   let calls = 0;
@@ -247,6 +328,31 @@ test("malformed structured output is bounded and does not leak source into logs"
       failureKind: "invalid-json",
       responseFormat: "structured-output",
     }),
+  );
+});
+
+test("reasoning-only responses report a missing final answer without blaming schema support", async () => {
+  const model = new MockLanguageModelV4({
+    doGenerate: {
+      ...jsonResponse({}),
+      content: [{ type: "reasoning", text: "PRIVATE_REASONING" }],
+      usage: {
+        ...resultUsage,
+        outputTokens: { total: 196, text: 0, reasoning: 195 },
+      },
+    },
+  });
+  state.resolved = { model };
+  await expect((await resultAgent()).grouping()).rejects.toThrow(
+    /returned reasoning but no final answer/,
+  );
+  expect(model.doGenerateCalls).toHaveLength(2);
+  expect(console.warn).toHaveBeenCalledWith(
+    "[senslop:ai-result]",
+    expect.objectContaining({ failureKind: "reasoning-only" }),
+  );
+  expect(JSON.stringify(vi.mocked(console.warn).mock.calls)).not.toContain(
+    "PRIVATE_REASONING",
   );
 });
 

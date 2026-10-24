@@ -1,4 +1,28 @@
-import type { ProviderId } from "@senslop/contracts";
+import type { ProviderId, CompatibleModelSchema } from "@senslop/contracts";
+
+export const defaultCompatibleModel: CompatibleModelSchema = {
+  id: "",
+  maxCompletionTokens: 200000,
+  maxOutputTokens: 32000,
+  contextWindow: 200000,
+  supportsTools: true,
+  supportsImages: false,
+  supportsParallelToolCalls: false,
+  supportsPromptCacheKey: false,
+  supportsChatCompletions: true,
+  usesMaxTokens: false,
+  supportsThinking: false,
+};
+
+export const compatibleModelCapabilities = [
+  "supportsTools",
+  "supportsImages",
+  "supportsParallelToolCalls",
+  "supportsPromptCacheKey",
+  "supportsChatCompletions",
+  "usesMaxTokens",
+  "supportsThinking",
+] as const;
 
 // Chat fallbacks checked against official provider docs on October 10, 2026.
 export const getFallbackModelIds = (

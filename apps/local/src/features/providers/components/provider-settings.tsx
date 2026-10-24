@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import { ChevronRight, Star, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronRight, Plus, Star, Trash2 } from "lucide-react";
 import {
   providerIds,
   isSubscriptionProvider,
@@ -20,6 +20,14 @@ import { toast } from "@/components/ui/toast";
 import { useProviderModels } from "../hooks/use-provider-models";
 import { ProviderModelStatus } from "./provider-model-status";
 import { SubscriptionProvider } from "./subscription-provider";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuLabel,
+  DropdownMenuItem,
+} from "@/components/ui/dropdown-menu";
 
 type ProviderSettingsProps = {
   search?: string;
@@ -72,6 +80,37 @@ export const ProviderSettings = ({
   return (
     <div className="flex flex-col gap-8 text-base">
       {ConfirmationDialog}
+      <div className="flex justify-end gap-3">
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={
+              <Button
+                variant="outline"
+                className="text-base"
+                aria-label="Add provider"
+              />
+            }
+          >
+            <Plus aria-hidden="true" />
+            Add provider
+            <ChevronDown aria-hidden="true" />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuGroup>
+              <DropdownMenuLabel className="text-base">
+                Compatible APIs
+              </DropdownMenuLabel>
+              <DropdownMenuItem
+                className="text-base"
+                onClick={() => onConfigure("openai-compatible", undefined)}
+              >
+                <ProviderIcon name="OpenAI" size={20} aria-hidden="true" />
+                OpenAI
+              </DropdownMenuItem>
+            </DropdownMenuGroup>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
       <p className="text-muted-foreground">
         Choose task models in AI settings and chat models in the agent panel.
         API keys are saved in your OS credential store; configuration stays on
@@ -98,159 +137,180 @@ export const ProviderSettings = ({
         </div>
       )}
       {state &&
-        providerIds.map((provider) => {
-          const info = formatProvider(provider);
-          const connections = state.connections.filter(
-            (connection) => connection.provider === provider,
-          );
-          const options: (PublicConnectionSchema | undefined)[] =
-            connections.length ? connections : [undefined];
+        [...providerIds]
+          .sort(
+            (a, b) =>
+              Number(b === "openai-compatible") -
+              Number(a === "openai-compatible"),
+          )
+          .filter(
+            (provider) =>
+              provider !== "openai-compatible" ||
+              state.connections.some(
+                (connection) => connection.provider === provider,
+              ),
+          )
+          .map((provider) => {
+            const info = formatProvider(provider);
+            const connections = state.connections.filter(
+              (connection) => connection.provider === provider,
+            );
+            const options: (PublicConnectionSchema | undefined)[] =
+              connections.length ? connections : [undefined];
 
-          return (
-            <section
-              key={provider}
-              hidden={
-                !!search &&
-                !`providers api key model endpoint ${info.label}`
-                  .toLowerCase()
-                  .includes(search)
-              }
-              id={`settings-provider-${provider}`}
-              className="flex flex-col gap-6 border-b pb-6"
-              aria-label={`${info.label} connections`}
-            >
-              {options.map((connection) => {
-                const key = connection?.id ?? provider;
-                const entry = entries.find(
-                  (entry) => entry.connection.id === connection?.id,
-                );
+            return (
+              <section
+                key={provider}
+                hidden={
+                  !!search &&
+                  !`providers api key model endpoint ${info.label} ${connections.map((connection) => connection.name).join(" ")}`
+                    .toLowerCase()
+                    .includes(search)
+                }
+                id={`settings-provider-${provider}`}
+                className="flex flex-col gap-6 border-b pb-6"
+                aria-label={`${info.label} connections`}
+              >
+                {options.map((connection) => {
+                  const key = connection?.id ?? provider;
+                  const label =
+                    provider === "openai-compatible"
+                      ? (connection?.name ?? info.label)
+                      : info.label;
+                  const entry = entries.find(
+                    (entry) => entry.connection.id === connection?.id,
+                  );
 
-                const connectedProviderOptions = connection ? (
-                  <span className="inline-flex items-center gap-1">
-                    <TooltipWrapper content="Default review connection">
-                      <Button
-                        variant={
-                          state.defaultId === connection.id
-                            ? "secondary"
-                            : "ghost"
-                        }
-                        size="icon"
-                        className="size-7"
-                        aria-label={`${state.defaultId === connection.id ? "Clear default" : "Use by default"} ${info.label}`}
-                        aria-pressed={state.defaultId === connection.id}
-                        disabled={busy || statuses[key]?.busy}
-                        onClick={() =>
-                          void act({
-                            action: "default",
-                            id:
-                              state.defaultId === connection.id
-                                ? null
-                                : connection.id,
-                          })
-                        }
-                      >
-                        <Star aria-hidden="true" />
-                      </Button>
-                    </TooltipWrapper>
-                    <TooltipWrapper content="Delete connection">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="size-7"
-                        aria-label={`Delete ${info.label} connection`}
-                        disabled={busy || statuses[key]?.busy}
-                        onClick={async () => {
-                          if (await confirm())
-                            await act({
-                              action: "delete",
-                              id: connection.id,
-                            });
-                        }}
-                      >
-                        <Trash2 aria-hidden="true" />
-                      </Button>
-                    </TooltipWrapper>
-                  </span>
-                ) : undefined;
+                  const connectedProviderOptions = connection ? (
+                    <span className="inline-flex items-center gap-1">
+                      <TooltipWrapper content="Default review connection">
+                        <Button
+                          variant={
+                            state.defaultId === connection.id
+                              ? "secondary"
+                              : "ghost"
+                          }
+                          size="icon"
+                          className="size-7"
+                          aria-label={`${state.defaultId === connection.id ? "Clear default" : "Use by default"} ${label}`}
+                          aria-pressed={state.defaultId === connection.id}
+                          disabled={busy || statuses[key]?.busy}
+                          onClick={() =>
+                            void act({
+                              action: "default",
+                              id:
+                                state.defaultId === connection.id
+                                  ? null
+                                  : connection.id,
+                            })
+                          }
+                        >
+                          <Star aria-hidden="true" />
+                        </Button>
+                      </TooltipWrapper>
+                      <TooltipWrapper content="Delete connection">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-7"
+                          aria-label={`Delete ${label} connection`}
+                          disabled={busy || statuses[key]?.busy}
+                          onClick={async () => {
+                            if (await confirm())
+                              await act({
+                                action: "delete",
+                                id: connection.id,
+                              });
+                          }}
+                        >
+                          <Trash2 aria-hidden="true" />
+                        </Button>
+                      </TooltipWrapper>
+                    </span>
+                  ) : undefined;
 
-                return (
-                  <div key={key} className="flex min-w-0 flex-col gap-3">
-                    <h3 className="flex flex-wrap items-center gap-2 text-base font-medium text-muted-foreground">
-                      <ProviderIcon
-                        aria-hidden="true"
-                        name={info.icon}
-                        size={22}
-                      />
-                      <span>{info.label}</span>
-                      <ProviderModelStatus
-                        provider={provider}
-                        connection={connection}
-                        entry={entry}
-                        status={statuses[key] ?? statuses[provider]}
-                        onRefresh={async () => {
-                          updateStatus(key, { busy: false, error: null });
-                          if (entry) await entry.refetch();
-                          else await refresh();
-                        }}
-                      />
-                    </h3>
-                    {isSubscriptionProvider(provider) ? (
-                      <div className="grid gap-4 items-start md:grid-cols-2">
-                        <div className="w-full min-w-0 col-span-2">
-                          <SubscriptionProvider
-                            provider={provider}
-                            connection={connection}
-                            onSaved={refresh}
-                            onStatusChange={(status) =>
-                              updateStatus(key, status)
-                            }
-                          />
+                  return (
+                    <div key={key} className="flex min-w-0 flex-col gap-3">
+                      <h3 className="flex flex-wrap items-center gap-2 text-base font-medium text-muted-foreground">
+                        <ProviderIcon
+                          aria-hidden="true"
+                          name={info.icon}
+                          size={22}
+                        />
+                        <span>{label}</span>
+                        <ProviderModelStatus
+                          provider={provider}
+                          connection={connection}
+                          entry={entry}
+                          status={statuses[key] ?? statuses[provider]}
+                          onRefresh={async () => {
+                            updateStatus(key, { busy: false, error: null });
+                            if (entry) await entry.refetch();
+                            else await refresh();
+                          }}
+                        />
+                      </h3>
+                      {isSubscriptionProvider(provider) ? (
+                        <div className="grid gap-4 items-start md:grid-cols-2">
+                          <div className="w-full min-w-0 col-span-2">
+                            <SubscriptionProvider
+                              provider={provider}
+                              connection={connection}
+                              onSaved={refresh}
+                              onStatusChange={(status) =>
+                                updateStatus(key, status)
+                              }
+                            />
+                          </div>
+                          <div className="flex flex-col gap-1">
+                            {connectedProviderOptions}
+                          </div>
                         </div>
-                        <div className="flex flex-col gap-1">
-                          {connectedProviderOptions}
+                      ) : (
+                        <div className="grid items-start gap-4 md:grid-cols-2">
+                          <div className="flex flex-col gap-1 items-start">
+                            <p className="font-medium">
+                              {info.keyRequired &&
+                              provider !== "openai-compatible"
+                                ? "API key"
+                                : "Configure provider"}
+                            </p>
+                            <p className="text-muted-foreground">
+                              {info.description}
+                            </p>
+                            <div className="mt-1">
+                              {connectedProviderOptions}
+                            </div>
+                          </div>
+                          {info.keyRequired &&
+                          provider !== "openai-compatible" ? (
+                            <ProviderKeyForm
+                              provider={provider}
+                              connection={connection}
+                              onSaved={refresh}
+                              onStatusChange={(status) =>
+                                updateStatus(key, status)
+                              }
+                            />
+                          ) : (
+                            <Button
+                              variant="outline"
+                              className="justify-self-end text-base"
+                              aria-label={`Configure ${label}`}
+                              onClick={() => onConfigure(provider, connection)}
+                            >
+                              Configure
+                              <ChevronRight aria-hidden="true" />
+                            </Button>
+                          )}
                         </div>
-                      </div>
-                    ) : (
-                      <div className="grid items-start gap-4 md:grid-cols-2">
-                        <div className="flex flex-col gap-1 items-start">
-                          <p className="font-medium">
-                            {info.keyRequired
-                              ? "API key"
-                              : "Configure provider"}
-                          </p>
-                          <p className="text-muted-foreground">
-                            {info.description}
-                          </p>
-                          <div className="mt-1">{connectedProviderOptions}</div>
-                        </div>
-                        {info.keyRequired ? (
-                          <ProviderKeyForm
-                            provider={provider}
-                            connection={connection}
-                            onSaved={refresh}
-                            onStatusChange={(status) =>
-                              updateStatus(key, status)
-                            }
-                          />
-                        ) : (
-                          <Button
-                            variant="outline"
-                            className="justify-self-end text-base"
-                            aria-label={`Configure ${info.label}`}
-                            onClick={() => onConfigure(provider, connection)}
-                          >
-                            Configure
-                            <ChevronRight aria-hidden="true" />
-                          </Button>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </section>
-          );
-        })}
+                      )}
+                    </div>
+                  );
+                })}
+              </section>
+            );
+          })}
     </div>
   );
 };

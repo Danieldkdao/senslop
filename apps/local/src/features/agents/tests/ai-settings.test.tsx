@@ -1,24 +1,47 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen, within } from "@testing-library/react";
+import {
+  cleanup,
+  render,
+  screen,
+  within,
+  waitFor,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, afterEach, expect, test, vi } from "vitest";
 import { AiSettings } from "../components/ai-settings";
 import { defaultAiSettings } from "../constants";
 import { formatAgentRole } from "../lib/formatters";
 
-const state = vi.hoisted(() => ({ settings: {} as typeof defaultAiSettings }));
+const state = vi.hoisted(() => ({
+  settings: {} as typeof defaultAiSettings,
+  locked: false,
+  save: vi.fn(async () => {}),
+}));
 beforeEach(() => {
   state.settings = { ...defaultAiSettings };
+  state.locked = false;
+  state.save.mockClear();
 });
 vi.mock("../hooks/use-ai-settings", () => ({
   useAiSettings: () => ({
     settings: { data: state.settings },
-    save: vi.fn(),
+    capacityStatus: { data: { locked: state.locked } },
+    save: state.save,
   }),
 }));
 vi.mock("../../providers/hooks/use-provider-models", () => ({
   useProviderModels: () => ({
-    entries: [{ catalog: { models: [{ available: true }] } }],
+    entries: [
+      {
+        connection: {
+          id: "test",
+          name: "Test",
+          provider: "lm-studio",
+          contextWindow: null,
+        },
+        catalog: { models: [{ available: true }] },
+      },
+    ],
   }),
 }));
 vi.mock("../../providers/components/model-picker", () => ({
@@ -28,6 +51,27 @@ vi.mock("../../settings/components/provider-settings-dialog", () => ({
   getProviderSettingsSection: () => ({ content: null }),
 }));
 afterEach(cleanup);
+
+test("capacity edits submit with AI settings and active runs disable capacity controls", async () => {
+  const navigation = { navigate: vi.fn() } as never;
+  const view = render(<AiSettings navigation={navigation} />);
+  const user = userEvent.setup();
+  const input = screen.getByRole("spinbutton", { name: "Concurrent requests" });
+  await user.clear(input);
+  await user.type(input, "3");
+  await user.click(screen.getByRole("button", { name: "Save AI settings" }));
+  await waitFor(() =>
+    expect(state.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        capacity: { test: expect.objectContaining({ concurrency: 3 }) },
+      }),
+    ),
+  );
+  state.locked = true;
+  view.rerender(<AiSettings navigation={navigation} />);
+  expect((input as HTMLInputElement).disabled).toBe(true);
+  expect(screen.getByText(/disabled while grouping or review/)).toBeTruthy();
+});
 
 test("CLI settings refresh updates clean fields while preserving unsaved grouping instructions", async () => {
   state.settings = {
@@ -50,7 +94,11 @@ test("CLI settings refresh updates clean fields while preserving unsaved groupin
     (screen.getByLabelText("Grouping instructions") as HTMLTextAreaElement)
       .value,
   ).toBe("My draft");
-  expect(screen.getByRole("switch").getAttribute("aria-checked")).toBe("true");
+  expect(
+    screen
+      .getByRole("switch", { name: "Use a separate model for each task" })
+      .getAttribute("aria-checked"),
+  ).toBe("true");
 });
 
 test("model settings explain the shared model and show every role description beside its picker", async () => {
@@ -60,7 +108,11 @@ test("model settings explain the shared model and show every role description be
       "Uses the same model to group changes, gather context, review code, and explain changes.",
     ),
   ).toBeTruthy();
-  await userEvent.setup().click(screen.getByRole("switch"));
+  await userEvent.setup().click(
+    screen.getByRole("switch", {
+      name: "Use a separate model for each task",
+    }),
+  );
   for (const role of ["grouping", "context", "review", "explain"] as const) {
     const { label, description } = formatAgentRole(role);
     expect(label).toBeTruthy();

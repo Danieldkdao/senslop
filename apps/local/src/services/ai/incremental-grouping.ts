@@ -1,6 +1,49 @@
 import type { SavedReviewSchema } from "@senslop/contracts";
 import type { GroupingSchema } from "../../features/agents/schemas";
 import { validateGrouping } from "../../features/agents/lib/validate-results";
+import { estimateTokens } from "./context-budget";
+
+export const getIncrementalGroupingContext = (
+  context: GroupingSchema,
+  aliases: { key: string; title: string }[],
+  members: string[],
+  relatedPaths: string[],
+  tokenBudget: number,
+) => {
+  const selected = new Set(members);
+  const related = new Set(relatedPaths);
+  const names = new Map(aliases.map((alias) => [alias.key, alias.title]));
+  const candidates = context.groups
+    .map((group) => {
+      const files = group.files
+        .filter((file) => selected.has(file.path))
+        .map((file) => file.path);
+      const relatedFile = group.files.find((file) =>
+        related.has(file.path),
+      )?.path;
+      return {
+        priority: files.length ? 2 : relatedFile ? 1 : 0,
+        group: {
+          title: group.title,
+          name: names.get(group.title) ?? group.title,
+          files,
+          ...(relatedFile ? { relatedFile } : {}),
+        },
+      };
+    })
+    .sort((left, right) => right.priority - left.priority);
+  const groups: (typeof candidates)[number]["group"][] = [];
+  const render = (entries: typeof groups) =>
+    JSON.stringify({
+      groups: entries,
+      omittedGroups: context.groups.length - entries.length,
+    });
+  for (const candidate of candidates) {
+    if (estimateTokens(render([...groups, candidate.group])) <= tokenBudget)
+      groups.push(candidate.group);
+  }
+  return render(groups);
+};
 
 export const prepareIncrementalGrouping = (
   snapshot: SavedReviewSchema,

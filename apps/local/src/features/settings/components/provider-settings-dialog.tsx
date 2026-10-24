@@ -3,6 +3,7 @@
 import { providerIds } from "@senslop/contracts";
 import { ProviderSettings } from "../../providers/components/provider-settings";
 import { ConnectionForm } from "../../providers/components/connection-form";
+import { CompatibleProviderForm } from "../../providers/components/compatible-provider-form";
 import { formatProvider } from "../../providers/lib/formatters";
 import type { SettingsNavigation, SettingsSection } from "../types";
 import { SettingsDialog } from "./settings-dialog";
@@ -20,10 +21,22 @@ export const getProviderSettingsSection = (
       onConfigure={(provider, connection) =>
         navigation.navigate({
           id: connection?.id ?? provider,
-          label: formatProvider(provider).label,
-          content: (
-            <ConnectionForm provider={provider} connection={connection} />
-          ),
+          label:
+            provider === "openai-compatible"
+              ? connection
+                ? `Configure ${connection.name}`
+                : "Add OpenAI-Compatible Provider"
+              : formatProvider(provider).label,
+          content:
+            provider === "openai-compatible" ? (
+              <CompatibleProviderForm
+                connection={connection}
+                onCancel={navigation.back}
+                onSaved={() => navigation.back()}
+              />
+            ) : (
+              <ConnectionForm provider={provider} connection={connection} />
+            ),
         })
       }
     />

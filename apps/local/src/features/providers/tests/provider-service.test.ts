@@ -45,6 +45,96 @@ const input = {
   contextWindow: null,
   apiKey: "unique-test-secret",
 };
+
+const compatibleModel = {
+  id: "local/model",
+  maxCompletionTokens: 200000,
+  maxOutputTokens: 32000,
+  contextWindow: 200000,
+  supportsTools: true,
+  supportsImages: false,
+  supportsParallelToolCalls: false,
+  supportsPromptCacheKey: false,
+  supportsChatCompletions: true,
+  usesMaxTokens: false,
+  supportsThinking: false,
+};
+
+test("custom compatible providers persist model capabilities while keeping their key out of SQLite", async () => {
+  const { path, store, service, credentials } = await fixture();
+  try {
+    const saved = await service.save({
+      ...input,
+      provider: "openai-compatible",
+      name: "My compatible server",
+      models: [compatibleModel],
+    });
+    expect(saved.connection.models).toEqual([compatibleModel]);
+    expect(JSON.stringify(saved)).not.toContain(input.apiKey);
+    const reopened = new LocalStore(path);
+    try {
+      expect(
+        (await new ProviderService(reopened, credentials).list()).connections[0]
+          ?.models,
+      ).toEqual([compatibleModel]);
+    } finally {
+      reopened.close();
+    }
+    expect((await readFile(path)).includes(Buffer.from(input.apiKey))).toBe(
+      false,
+    );
+  } finally {
+    store.close();
+  }
+});
+
+test("custom providers reject duplicate names and invalid model budgets before saving a key", async () => {
+  const { store, service, credentials } = await fixture();
+  try {
+    const config = {
+      ...input,
+      provider: "openai-compatible",
+      name: "Custom server",
+      models: [compatibleModel],
+    };
+    await service.save(config);
+    vi.mocked(credentials.set).mockClear();
+    for (const invalid of [
+      { ...config, name: "CUSTOM SERVER" },
+      { ...config, name: "Another", models: [] },
+      {
+        ...config,
+        name: "Another",
+        models: [compatibleModel, compatibleModel],
+      },
+      {
+        ...config,
+        name: "Another",
+        models: [{ ...compatibleModel, maxOutputTokens: 0 }],
+      },
+      {
+        ...config,
+        name: "Another",
+        models: [{ ...compatibleModel, contextWindow: 1000 }],
+      },
+      {
+        ...config,
+        name: "Another",
+        models: [{ ...compatibleModel, supportsTools: "yes" }],
+      },
+      {
+        ...config,
+        name: "Another",
+        baseURL: "https://user:password@api.test/v1",
+      },
+    ])
+      await expect(service.save(invalid)).rejects.toThrow();
+    expect(credentials.set).not.toHaveBeenCalled();
+    expect((await service.list()).connections).toHaveLength(1);
+  } finally {
+    store.close();
+  }
+});
 test("only nonsecrets enter SQLite, credentials rotate through the OS abstraction, and defaults persist", async () => {
   const { path, store, service, keys, credentials } = await fixture();
   try {

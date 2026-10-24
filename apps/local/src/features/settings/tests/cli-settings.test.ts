@@ -11,7 +11,12 @@ vi.mock("../../../features/workspace/lib/server-workspace", () => ({
   protectLocalRoute: () => true,
   readLocalBody: (request: Request) => request.json(),
 }));
-import { PATCH as patchAi } from "../../../app/api/agents/settings/route";
+import {
+  PATCH as patchAi,
+  PUT as putAi,
+  GET as getAi,
+} from "../../../app/api/agents/settings/route";
+import { defaultConnectionCapacity } from "../../ai-capacity/lib/capacity";
 import {
   GET as getReview,
   PATCH as patchReview,
@@ -31,6 +36,50 @@ const request = (body: object) =>
     method: "PATCH",
     body: JSON.stringify(body),
   });
+
+test("capacity status covers active runs and both save methods reject changes until completion", async () => {
+  const agents = new AgentStore(state.store, "/repo");
+  const review = state.store.saveReview(
+    "/repo",
+    {
+      id: crypto.randomUUID(),
+      protocolVersion: 1,
+      source: {
+        kind: "working-tree",
+        base: "a".repeat(40),
+        head: null,
+        firstParent: false,
+      },
+      files: [],
+      excluded: [],
+    },
+    null,
+    true,
+  );
+  const job = agents.createJob(review.id, "review");
+  const statusRequest = new Request(
+    "http://localhost/api/agents/settings?capacityStatus=1",
+  );
+  expect(await (await getAi(statusRequest)).json()).toEqual({ locked: true });
+  const profile = defaultConnectionCapacity({
+    provider: "lm-studio",
+    contextWindow: null,
+  });
+  for (const write of [patchAi, putAi]) {
+    const response = await write(
+      request({ ...agents.settings(), capacity: { test: profile } }),
+    );
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({
+      message: expect.stringMatching(/grouping or review/),
+    });
+  }
+  agents.updateJob(job.id, { status: "canceled" });
+  expect(await (await getAi(statusRequest)).json()).toEqual({ locked: false });
+  expect((await patchAi(request({ capacity: { test: profile } }))).status).toBe(
+    200,
+  );
+});
 
 test("CLI AI patches merge nested model roles without resetting other settings", async () => {
   const agents = new AgentStore(state.store, "/repo");

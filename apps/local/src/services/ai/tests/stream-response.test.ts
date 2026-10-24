@@ -238,51 +238,54 @@ test("canceling the response aborts generation and preserves partial output as i
   );
 });
 
-test("a length-limited response retains partial text as interrupted rather than marking the turn complete", async () => {
-  const saved: { message: UIMessage; status: string }[] = [];
-  const stream = streamText({
-    model: new MockLanguageModelV4({
-      doStream: async () => ({
-        stream: new ReadableStream({
-          start(controller) {
-            controller.enqueue({ type: "text-start", id: "text" });
-            controller.enqueue({
-              type: "text-delta",
-              id: "text",
-              delta: "Let me check more",
-            });
-            controller.enqueue({ type: "text-end", id: "text" });
-            controller.enqueue({
-              type: "finish",
-              finishReason: { unified: "length", raw: undefined },
-              usage: {
-                inputTokens: {
-                  total: 1,
-                  noCache: 1,
-                  cacheRead: 0,
-                  cacheWrite: 0,
+test.each(["length", "content-filter", "error", "other"] as const)(
+  "a response ending with %s retains partial text as interrupted",
+  async (finishReason) => {
+    const saved: { message: UIMessage; status: string }[] = [];
+    const stream = streamText({
+      model: new MockLanguageModelV4({
+        doStream: async () => ({
+          stream: new ReadableStream({
+            start(controller) {
+              controller.enqueue({ type: "text-start", id: "text" });
+              controller.enqueue({
+                type: "text-delta",
+                id: "text",
+                delta: "Let me check more",
+              });
+              controller.enqueue({ type: "text-end", id: "text" });
+              controller.enqueue({
+                type: "finish",
+                finishReason: { unified: finishReason, raw: undefined },
+                usage: {
+                  inputTokens: {
+                    total: 1,
+                    noCache: 1,
+                    cacheRead: 0,
+                    cacheWrite: 0,
+                  },
+                  outputTokens: { total: 1, text: 1, reasoning: 0 },
                 },
-                outputTokens: { total: 1, text: 1, reasoning: 0 },
-              },
-            });
-            controller.close();
-          },
+              });
+              controller.close();
+            },
+          }),
         }),
       }),
-    }),
-    prompt: "Explain",
-  });
-  const response = agentStreamResponse(
-    stream.stream,
-    new AbortController(),
-    async (message, status) => {
-      saved.push({ message, status });
-    },
-  );
-  const chat = new Chat({
-    transport: new DefaultChatTransport({ fetch: async () => response }),
-  });
-  await chat.sendMessage({ text: "Explain" });
-  expect(chat.status).toBe("error");
-  await expect.poll(() => saved[0]?.status).toBe("interrupted");
-});
+      prompt: "Explain",
+    });
+    const response = agentStreamResponse(
+      stream.stream,
+      new AbortController(),
+      async (message, status) => {
+        saved.push({ message, status });
+      },
+    );
+    const chat = new Chat({
+      transport: new DefaultChatTransport({ fetch: async () => response }),
+    });
+    await chat.sendMessage({ text: "Explain" });
+    expect(chat.status).toBe("error");
+    await expect.poll(() => saved[0]?.status).toBe("interrupted");
+  },
+);

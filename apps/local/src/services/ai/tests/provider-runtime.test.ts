@@ -3,7 +3,8 @@ import { generateText, APICallError, Output } from "ai";
 import { z } from "zod";
 import type { ProviderConfigSchema } from "@senslop/contracts";
 import { resolveLanguageModel } from "../provider-runtime";
-import { formatAiError } from "../errors";
+import { formatAiError, isFatalAiError } from "../errors";
+import { defaultConnectionCapacity } from "../../../features/ai-capacity/lib/capacity";
 import {
   createReviewBatchSchema,
   createReviewRepairSchema,
@@ -22,6 +23,38 @@ const connection = (
   contextWindow: null,
 });
 
+test("subscription accounts keep the same capacity pool when access tokens rotate", async () => {
+  const config = {
+    ...connection("chatgpt-subscription"),
+    account: {
+      email: "test@example.test",
+      subject: crypto.randomUUID(),
+      plan: null,
+    },
+  };
+  const capacity = { ...defaultConnectionCapacity(config), concurrency: 1 };
+  let active = 0;
+  let peak = 0;
+  await Promise.all(
+    ["old-token", "refreshed-token"].map((token) => {
+      const resolved = resolveLanguageModel(
+        config,
+        token,
+        "fixture",
+        undefined,
+        capacity,
+      );
+      return resolved.requestLimiter!.run(async () => {
+        active++;
+        peak = Math.max(peak, active);
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        active--;
+      });
+    }),
+  );
+  expect(peak).toBe(1);
+});
+
 test("required credentials fail before creating a model or making requests", () => {
   const fetcher = vi.fn();
   expect(() =>
@@ -29,6 +62,47 @@ test("required credentials fail before creating a model or making requests", () 
   ).toThrow("API key");
   expect(fetcher).not.toHaveBeenCalled();
 });
+
+test.each([
+  { provider: "lm-studio", finishReason: "content_filter" },
+  { provider: "lm-studio", finishReason: "error" },
+  { provider: "lm-studio", finishReason: "unknown" },
+  { provider: "lm-studio", finishReason: "length" },
+  { provider: "openrouter", finishReason: "error" },
+] as const)(
+  "$provider rejects schema-valid JSON when generation ends with $finishReason",
+  async ({ provider, finishReason }) => {
+    const fetcher = vi.fn<typeof fetch>(async () =>
+      Response.json({
+        choices: [
+          {
+            index: 0,
+            message: { role: "assistant", content: '{"answer":"partial"}' },
+            finish_reason: finishReason,
+            ...(provider === "openrouter"
+              ? { error: { code: 502, message: "Upstream disconnected" } }
+              : {}),
+          },
+        ],
+        usage: { prompt_tokens: 10, completion_tokens: 10, total_tokens: 20 },
+      }),
+    );
+    await expect(
+      generateText({
+        ...resolveLanguageModel(
+          connection(provider),
+          "fixture",
+          "fixture",
+          fetcher,
+        ),
+        prompt: "Respond with JSON",
+        output: Output.object({ schema: z.object({ answer: z.string() }) }),
+        maxRetries: 0,
+      }),
+    ).rejects.toThrow(/blocked|did not complete|completion budget/);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  },
+);
 
 test.each(["lm-studio", "llama-cpp"] as const)(
   "%s sends structured schemas to its compatible server",
@@ -60,7 +134,93 @@ test.each(["lm-studio", "llama-cpp"] as const)(
   },
 );
 
-test("model calls using the same provider credentials share a request limit", async () => {
+test("OpenAI Responses refusals have a safe fatal diagnostic rather than a decoding error", async () => {
+  const refusal = {
+    id: "resp-refusal",
+    created_at: 1,
+    status: "completed",
+    model: "gpt-4o-2024-08-06",
+    output: [
+      {
+        id: "msg-refusal",
+        type: "message",
+        role: "assistant",
+        content: [{ type: "refusal", refusal: "PRIVATE_REFUSAL" }],
+      },
+    ],
+    usage: { input_tokens: 10, output_tokens: 1, total_tokens: 11 },
+  };
+  const error = await generateText({
+    ...resolveLanguageModel(
+      connection("chatgpt"),
+      "fixture",
+      refusal.model,
+      async () => Response.json(refusal),
+    ),
+    prompt: "Reply",
+    maxRetries: 0,
+  }).catch((error: unknown) => error);
+  expect(formatAiError(error)).toMatch(/blocked/);
+  expect(isFatalAiError(error)).toBe(true);
+  expect(formatAiError(error)).not.toContain("PRIVATE_REFUSAL");
+});
+
+test("OpenRouter schema requests require a compatible upstream route", async () => {
+  let body: Record<string, unknown> = {};
+  await generateText({
+    ...resolveLanguageModel(
+      connection("openrouter"),
+      "fixture",
+      "openai/gpt-4o",
+      async (_url, init) => {
+        body = JSON.parse(String(init?.body));
+        return Response.json({
+          choices: [
+            {
+              index: 0,
+              message: { role: "assistant", content: '{"answer":"valid"}' },
+              finish_reason: "stop",
+            },
+          ],
+        });
+      },
+    ),
+    prompt: "Reply with JSON",
+    output: Output.object({ schema: z.object({ answer: z.string() }) }),
+  });
+  expect(body.provider).toMatchObject({ require_parameters: true });
+});
+
+test.each(["gpt-oss", "qwen3"])(
+  "Ollama preserves %s's server thinking default",
+  async (modelId) => {
+    let body: Record<string, unknown> = {};
+    await generateText({
+      ...resolveLanguageModel(
+        connection("ollama", "http://localhost:11434"),
+        null,
+        modelId,
+        async (_url, init) => {
+          body = JSON.parse(String(init?.body));
+          return Response.json({
+            model: modelId,
+            created_at: new Date().toISOString(),
+            message: { role: "assistant", content: "ok" },
+            done: true,
+            done_reason: "stop",
+            prompt_eval_count: 2,
+            eval_count: 1,
+          });
+        },
+      ),
+      prompt: "Reply",
+      reasoning: "none",
+    });
+    expect(body).not.toHaveProperty("think");
+  },
+);
+
+test("cloud model calls using the same provider credentials share an adaptive request limit", async () => {
   const releases: (() => void)[] = [];
   let active = 0;
   let peak = 0;
@@ -87,7 +247,7 @@ test("model calls using the same provider credentials share a request limit", as
   const runs = Array.from({ length: 3 }, (_, id) =>
     generateText({
       ...resolveLanguageModel(
-        connection("lm-studio"),
+        connection("mistral"),
         "shared-limiter-fixture",
         `model-${id}`,
         fetcher,
@@ -104,6 +264,61 @@ test("model calls using the same provider credentials share a request limit", as
   await Promise.all(runs);
   expect(peak).toBe(2);
 });
+
+test.each(["lm-studio", "llama-cpp", "ollama"] as const)(
+  "%s serializes calls across models and saved credentials without ramping up",
+  async (provider) => {
+    let active = 0;
+    let peak = 0;
+    const fetcher: typeof fetch = async () => {
+      active++;
+      peak = Math.max(peak, active);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      active--;
+      return Response.json(
+        provider === "ollama"
+          ? {
+              model: "fixture",
+              created_at: "2026-10-18T00:00:00Z",
+              message: { role: "assistant", content: "ok" },
+              done: true,
+              done_reason: "stop",
+              prompt_eval_count: 1,
+              eval_count: 1,
+            }
+          : {
+              choices: [
+                {
+                  index: 0,
+                  message: { role: "assistant", content: "ok" },
+                  finish_reason: "stop",
+                },
+              ],
+              usage: {
+                prompt_tokens: 1,
+                completion_tokens: 1,
+                total_tokens: 2,
+              },
+            },
+      );
+    };
+    await Promise.all(
+      Array.from({ length: 16 }, (_, index) =>
+        generateText({
+          ...resolveLanguageModel(
+            connection(provider),
+            `local-key-${index % 2}`,
+            `model-${index % 3}`,
+            fetcher,
+          ),
+          prompt: "hello",
+          maxRetries: 0,
+        }),
+      ),
+    );
+    expect(peak).toBe(1);
+  },
+);
 
 test.each([
   ["chatgpt", "test-model", "/v1/responses", "authorization"],
@@ -129,6 +344,9 @@ test.each([
     "x-goog-api-key",
   ],
   ["opencode", "deepseek-v4-pro", "/v1/chat/completions", "authorization"],
+  ["opencode", "muse-wonder-1.0", "/v1/responses", "authorization"],
+  ["opencode", "beam-free", "/v1/chat/completions", "authorization"],
+  ["opencode", "flint-40b-free", "/v1/chat/completions", "authorization"],
 ] as const)(
   "%s routes %s through its protocol using the supplied credential",
   async (provider, modelId, path, header) => {
@@ -410,7 +628,9 @@ test("Google models and credentials at the same endpoint share the 250,000 input
       "gemini-second",
       fetcher,
     );
-    expect(first.requestLimiter).toBe(second.requestLimiter);
+    expect(first.requestLimiter?.state()).toEqual(
+      second.requestLimiter?.state(),
+    );
     const requests = [first, second].map((resolved) =>
       generateText({
         model: resolved.model,
@@ -428,6 +648,55 @@ test("Google models and credentials at the same endpoint share the 250,000 input
   } finally {
     vi.useRealTimers();
   }
+});
+
+test("a saved capacity profile bounds output and controls local parallel requests", async () => {
+  let active = 0;
+  let peak = 0;
+  const outputs: number[] = [];
+  const fetcher: typeof fetch = async (_url, init) => {
+    outputs.push(JSON.parse(String(init?.body)).max_tokens);
+    active++;
+    peak = Math.max(peak, active);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    active--;
+    return Response.json({
+      choices: [
+        {
+          index: 0,
+          message: { role: "assistant", content: "ok" },
+          finish_reason: "stop",
+        },
+      ],
+      usage: { prompt_tokens: 10, completion_tokens: 1, total_tokens: 11 },
+    });
+  };
+  const capacity = {
+    concurrency: 2,
+    requestsPerMinute: null,
+    inputTokensPerMinute: null,
+    outputTokensPerMinute: null,
+    contextTokens: 16384,
+    outputTokens: 512,
+    groupingInputTokens: 8000,
+    reviewInputTokens: 8000,
+  };
+  const model = resolveLanguageModel(
+    connection("lm-studio", "http://local-capacity.test/v1"),
+    null,
+    "fixture",
+    fetcher,
+    capacity,
+  );
+  capacity.concurrency = 1;
+  capacity.outputTokens = 4096;
+  await Promise.all(
+    Array.from({ length: 4 }, () =>
+      generateText({ ...model, prompt: "Respond", maxOutputTokens: 8000 }),
+    ),
+  );
+  expect(peak).toBe(2);
+  expect(outputs).toEqual([512, 512, 512, 512]);
 });
 
 test("Gemini receives a compilable output schema while SDK array bounds remain enforced", async () => {

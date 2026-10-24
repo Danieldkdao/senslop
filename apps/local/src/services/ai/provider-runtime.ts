@@ -16,7 +16,14 @@ import { createDeepSeek } from "@ai-sdk/deepseek";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import { createOllama } from "ollama-ai-provider-v2";
-import type { ProviderConfigSchema } from "@senslop/contracts";
+import {
+  defaultLocalContextWindow,
+  isLocalInferenceProvider,
+  isLocalEndpoint,
+  isSubscriptionProvider,
+  type ProviderAccountSchema,
+  type ProviderConfigSchema,
+} from "@senslop/contracts";
 import { formatProvider } from "../../features/providers/lib/formatters";
 import {
   AiServiceError,
@@ -30,8 +37,17 @@ import { getRequestLimiter } from "./request-limiter";
 import { estimateInputTokenUpperBound } from "./context-budget";
 import { createChatGptSubscriptionModel } from "./chatgpt-subscription-model";
 import { createClaudeSubscriptionModel } from "./claude-subscription-model";
+import type { ConnectionCapacitySchema } from "../../features/ai-capacity/schemas";
+import { getCompatibleModel } from "../../features/providers/lib/compatible-models";
+import { createCompatibleModel } from "./compatible-provider";
+import { defaultConnectionCapacity } from "../../features/ai-capacity/lib/capacity";
+import {
+  requireCompletedModelResult,
+  requireCompletedModelStream,
+} from "./model-stream";
 
 type ResolvedLanguageModel = {
+  toolsSupported?: boolean;
   model: LanguageModel;
   createModel?: (
     tools: ToolSet,
@@ -44,15 +60,27 @@ type ResolvedLanguageModel = {
   };
 };
 
+export const getModelContextWindow = (
+  connection: Pick<ProviderConfigSchema, "provider" | "contextWindow">,
+  fallback = 128000,
+) =>
+  connection.contextWindow ??
+  (isLocalInferenceProvider(connection.provider)
+    ? defaultLocalContextWindow
+    : fallback);
+
 export const getGenerationOptions = (
   connection: Pick<ProviderConfigSchema, "provider" | "contextWindow">,
   limit: number,
   answerTokens: number,
+  capacity?: ConnectionCapacitySchema,
 ) => {
   // OpenRouter counts reasoning and the final answer against the same completion limit.
   const maxOutputTokens = Math.min(
     answerTokens * (connection.provider === "openrouter" ? 2 : 1),
     Math.max(64, Math.floor(limit / 4)),
+    capacity?.outputTokens ?? Infinity,
+    capacity?.outputTokensPerMinute ?? Infinity,
   );
   return {
     maxOutputTokens,
@@ -82,11 +110,21 @@ export const getGenerationOptions = (
 };
 
 export const resolveLanguageModel = (
-  connection: ProviderConfigSchema,
+  connection: ProviderConfigSchema & { account?: ProviderAccountSchema },
   apiKey: string | null,
   modelId: string,
   fetcher: typeof fetch = fetch,
+  capacity?: ConnectionCapacitySchema,
 ): ResolvedLanguageModel => {
+  const compatible = getCompatibleModel(connection, modelId);
+  const profile = capacity
+    ? { ...capacity }
+    : compatible
+      ? defaultConnectionCapacity(connection)
+      : undefined;
+  const local =
+    isLocalInferenceProvider(connection.provider) ||
+    (!!compatible && isLocalEndpoint(connection.baseURL));
   if (formatProvider(connection.provider).keyRequired && !apiKey)
     throw new AiServiceError(
       "This provider requires a saved API key. Open Configure to add it.",
@@ -135,6 +173,10 @@ export const resolveLanguageModel = (
   };
   const createModel = () => {
     switch (connection.provider) {
+      case "openai-compatible":
+        return {
+          model: createCompatibleModel(connection, apiKey!, modelId, safeFetch),
+        };
       case "chatgpt":
         return { model: createOpenAI(options).responses(modelId) };
       case "chatgpt-subscription":
@@ -187,7 +229,14 @@ export const resolveLanguageModel = (
           model: createOllama({
             baseURL: `${options.baseURL}/api`,
             headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : {},
-            fetch: safeFetch,
+            fetch: (url, init) => {
+              if (typeof init?.body !== "string") return safeFetch(url, init);
+              const body = JSON.parse(init.body);
+              // This adapter forces boolean thinking; some Ollama models accept only named levels.
+              // Omit the override so the server preserves its configured model default.
+              delete body.think;
+              return safeFetch(url, { ...init, body: JSON.stringify(body) });
+            },
           })(modelId),
           ...(connection.contextWindow
             ? {
@@ -225,25 +274,101 @@ export const resolveLanguageModel = (
     }
   };
   const resolved = createModel();
-  // Google keys can share a project quota; conservatively share its endpoint budget across credentials.
+  // Local models share endpoint memory; Google keys can share a project quota.
   const key = createHash("sha256")
     .update(
       JSON.stringify({
-        provider: connection.provider,
+        provider: local ? "local-inference" : connection.provider,
         endpoint: options.baseURL,
-        credential:
-          connection.provider === "google" ? "shared-google-budget" : apiKey,
+        credential: local
+          ? "shared-local-server"
+          : connection.provider === "google"
+            ? "shared-google-budget"
+            : isSubscriptionProvider(connection.provider) && connection.account
+              ? connection.account.subject
+              : apiKey,
       }),
     )
     .digest("hex");
-  const limiter = getRequestLimiter(key, connection.provider);
+  const limiter = getRequestLimiter(key, connection.provider, profile);
   const wrapModel = (model: Exclude<LanguageModel, string>) =>
     wrapLanguageModel({
       model,
       middleware: {
         specificationVersion: "v4",
         transformParams: async ({ params }) => {
+          if (compatible) {
+            if (!compatible.supportsChatCompletions)
+              params = {
+                ...params,
+                providerOptions: {
+                  ...params.providerOptions,
+                  openai: {
+                    ...params.providerOptions?.openai,
+                    forceReasoning: compatible.supportsThinking,
+                  },
+                },
+              };
+            if (
+              !compatible.supportsImages &&
+              params.prompt.some(
+                (message) =>
+                  typeof message.content !== "string" &&
+                  message.content.some(
+                    (part) =>
+                      part.type === "file" &&
+                      part.mediaType.startsWith("image/"),
+                  ),
+              )
+            )
+              throw new AiServiceError(
+                "This model is configured without support for images.",
+              );
+            params = {
+              ...params,
+              maxOutputTokens: Math.min(
+                params.maxOutputTokens ?? compatible.maxOutputTokens,
+                compatible.maxOutputTokens,
+                compatible.supportsChatCompletions
+                  ? compatible.maxCompletionTokens
+                  : Infinity,
+              ),
+              ...(compatible.supportsTools
+                ? {}
+                : { tools: undefined, toolChoice: { type: "none" as const } }),
+              ...(compatible.supportsThinking ? {} : { reasoning: undefined }),
+            };
+          }
+          if (profile)
+            params = {
+              ...params,
+              maxOutputTokens: Math.min(
+                params.maxOutputTokens ?? profile.outputTokens,
+                profile.outputTokens,
+                profile.outputTokensPerMinute ?? Infinity,
+              ),
+            };
           if (params.responseFormat?.type !== "json") return params;
+          if (connection.provider === "openrouter") {
+            const routing = params.providerOptions?.openrouter?.provider;
+            params = {
+              ...params,
+              providerOptions: {
+                ...params.providerOptions,
+                openrouter: {
+                  ...params.providerOptions?.openrouter,
+                  provider: {
+                    ...(routing &&
+                    typeof routing === "object" &&
+                    !Array.isArray(routing)
+                      ? routing
+                      : {}),
+                    require_parameters: true,
+                  },
+                },
+              },
+            };
+          }
           const googleSchema =
             connection.provider === "google" ||
             (connection.provider === "opencode" &&
@@ -276,26 +401,52 @@ export const resolveLanguageModel = (
           return params;
         },
         wrapGenerate: ({ doGenerate, params }) =>
-          limiter.run(doGenerate, params.abortSignal, {
-            inputTokens: estimateInputTokenUpperBound({
-              prompt: params.prompt,
-              tools: params.tools,
-              responseFormat: params.responseFormat,
-            }),
-            actualInputTokens: (result) => result.usage.inputTokens.total,
-          }),
+          limiter
+            .run(doGenerate, params.abortSignal, {
+              inputTokens: estimateInputTokenUpperBound({
+                prompt: params.prompt,
+                tools: params.tools,
+                responseFormat: params.responseFormat,
+              }),
+              actualInputTokens: (result) => result.usage.inputTokens.total,
+              outputTokens: params.maxOutputTokens ?? 0,
+              actualOutputTokens: (result) => result.usage.outputTokens.total,
+            })
+            .then(requireCompletedModelResult),
         wrapStream: ({ doStream, params }) =>
-          limiter.runStream(doStream, params.abortSignal, {
-            inputTokens: estimateInputTokenUpperBound({
-              prompt: params.prompt,
-              tools: params.tools,
-              responseFormat: params.responseFormat,
-            }),
-          }),
+          limiter
+            .runStream(doStream, params.abortSignal, {
+              outputTokens: params.maxOutputTokens ?? 0,
+              actualInputTokens: (part) => {
+                const chunk = part as {
+                  type: string;
+                  usage?: { inputTokens?: { total?: number } };
+                };
+                return chunk.type === "finish"
+                  ? chunk.usage?.inputTokens?.total
+                  : undefined;
+              },
+              actualOutputTokens: (part) => {
+                const chunk = part as {
+                  type: string;
+                  usage?: { outputTokens?: { total?: number } };
+                };
+                return chunk.type === "finish"
+                  ? chunk.usage?.outputTokens?.total
+                  : undefined;
+              },
+              inputTokens: estimateInputTokenUpperBound({
+                prompt: params.prompt,
+                tools: params.tools,
+                responseFormat: params.responseFormat,
+              }),
+            })
+            .then(requireCompletedModelStream),
       },
     });
   return {
     ...resolved,
+    ...(compatible ? { toolsSupported: compatible.supportsTools } : {}),
     requestLimiter: limiter,
     model: wrapModel(resolved.model),
     ...(connection.provider === "claude-code"

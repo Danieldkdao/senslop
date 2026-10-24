@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { modelSelectionSchema } from "../providers/model-schemas";
+import { aiCapacitySchema } from "../ai-capacity/schemas";
 export {
   modelSelectionSchema,
   type ModelSelectionSchema,
@@ -10,6 +11,7 @@ export type AgentRole = (typeof agentRoles)[number];
 export const groupingModes = ["always", "never", "ask"] as const;
 export type GroupingMode = (typeof groupingModes)[number];
 export const aiSettingsSchema = z.object({
+  capacity: aiCapacitySchema.default({}),
   groupingMode: z
     .enum(groupingModes)
     .default("never")
@@ -64,6 +66,7 @@ export type AiSettingsSchema = z.infer<typeof aiSettingsSchema>;
 export const aiSettingsPatchSchema = aiSettingsSchema
   .partial()
   .extend({
+    capacity: aiCapacitySchema.optional(),
     groupingMode: z.enum(groupingModes).optional(),
     roles: aiSettingsSchema.shape.roles.partial().optional(),
   })

@@ -8,7 +8,7 @@ import { readProviderAccessError, readProviderJson } from "./provider-http";
 
 const catalogModelSchema = z.object({
   id: z.string().max(200).optional(),
-  name: z.string().max(200).optional(),
+  name: z.string().max(200).nullish(),
 });
 export type CatalogModelSchema = z.infer<typeof catalogModelSchema>;
 const catalogSchema = z.object({

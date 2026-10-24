@@ -7,7 +7,7 @@ export const getOpenCodeProtocol = (
   if (modelId.startsWith("claude-")) return "messages";
   if (modelId.startsWith("gemini-")) return "gemini";
   if (
-    ["gpt-", "grok-", "muse-spark-"].some((prefix) =>
+    ["gpt-", "grok-", "muse-spark-", "muse-wonder-"].some((prefix) =>
       modelId.startsWith(prefix),
     )
   )
@@ -23,6 +23,8 @@ export const getOpenCodeProtocol = (
     case "big-pickle":
     case "space-bunny-free":
     case "exo-free":
+    case "beam-free":
+    case "flint-40b-free":
       return "chat";
   }
   if (

@@ -16,11 +16,16 @@ vi.mock("server-only", () => ({}));
 const state = vi.hoisted(() => ({
   model: {} as object,
   contextWindow: 64000 as number | null,
+  provider: undefined as "lm-studio" | undefined,
+  capacity: {} as typeof defaultAiSettings.capacity,
 }));
 vi.mock("../../../features/providers/lib/provider-service", () => ({
   ProviderService: class {
     resolve = async () => ({
-      connection: { contextWindow: state.contextWindow },
+      connection: {
+        contextWindow: state.contextWindow,
+        provider: state.provider,
+      },
       secret: null,
     });
   },
@@ -107,6 +112,7 @@ const agent = (
     settings: {
       ...defaultAiSettings,
       prompt,
+      capacity: state.capacity,
     },
     selection: { connectionId: "connection", modelId: "model", name: "Model" },
     signal,
@@ -348,6 +354,77 @@ const batch = (options: LanguageModelV4CallOptions) => {
     previousSummaries?: { path: string; summary: string }[];
   };
 };
+
+test.each([64000, null])(
+  "local review batches with context %s carry only their file inventory and adjacent dependency context",
+  async (contextWindow) => {
+    state.contextWindow = contextWindow;
+    state.provider = "lm-studio";
+    const selected = Array.from({ length: 40 }, (_, index) => ({
+      ...files[0]!,
+      path: `${index}.ts`,
+      diff: "context ".repeat(1500),
+    }));
+    const edges = selected.slice(0, -1).map((file, index) => ({
+      from: file.path,
+      to: selected[index + 1]!.path,
+      specifier: "./next",
+      typeOnly: false,
+      provenance: "compiler-resolved" as const,
+    }));
+    state.model = new MockLanguageModelV4({
+      doGenerate: async (options) => {
+        requests.push(options);
+        const input = batch(options);
+        const prompt = options.prompt
+          .filter((message) => message.role === "user")
+          .flatMap((message) => message.content)
+          .filter((part) => part.type === "text")
+          .map((part) => part.text)
+          .join("\n");
+        const context = JSON.parse(
+          prompt.match(/Snapshot context:\n([^\n]+)/)![1]!,
+        ) as {
+          changes: { path: string }[];
+          dependencies: typeof edges;
+        };
+        const members = input.changes.map((file) => file.path);
+        expect(context.changes.map((file) => file.path)).toEqual(members);
+        expect(context.dependencies).toEqual(
+          edges.filter(
+            (edge) => members.includes(edge.from) || members.includes(edge.to),
+          ),
+        );
+        return response({
+          files: members.map((path) => ({ path, findings: [] })),
+          limitations: [],
+        });
+      },
+    });
+    const result = await (
+      await agent(selected, undefined, {
+        edges,
+        symbols: [],
+        diagnostics: [],
+        cycles: [],
+        limitations: [],
+      })
+    ).review();
+    expect(result.findings).toEqual([]);
+    expect(requests.length).toBeGreaterThan(1);
+    const reviewed = requests.flatMap((request) => batch(request).changes);
+    expect([...new Set(reviewed.map((file) => file.path))].sort()).toEqual(
+      selected.map((file) => file.path).sort(),
+    );
+    for (const file of selected)
+      expect(
+        reviewed
+          .filter((part) => part.path === file.path)
+          .map((part) => part.diff)
+          .join(""),
+      ).toBe(file.diff);
+  },
+);
 
 test("grouping constrains each request to its batch and orders with compact file references", async () => {
   const selected = Array.from({ length: 12 }, (_, index) => ({
@@ -730,10 +807,69 @@ test("persistent truncation stops after bounded splitting instead of looping or 
   expect(requests.length).toBeLessThanOrEqual(4);
 });
 beforeEach(() => {
+  state.capacity = {};
   requests.splice(0);
   state.contextWindow = 64000;
+  state.provider = undefined;
   vi.spyOn(console, "info").mockImplementation(() => {});
   vi.spyOn(console, "warn").mockImplementation(() => {});
+});
+
+test("saved capacity bounds batch input and output and is copied when the run starts", async () => {
+  state.capacity = {
+    connection: {
+      concurrency: 1,
+      requestsPerMinute: null,
+      inputTokensPerMinute: null,
+      outputTokensPerMinute: null,
+      contextTokens: 64000,
+      outputTokens: 2048,
+      groupingInputTokens: 1024,
+      reviewInputTokens: 4096,
+    },
+  };
+  state.model = new MockLanguageModelV4({
+    doGenerate: async (options) => {
+      requests.push(options);
+      if (text(options).includes("Order these prepared files"))
+        return response({
+          groups: [
+            {
+              title: "Flow",
+              rationale: "Change",
+              files: files.map((_, id) => id),
+            },
+          ],
+        });
+      return response({
+        groups: [
+          {
+            title: "Flow",
+            rationale: "Change",
+            files: batch(options).changes.map((file) => ({
+              path: file.path,
+              summary: "Change",
+              related: [],
+            })),
+          },
+        ],
+      });
+    },
+  });
+  const run = await agent(
+    files.map((file) => ({ ...file, diff: "small ".repeat(700) })),
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    {},
+  );
+  state.capacity.connection!.outputTokens = 64000;
+  state.capacity.connection!.groupingInputTokens = 128000;
+  await run.grouping();
+  expect(requests.length).toBeGreaterThan(6);
+  for (const request of requests)
+    expect(request.maxOutputTokens).toBeLessThanOrEqual(2048);
 });
 
 test("large grouping uses bounded source batches and a global ordering pass with complete coverage", async () => {
@@ -1280,6 +1416,100 @@ test("a 16K model can use the default grouping instructions with smaller request
   }
 });
 
+test.each([
+  [1, 0],
+  [2, 0],
+  [5, 0],
+  [1, 5],
+])(
+  "%s review evidence repairs fit a small context and preserve %s accepted findings",
+  async (count, acceptedCount) => {
+    state.provider = "lm-studio";
+    state.contextWindow = 16384;
+    const source = Array.from(
+      { length: 125 },
+      (_, index) => `export const value${index} = ${index};`,
+    );
+    const selected = [
+      {
+        ...files[0]!,
+        after: source.join("\n"),
+        diff: `@@ -1 +1 @@\n-old\n+${source[0]}`,
+      },
+    ];
+    const finding = {
+      severity: "high",
+      title: "Issue",
+      problem: "Verify this specific failure. ".repeat(40),
+      path: "0.ts",
+      side: "after",
+      start: 1,
+      end: 1,
+      code: "invented code",
+      fixPrompt: "Verify the implementation.",
+    };
+    state.model = new MockLanguageModelV4({
+      doGenerate: async (options) => {
+        requests.push(options);
+        if (
+          text(options).includes("Summarize the supplied code review findings")
+        )
+          return response({ summary: "Check the implementation." });
+        if (text(options).includes("Repair input:")) {
+          expect(text(options)).not.toContain("ALREADY ACCEPTED");
+          const input = JSON.parse(
+            options.prompt
+              .filter((message) => message.role === "user")
+              .flatMap((message) => message.content)
+              .filter((part) => part.type === "text")
+              .map((part) => part.text)
+              .join("\n")
+              .split("Repair input:\n")[1]!,
+          ) as { pendingFindings: { id: string }[] };
+          return response({
+            files: [],
+            findings: input.pendingFindings.map(({ id }) => ({
+              id,
+              finding: { ...finding, title: id, code: source[0] },
+            })),
+            limitations: [],
+          });
+        }
+        return response({
+          files: [
+            {
+              path: "0.ts",
+              findings: [
+                ...Array.from({ length: acceptedCount }, (_, index) => ({
+                  ...finding,
+                  title: `ALREADY ACCEPTED ${index}`,
+                  code: source[0],
+                })),
+                ...Array.from({ length: count }, (_, index) => ({
+                  ...finding,
+                  title: `Issue ${index}`,
+                })),
+              ],
+            },
+          ],
+          limitations: [],
+        });
+      },
+    });
+    const result = await (await agent(selected)).review();
+    expect(result.findings).toHaveLength(count + acceptedCount);
+    expect(
+      requests.filter((request) =>
+        text(request).includes("Return one files assessment per batch path"),
+      ),
+    ).toHaveLength(1);
+    expect(
+      requests.filter((request) => text(request).includes("Repair input:"))
+        .length,
+    ).toBeGreaterThan(0);
+  },
+);
+
 test("invalid review evidence receives bounded repair and explicit limitations without losing other batches", async () => {
   state.model = new MockLanguageModelV4({
     doGenerate: async (options) => {
@@ -1609,6 +1839,125 @@ test("persistent final ordering exhaustion still publishes the validated batch g
   expect(orderingCalls).toBe(2);
 });
 
+test("final ordering does not reserve context for disabled repository tools", async () => {
+  state.provider = "lm-studio";
+  state.contextWindow = 16384;
+  const selected = Array.from({ length: 35 }, (_, index) => ({
+    ...files[0]!,
+    path: `src/${"segment/".repeat(30)}${index}.ts`,
+    diff: "small patch",
+  }));
+  state.model = new MockLanguageModelV4({
+    doGenerate: async (options) => {
+      requests.push(options);
+      if (text(options).includes("Order these prepared files")) {
+        expect(options.tools ?? []).toHaveLength(0);
+        return response({
+          groups: [
+            {
+              title: "Flow",
+              rationale: "Globally ordered",
+              files: selected.map((_, index) => index),
+            },
+          ],
+        });
+      }
+      return response({
+        groups: [
+          {
+            title: "Flow",
+            rationale: "r".repeat(400),
+            files: batch(options).changes.map((file) => ({
+              path: file.path,
+              summary: "PREPARED",
+              related: [],
+            })),
+          },
+        ],
+      });
+    },
+  });
+  const result = await (
+    await agent(selected, undefined, undefined, undefined, undefined, {
+      groupingMaxFiles: 1,
+      groupingSteps: 2,
+      groupingOutputTokens: 2048,
+      batchConcurrency: 1,
+    })
+  ).grouping();
+  expect(result.groups).toHaveLength(1);
+  expect(result.groups[0]!.rationale).toBe("Globally ordered");
+  expect(result.groups[0]!.files.map((file) => file.path)).toEqual(
+    selected.map((file) => file.path),
+  );
+  expect(requests).toHaveLength(selected.length + 1);
+});
+
+test.each(["ordering", "placement repair"])(
+  "a local context-budget failure in %s retains every completed batch",
+  async (phase) => {
+    state.provider = "lm-studio";
+    state.contextWindow = 16384;
+    const selected = Array.from(
+      { length: phase === "ordering" ? 35 : 80 },
+      (_, index) => ({
+        ...files[0]!,
+        path:
+          phase === "ordering"
+            ? `src/${"segment/".repeat(70)}${index}.ts`
+            : `${index}.ts`,
+        diff: "small patch",
+      }),
+    );
+    const summary =
+      phase === "placement repair" ? "PREPARED ".repeat(50) : "PREPARED";
+    state.model = new MockLanguageModelV4({
+      doGenerate: async (options) => {
+        requests.push(options);
+        if (text(options).includes("Order these prepared files"))
+          return response({
+            groups: [{ title: "Partial", rationale: "Ordering", files: [0] }],
+          });
+        return response({
+          groups: [
+            {
+              title: "Flow",
+              rationale: phase === "ordering" ? "r".repeat(400) : "Change",
+              files: batch(options).changes.map((file) => ({
+                path: file.path,
+                summary,
+                related: [],
+              })),
+            },
+          ],
+        });
+      },
+    });
+    const result = await (
+      await agent(selected, undefined, undefined, undefined, undefined, {
+        groupingMaxFiles: 1,
+        groupingSteps: 2,
+        groupingOutputTokens: 2048,
+        batchConcurrency: 1,
+      })
+    ).grouping();
+    expect(
+      result.groups.flatMap((group) => group.files.map((file) => file.path)),
+    ).toEqual(selected.map((file) => file.path));
+    expect(
+      result.groups.flatMap((group) => group.files.map((file) => file.summary)),
+    ).toEqual(selected.map(() => summary));
+    expect(requests).toHaveLength(
+      selected.length + (phase === "ordering" ? 0 : 1),
+    );
+    expect(
+      result.groups.every((group) =>
+        group.rationale.includes("Global ordering"),
+      ),
+    ).toBe(true);
+  },
+);
+
 test("canceling final ordering prevents the fallback from publishing prepared groups", async () => {
   const abort = new AbortController();
   state.model = new MockLanguageModelV4({
@@ -1688,6 +2037,118 @@ test("cumulative grouping sends only changed files with existing group context a
   ]);
   expect(JSON.stringify(requests.at(-1)?.prompt)).toContain("Existing flow");
 });
+
+test.each(["rationales", "membership", "catalog"])(
+  "re-sync fits a small context with large retained %s",
+  async (kind) => {
+    state.provider = "lm-studio";
+    state.contextWindow = 16384;
+    const count = kind === "membership" ? 180 : kind === "catalog" ? 120 : 40;
+    const selected = Array.from({ length: count }, (_, index) => ({
+      ...files[0]!,
+      path:
+        kind === "membership"
+          ? `src/${"segment/".repeat(25)}${index}.ts`
+          : `src/flow-${index}/file.ts`,
+      diff: "small patch",
+    }));
+    const groups = Array.from(
+      { length: kind === "membership" ? 1 : count },
+      (_, index) => ({
+        title: `existing-group-${index + 1}`,
+        rationale:
+          kind === "rationales" ? "OLD RATIONALE ".repeat(80) : "Keep order",
+        files: (kind === "membership" ? selected : [selected[index]!]).map(
+          ({ path }) => ({ path, summary: `KEEP ${path}`, related: [] }),
+        ),
+      }),
+    );
+    const aliases = groups.map(({ title }, index) => ({
+      key: title,
+      title:
+        kind === "catalog"
+          ? `Flow ${index} ${"descriptive name ".repeat(10)}`
+          : `Flow ${index}`,
+    }));
+    const changed = new Set([
+      selected[0]!.path,
+      ...(kind === "catalog" ? [selected.at(-1)!.path] : []),
+    ]);
+    const retained = {
+      groups: groups
+        .map((group) => ({
+          ...group,
+          files: group.files.filter(({ path }) => !changed.has(path)),
+        }))
+        .filter((group) => group.files.length),
+    };
+    state.model = new MockLanguageModelV4({
+      doGenerate: async (options) => {
+        requests.push(options);
+        const paths = batch(options).changes.map(({ path }) => path);
+        expect(paths).toHaveLength(1);
+        expect(changed.has(paths[0]!)).toBe(true);
+        const groupId =
+          kind === "membership"
+            ? "existing-group-1"
+            : groups[selected.findIndex(({ path }) => path === paths[0])]!
+                .title;
+        expect(text(options)).toContain(groupId);
+        expect(text(options)).not.toContain("OLD RATIONALE");
+        return response({
+          groups: [
+            {
+              title: groupId,
+              rationale: "Updated placement",
+              files: [{ path: paths[0]!, summary: "UPDATED", related: [] }],
+            },
+          ],
+        });
+      },
+    });
+    const result = await (
+      await agent(
+        selected,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        {
+          groupingMaxFiles: 1,
+          groupingSteps: 2,
+          groupingOutputTokens: 2048,
+          batchConcurrency: 1,
+        },
+        { context: { groups }, retained, aliases },
+      )
+    ).grouping();
+    expect(requests).toHaveLength(changed.size);
+    expect(result.groups.map(({ title }) => title)).toEqual(
+      aliases.map(({ title }) => title),
+    );
+    expect(
+      result.groups.flatMap((group) => group.files.map(({ path }) => path)),
+    ).toEqual(selected.map(({ path }) => path));
+    expect(
+      result.groups.flatMap((group) =>
+        group.files.map(({ summary }) => summary),
+      ),
+    ).toEqual(
+      selected.map(({ path }) =>
+        changed.has(path) ? "UPDATED" : `KEEP ${path}`,
+      ),
+    );
+    expect(
+      result.groups
+        .filter((group) => group.files.every(({ path }) => !changed.has(path)))
+        .map(({ rationale }) => rationale),
+    ).toEqual(
+      groups
+        .filter((group) => group.files.every(({ path }) => !changed.has(path)))
+        .map(({ rationale }) => rationale),
+    );
+  },
+);
 
 test("chat reserves its final step for an answer after seven tool steps", async () => {
   state.model = new MockLanguageModelV4({

@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { LocalStore } from "@senslop/review-core/storage";
 import { AgentStore } from "../lib/agent-store";
+import { defaultConnectionCapacity } from "../../ai-capacity/lib/capacity";
 
 const directories: string[] = [];
 afterEach(async () => {
@@ -57,6 +58,116 @@ const fixture = async () => {
     databasePath,
   };
 };
+
+test("capacity settings lock across repositories and remain frozen in saved runs", async () => {
+  const { local, review, agents, databasePath } = await fixture();
+  try {
+    const settings = agents.settings();
+    settings.capacity = {
+      test: {
+        concurrency: 2,
+        requestsPerMinute: 20,
+        inputTokensPerMinute: 100000,
+        outputTokensPerMinute: null,
+        contextTokens: 16384,
+        outputTokens: 2048,
+        groupingInputTokens: 8000,
+        reviewInputTokens: 8000,
+      },
+    };
+    agents.saveSettings(settings);
+    const job = agents.createJob(review.id, "grouping");
+    const other = new AgentStore(local, "/other");
+    expect(other.capacityLocked()).toBe(true);
+    expect(() =>
+      other.patchSettings({
+        capacity: { test: { ...settings.capacity.test, concurrency: 4 } },
+      }),
+    ).toThrow(/grouping or review/);
+    other.patchSettings({ prompt: "Unrelated preference" });
+    expect(agents.job(job.id)?.settings.capacity.test?.concurrency).toBe(2);
+    agents.updateJob(job.id, { status: "completed" });
+    other.patchSettings({
+      capacity: { test: { ...settings.capacity.test, concurrency: 4 } },
+    });
+    expect(
+      agents.createJob(review.id, "review").settings.capacity.test?.concurrency,
+    ).toBe(4);
+    const reopened = new LocalStore(databasePath);
+    try {
+      expect(
+        new AgentStore(reopened, "/repo").job(job.id)?.settings.capacity.test
+          ?.concurrency,
+      ).toBe(2);
+    } finally {
+      reopened.close();
+    }
+  } finally {
+    local.close();
+  }
+});
+
+test("an unrelated settings patch preserves capacity and legacy preferences get defaults", async () => {
+  const { local, agents } = await fixture();
+  try {
+    expect(agents.settings().capacity).toEqual({});
+    agents.patchSettings({ capacity: {} });
+    agents.patchSettings({ prompt: "Changed instructions" });
+    expect(agents.settings().capacity).toEqual({});
+  } finally {
+    local.close();
+  }
+});
+
+test("patching one connection's capacity keeps other connection budgets", async () => {
+  const { local, agents } = await fixture();
+  try {
+    const profile = defaultConnectionCapacity({
+      provider: "lm-studio",
+      contextWindow: null,
+    });
+    agents.patchSettings({ capacity: { first: profile, second: profile } });
+    agents.patchSettings({
+      capacity: { first: { ...profile, concurrency: 2 } },
+    });
+    expect(agents.settings().capacity.second).toEqual(profile);
+    expect(agents.settings().capacity.first?.concurrency).toBe(2);
+  } finally {
+    local.close();
+  }
+});
+
+test("queued jobs capture default connection budgets before configuration changes", async () => {
+  const { local, review, agents } = await fixture();
+  try {
+    const connection = {
+      id: randomUUID(),
+      provider: "lm-studio",
+      name: "Local",
+      model: "",
+      baseURL: "http://localhost:1234/v1",
+      contextWindow: 32768,
+      credentialRef: null,
+      revision: 0,
+    };
+    local.database
+      .prepare("INSERT INTO connections VALUES (?, ?)")
+      .run(connection.id, JSON.stringify(connection));
+    const job = agents.createJob(review.id, "review");
+    local.database
+      .prepare("UPDATE connections SET body = ? WHERE id = ?")
+      .run(
+        JSON.stringify({ ...connection, contextWindow: 64000 }),
+        connection.id,
+      );
+    expect(
+      agents.job(job.id)?.settings.capacity[connection.id]?.contextTokens,
+    ).toBe(32768);
+    expect(agents.settings().capacity).toEqual({});
+  } finally {
+    local.close();
+  }
+});
 test("validated batch checkpoints survive restart and stay scoped to active repository jobs", async () => {
   const { local, review, agents, databasePath } = await fixture();
   const job = agents.createJob(review.id, "grouping");

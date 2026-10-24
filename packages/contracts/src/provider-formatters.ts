@@ -13,6 +13,16 @@ export const formatSubscriptionRequirements = (
 
 export const formatProvider = (provider: ProviderId) => {
   switch (provider) {
+    case "openai-compatible":
+      return {
+        label: "OpenAI-Compatible",
+        icon: "OpenAI" as const,
+        baseURL: "https://api.openai.com/v1",
+        keyRequired: true,
+        contextWindow: true,
+        description:
+          "Connect your own OpenAI-compatible API and configure its models and capabilities.",
+      };
     case "openrouter":
       return {
         label: "OpenRouter",
@@ -94,7 +104,7 @@ export const formatProvider = (provider: ProviderId) => {
         icon: "LmStudio" as const,
         baseURL: "http://localhost:1234/v1",
         keyRequired: false,
-        contextWindow: false,
+        contextWindow: true,
         description:
           "Start LM Studio's local server with a downloaded model, or use a remote compatible endpoint.",
       };

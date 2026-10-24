@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { AiServiceError } from "./errors";
+import { AiContextBudgetError } from "./errors";
 
 // Tokenizers differ by model; combine this estimate with 20% context headroom.
 export const estimateTokens = (value: unknown) =>
@@ -18,7 +18,7 @@ export const assertContextBudget = (
   outputTokens: number,
 ) => {
   if (inputTokens + outputTokens > Math.floor(limit * 0.8))
-    throw new AiServiceError(
+    throw new AiContextBudgetError(
       `Estimated request input (${inputTokens.toLocaleString()} tokens) plus ${outputTokens.toLocaleString()} output tokens exceeds the safe budget for the configured ${limit.toLocaleString()}-token context window. This is a local estimate, not a provider rejection. Reduce the request or configure the model's actual context window.`,
     );
 };

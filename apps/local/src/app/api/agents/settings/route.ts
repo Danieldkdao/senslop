@@ -3,7 +3,10 @@ import {
   protectLocalRoute,
   readLocalBody,
 } from "../../../../features/workspace/lib/server-workspace";
-import { AgentStore } from "../../../../features/agents/lib/agent-store";
+import {
+  AgentStore,
+  CapacityLockedError,
+} from "../../../../features/agents/lib/agent-store";
 import { aiSettingsSchema } from "../../../../features/agents/schemas";
 
 export const GET = async (request: Request) => {
@@ -14,9 +17,10 @@ export const GET = async (request: Request) => {
     );
   try {
     const workspace = getWorkspace();
-    return Response.json(
-      new AgentStore(workspace.store, await workspace.root()).settings(),
-    );
+    const agents = new AgentStore(workspace.store, await workspace.root());
+    if (new URL(request.url).searchParams.get("capacityStatus") === "1")
+      return Response.json({ locked: agents.capacityLocked() });
+    return Response.json(agents.settings());
   } catch {
     return Response.json(
       { message: "Could not load AI settings." },
@@ -39,7 +43,9 @@ export const PUT = async (request: Request) => {
         input,
       ),
     );
-  } catch {
+  } catch (error) {
+    if (error instanceof CapacityLockedError)
+      return Response.json({ message: error.message }, { status: 409 });
     return Response.json(
       {
         message:
@@ -63,7 +69,9 @@ export const PATCH = async (request: Request) => {
       await workspace.root(),
     ).patchSettings(await readLocalBody(request));
     return Response.json(updatedSettings);
-  } catch {
+  } catch (error) {
+    if (error instanceof CapacityLockedError)
+      return Response.json({ message: error.message }, { status: 409 });
     return Response.json(
       { message: "Check the AI settings patch and retry." },
       { status: 400 },

@@ -153,6 +153,12 @@ export const executeProviderCommand = async (
             "invalid_arguments",
             2,
           );
+        if (provider === "openai-compatible" && !existing?.models?.length)
+          throw new CliError(
+            "Use --file with connection JSON including model definitions to create an OpenAI-compatible provider. Flags can update a saved compatible provider with --id.",
+            "invalid_arguments",
+            2,
+          );
         const preset = formatProvider(provider);
         let apiKey = values["key-stdin"]
           ? (await readTextInput("-")).trim()
@@ -191,6 +197,9 @@ export const executeProviderCommand = async (
             existing?.baseURL ??
             preset.baseURL,
           model: existing?.model ?? "",
+          ...(provider === "openai-compatible"
+            ? { models: existing?.models }
+            : {}),
           contextWindow: values["context-window"]
             ? integerOption(values, "context-window", 256, 256, 2000000)
             : (existing?.contextWindow ?? null),

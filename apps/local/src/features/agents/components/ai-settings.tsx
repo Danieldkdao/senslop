@@ -29,13 +29,16 @@ import {
   type AiSettingsSchema,
 } from "../schemas";
 import { formatAgentRole, formatGroupingMode } from "../lib/formatters";
+import { AiCapacitySettings } from "../../ai-capacity/components/ai-capacity-settings";
 
 export const AiSettings = ({
   navigation,
 }: {
   navigation: SettingsNavigation;
 }) => {
-  const { settings, save } = useAiSettings();
+  const { settings, save, capacityStatus } = useAiSettings({
+    watchCapacity: true,
+  });
   const { entries } = useProviderModels();
   const available = entries.some(
     (entry) =>
@@ -233,6 +236,25 @@ export const AiSettings = ({
             className="text-base"
           />
         </div>
+        <Controller
+          control={control}
+          name="capacity"
+          render={({ field }) => (
+            <AiCapacitySettings
+              connections={entries.map((entry) => entry.connection)}
+              value={field.value ?? {}}
+              onChange={field.onChange}
+              disabled={capacityStatus.data?.locked === true}
+              saving={isSubmitting}
+              unavailable={
+                settings.isPending ||
+                capacityStatus.isPending ||
+                !!capacityStatus.error
+              }
+            />
+          )}
+        />
+        <FieldError errors={[errors.capacity]} className="text-base" />
         <Button
           className="text-base"
           type="submit"

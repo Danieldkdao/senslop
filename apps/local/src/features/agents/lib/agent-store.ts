@@ -1,5 +1,7 @@
 import type { UIMessage } from "ai";
 import { randomUUID } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
+import { storedConnectionSchema } from "@senslop/contracts";
 import type { LocalStore } from "@senslop/review-core/storage";
 import {
   aiSettingsSchema,
@@ -14,6 +16,10 @@ import {
 } from "../schemas";
 import { defaultAiSettings, groupingFallbackDelayMs } from "../constants";
 import { matchesJobSnapshot } from "./job-snapshots";
+import { capacityLockedMessage } from "../../ai-capacity/constants";
+import { defaultConnectionCapacity } from "../../ai-capacity/lib/capacity";
+
+export class CapacityLockedError extends Error {}
 
 export class AgentStore {
   constructor(
@@ -32,8 +38,37 @@ export class AgentStore {
     );
   };
 
-  saveSettings = (input: AiSettingsSchema) => {
+  capacityLocked = () =>
+    !!this.local.database
+      .prepare(
+        "SELECT 1 FROM ai_jobs WHERE json_extract(body, '$.status') IN ('queued', 'running') LIMIT 1",
+      )
+      .get();
+
+  private runSettings = () => {
+    const settings = this.settings();
+    for (const row of this.local.database
+      .prepare("SELECT body FROM connections")
+      .all()) {
+      const connection = storedConnectionSchema.parse(
+        JSON.parse(String(row.body)),
+      );
+      settings.capacity[connection.id] ??=
+        defaultConnectionCapacity(connection);
+    }
+    return settings;
+  };
+
+  saveSettings = (input: AiSettingsSchema) =>
+    this.local.transaction(() => this.writeSettings(input));
+
+  private writeSettings = (input: AiSettingsSchema) => {
     const settings = aiSettingsSchema.parse(input);
+    if (
+      this.capacityLocked() &&
+      !isDeepStrictEqual(settings.capacity, this.settings().capacity)
+    )
+      throw new CapacityLockedError(capacityLockedMessage);
     this.local.database
       .prepare(
         "INSERT INTO preferences VALUES ('ai_settings', ?) ON CONFLICT(name) DO UPDATE SET value = excluded.value",
@@ -46,9 +81,10 @@ export class AgentStore {
     this.local.transaction(() => {
       const patch = aiSettingsPatchSchema.parse(input);
       const existingSettings = this.settings();
-      return this.saveSettings({
+      return this.writeSettings({
         ...existingSettings,
         ...patch,
+        capacity: { ...existingSettings.capacity, ...patch.capacity },
         roles: { ...existingSettings.roles, ...patch.roles },
       });
     });
@@ -173,7 +209,7 @@ export class AgentStore {
         snapshotRound: snapshot.round,
         kind,
         generation: (jobs[0]?.generation ?? 0) + 1,
-        settings: this.settings(),
+        settings: this.runSettings(),
         status: "queued",
         progress: "Waiting for local worker",
         error: null,

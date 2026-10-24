@@ -100,7 +100,7 @@ export const POST = async (request: Request) => {
         message: localWorkspaceError(
           error,
           error instanceof z.ZodError
-            ? "Check the endpoint, context window, and API key."
+            ? "Check the provider name, endpoint, model settings, and API key."
             : known
               ? message
               : "Provider settings could not be saved. Check local application-data permissions and retry.",

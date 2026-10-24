@@ -91,6 +91,26 @@ export class ProviderService {
     const existingConnection = values.id ? this.stored(values.id) : null;
     if (values.id && !existingConnection)
       throw new Error("Connection not found. Refresh settings and retry.");
+    const checkName = () => {
+      const duplicate = this.store.database
+        .prepare("SELECT body FROM connections WHERE id != ?")
+        .all(values.id ?? "")
+        .some((row) => {
+          const connection = storedConnectionSchema.parse(
+            JSON.parse(String(row.body)),
+          );
+          return (
+            (values.provider === "openai-compatible" ||
+              connection.provider === "openai-compatible") &&
+            connection.name.trim().toLowerCase() === values.name.toLowerCase()
+          );
+        });
+      if (duplicate)
+        throw new Error(
+          "This provider name is already in use. Choose a unique name.",
+        );
+    };
+    checkName();
     if (
       !values.id &&
       Number(
@@ -149,6 +169,7 @@ export class ProviderService {
     });
     try {
       this.store.transaction(() => {
+        checkName();
         if (
           existingConnection &&
           this.stored(existingConnection.id)?.revision !==
