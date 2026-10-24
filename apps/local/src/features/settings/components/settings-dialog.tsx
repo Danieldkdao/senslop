@@ -14,6 +14,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { SettingsContentsItem } from "./settings-contents-item";
+import { SettingsScreenHeader } from "./settings-screen-header";
 import { cn } from "@/lib/utils";
 import type {
   SettingsNavigation,
@@ -220,7 +221,9 @@ export const SettingsDialog = ({
                   id={`${id}-${section.id}`}
                   className="flex flex-col gap-5 scroll-mt-6"
                 >
-                  <h2 className="text-xl font-medium">{section.label}</h2>
+                  <SettingsScreenHeader actions={section.headerActions}>
+                    {section.label}
+                  </SettingsScreenHeader>
                   {section.content}
                 </section>
               ))}
@@ -234,13 +237,14 @@ export const SettingsDialog = ({
                 hidden={screen !== current}
                 className="flex-1 min-h-0 overflow-auto px-6 py-7"
               >
-                <h2
+                <SettingsScreenHeader
                   id={screen === current ? `${id}-screen-title` : undefined}
                   tabIndex={-1}
-                  className="text-xl mb-6 font-medium outline-none"
+                  className="mb-6"
+                  actions={screen.headerActions}
                 >
                   {screen.label}
-                </h2>
+                </SettingsScreenHeader>
                 {screen.content}
               </div>
             ))}

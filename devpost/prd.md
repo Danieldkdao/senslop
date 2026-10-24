@@ -5,6 +5,10 @@ status: approved
 
 # Senslop — Product Requirements
 
+## Settings header actions and managed shortcuts
+
+Settings sections and nested screens accept optional header actions beside their title. Use a flex row with centered items, gap-2, and min-w-0; wrap the title in flex-1 min-w-0 and actions in shrink-0. The Providers add menu belongs in that header, including when opened from AI settings.
+
 ## Review history organized by CLI launch folder
 
 Saved reviews track the absolute folder where the local CLI app was started, including a selected `--repo` folder. This is separate from the Git repository root. The saved-review dialog groups reviews within the open repository by that recorded launch folder, places the active folder first, and keeps reviews newest first within each group. Search matches review names or launch-folder paths. File names and folder headings use the existing monospace font. Older reviews with no recorded launch folder appear under “Folder not recorded”; do not infer a subproject from their files. Keeping an existing review during re-sync preserves its original folder.

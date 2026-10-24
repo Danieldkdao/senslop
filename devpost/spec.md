@@ -5,6 +5,10 @@ status: approved
 
 # Senslop — Technical Spec
 
+## Settings header composition and TanStack Hotkeys
+
+Add optional headerActions ReactNode fields to SettingsSection and SettingsScreen and render them with SettingsScreenHeader in both settings layouts. Reuse the full provider section when navigating from AI settings so actions survive navigation. Extract AddProviderMenu from provider content.
+
 ## CLI launch-folder review history
 
 Capture the absolute launch folder before resolving the canonical Git root. Pass it to the local app through typed `SENSLOP_LOCAL_DIRECTORY`, expose it separately from `root` in workspace metadata, and persist optional `directory` metadata in saved review JSON for browser inspections, CLI handoffs, and new re-sync reviews. A keep-mode re-sync retains the original directory. Keep repository isolation, Git reads, session discovery, and worker identity keyed by the canonical Git root. History summaries return `directory` as a path or null for legacy data; SQLite searches title and directory literally without a schema migration. The Command dialog groups by directory, sorts the active directory first and remaining paths alphabetically, places unknown directories last, and retains newest-first row order within each group. Verify nested launch folders, sibling projects in one repository, restart persistence, legacy compatibility, literal path search, and existing review actions.

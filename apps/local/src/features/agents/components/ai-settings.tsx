@@ -327,11 +327,7 @@ export const AiSettings = ({
           className="text-base"
           variant="outline"
           onClick={() =>
-            navigation.navigate({
-              id: "providers",
-              label: "Providers",
-              content: getProviderSettingsSection(navigation, "").content,
-            })
+            navigation.navigate(getProviderSettingsSection(navigation, ""))
           }
         >
           Configure Providers

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import { ChevronDown, ChevronRight, Plus, Star, Trash2 } from "lucide-react";
+import { ChevronRight, Star, Trash2 } from "lucide-react";
 import {
   providerIds,
   isSubscriptionProvider,
@@ -20,14 +20,6 @@ import { toast } from "@/components/ui/toast";
 import { useProviderModels } from "../hooks/use-provider-models";
 import { ProviderModelStatus } from "./provider-model-status";
 import { SubscriptionProvider } from "./subscription-provider";
-import {
-  DropdownMenu,
-  DropdownMenuTrigger,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuLabel,
-  DropdownMenuItem,
-} from "@/components/ui/dropdown-menu";
 
 type ProviderSettingsProps = {
   search?: string;
@@ -80,37 +72,6 @@ export const ProviderSettings = ({
   return (
     <div className="flex flex-col gap-8 text-base">
       {ConfirmationDialog}
-      <div className="flex justify-end gap-3">
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            render={
-              <Button
-                variant="outline"
-                className="text-base"
-                aria-label="Add provider"
-              />
-            }
-          >
-            <Plus aria-hidden="true" />
-            Add provider
-            <ChevronDown aria-hidden="true" />
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuGroup>
-              <DropdownMenuLabel className="text-base">
-                Compatible APIs
-              </DropdownMenuLabel>
-              <DropdownMenuItem
-                className="text-base"
-                onClick={() => onConfigure("openai-compatible", undefined)}
-              >
-                <ProviderIcon name="OpenAI" size={20} aria-hidden="true" />
-                OpenAI
-              </DropdownMenuItem>
-            </DropdownMenuGroup>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
       <p className="text-muted-foreground">
         Choose task models in AI settings and chat models in the agent panel.
         API keys are saved in your OS credential store; configuration stays on

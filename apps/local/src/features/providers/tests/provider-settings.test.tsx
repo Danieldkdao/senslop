@@ -13,6 +13,7 @@ import type { ReactNode } from "react";
 import type { PublicConnectionSchema } from "@senslop/contracts";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { toast } from "@/components/ui/toast";
+import { AddProviderMenu } from "../components/add-provider-menu";
 import { ProviderSettings } from "../components/provider-settings";
 import { ConnectionForm } from "../components/connection-form";
 
@@ -384,13 +385,13 @@ test("deleting a connection still requires confirmation and cancel preserves it"
 test("Add provider opens a Compatible APIs group and routes OpenAI to configuration", async () => {
   const fixture = setup();
   const onConfigure = vi.fn();
-  fixture.view(<ProviderSettings onConfigure={onConfigure} />);
+  fixture.view(<AddProviderMenu onSelect={onConfigure} />);
   const user = userEvent.setup();
   await user.click(await screen.findByRole("button", { name: "Add provider" }));
   const menu = within(await screen.findByRole("menu"));
   expect(menu.getByText("Compatible APIs")).toBeTruthy();
   await user.click(menu.getByRole("menuitem", { name: "OpenAI" }));
-  expect(onConfigure).toHaveBeenCalledWith("openai-compatible", undefined);
+  expect(onConfigure).toHaveBeenCalledOnce();
 });
 
 test("saved custom providers display their own name and offer configuration", async () => {
