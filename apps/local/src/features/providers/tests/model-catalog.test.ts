@@ -1,4 +1,4 @@
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import type { ProviderConfigSchema } from "@senslop/contracts";
 import { discoverModels } from "../lib/model-catalog";
 
@@ -10,6 +10,33 @@ const connection = (
   baseURL: "https://models.test/v1",
   model: "",
   contextWindow: null,
+});
+
+test("custom provider model selection uses saved models without probing the server", async () => {
+  const fetcher = vi.fn();
+  const model = {
+    id: "my/model",
+    maxCompletionTokens: 32000,
+    maxOutputTokens: 4096,
+    contextWindow: 32000,
+    supportsTools: true,
+    supportsImages: false,
+    supportsParallelToolCalls: false,
+    supportsPromptCacheKey: false,
+    supportsChatCompletions: true,
+    usesMaxTokens: false,
+    supportsThinking: false,
+  };
+  const catalog = await discoverModels(
+    { ...connection("openai-compatible"), models: [model] },
+    "secret",
+    undefined,
+    fetcher,
+  );
+  expect(catalog.models).toEqual([
+    expect.objectContaining({ id: model.id, available: true }),
+  ]);
+  expect(fetcher).not.toHaveBeenCalled();
 });
 
 test.each([

@@ -102,6 +102,20 @@ export const discoverModels = async (
   fetcher: typeof fetch = fetch,
 ): Promise<ModelCatalogSchema> => {
   const provider = connection.provider;
+  if (provider === "openai-compatible")
+    return {
+      models: normalizeModels(
+        (connection.models ?? []).map((model) => ({
+          id: model.id,
+          name: model.id,
+          available: true,
+        })),
+      ),
+      source: "manual",
+      manualAllowed: false,
+      message:
+        "Models configured for this compatible API. Capabilities and limits come from your provider settings.",
+    };
   const headers: Record<string, string> = { Accept: "application/json" };
   if (secret) {
     if (provider === "google") headers["x-goog-api-key"] = secret;
