@@ -4,6 +4,7 @@ import type { ProviderConfigSchema } from "@senslop/contracts";
 import type { ChatMessageSchema } from "../../features/ai-test/schemas";
 import { AiServiceError } from "./errors";
 import { resolveLanguageModel } from "./provider-runtime";
+import { getCompatibleModel } from "../../features/providers/lib/compatible-models";
 
 export const generateReply = async (
   connection: ProviderConfigSchema,
@@ -14,16 +15,22 @@ export const generateReply = async (
 ) => {
   const abortSignal = AbortSignal.any([signal, AbortSignal.timeout(120000)]);
   abortSignal.throwIfAborted();
-  const maxOutputTokens = connection.contextWindow
-    ? Math.min(2048, Math.max(64, Math.floor(connection.contextWindow / 4)))
+  const compatible = getCompatibleModel(connection, modelId);
+  const contextWindow = compatible?.contextWindow ?? connection.contextWindow;
+  const maxOutputTokens = contextWindow
+    ? Math.min(
+        2048,
+        compatible?.maxOutputTokens ?? Infinity,
+        Math.max(64, Math.floor(contextWindow / 4)),
+      )
     : 2048;
-  if (connection.contextWindow) {
+  if (contextWindow) {
     // One token per UTF-8 byte plus message overhead conservatively bounds local input.
     const inputBound = messages.reduce(
       (size, message) => size + Buffer.byteLength(message.content, "utf8") + 16,
       0,
     );
-    if (inputBound + maxOutputTokens > connection.contextWindow)
+    if (inputBound + maxOutputTokens > contextWindow)
       throw new AiServiceError(
         "This conversation exceeds the configured context window. Start a fresh conversation or update Configure.",
       );

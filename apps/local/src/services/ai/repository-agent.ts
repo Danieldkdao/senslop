@@ -1,6 +1,7 @@
 import "server-only";
 import { createHash } from "node:crypto";
 import { defaultConnectionCapacity } from "../../features/ai-capacity/lib/capacity";
+import { getCompatibleModel } from "../../features/providers/lib/compatible-models";
 import { AsyncLocalStorage } from "node:async_hooks";
 import {
   generateText,
@@ -122,6 +123,23 @@ export const createRepositoryAgent = async ({
     ...(settings.capacity?.[selection.connectionId] ??
       defaultConnectionCapacity(resolved.connection)),
   };
+  const configuredModel = getCompatibleModel(
+    resolved.connection,
+    selection.modelId,
+  );
+  if (configuredModel) {
+    capacity.contextTokens = Math.min(
+      capacity.contextTokens,
+      configuredModel.contextWindow,
+    );
+    capacity.outputTokens = Math.min(
+      capacity.outputTokens,
+      configuredModel.maxOutputTokens,
+      configuredModel.supportsChatCompletions
+        ? configuredModel.maxCompletionTokens
+        : Infinity,
+    );
+  }
   const runtimeConnection = {
     ...resolved.connection,
     contextWindow: capacity.contextTokens,
@@ -294,6 +312,8 @@ export const createRepositoryAgent = async ({
       estimateTokens({ name, description: value.description }),
     0,
   );
+  const activeRepositorySchemaTokens =
+    model.toolsSupported === false ? 0 : repositorySchemaTokens;
   const requestState = new AsyncLocalStorage<AiRequestState>();
   let foregroundContextCalls = 0;
   const diagnosticContext = {
@@ -368,6 +388,23 @@ export const createRepositoryAgent = async ({
         ...(settings.capacity?.[selection.connectionId] ??
           defaultConnectionCapacity(connection.connection)),
       };
+      const configuredContext = getCompatibleModel(
+        connection.connection,
+        selection.modelId,
+      );
+      if (configuredContext) {
+        contextCapacity.contextTokens = Math.min(
+          contextCapacity.contextTokens,
+          configuredContext.contextWindow,
+        );
+        contextCapacity.outputTokens = Math.min(
+          contextCapacity.outputTokens,
+          configuredContext.maxOutputTokens,
+          configuredContext.supportsChatCompletions
+            ? configuredContext.maxCompletionTokens
+            : Infinity,
+        );
+      }
       const contextConnection = {
         ...connection.connection,
         contextWindow: contextCapacity.contextTokens,
@@ -387,6 +424,8 @@ export const createRepositoryAgent = async ({
         contextCapacity,
       );
       const contextOutputTokens = contextGeneration.maxOutputTokens;
+      const contextSchemaTokens =
+        resolvedContext.toolsSupported === false ? 0 : repositorySchemaTokens;
       const prompt = `Retrieve compact evidence for snapshot ${snapshot.id}: ${query}`;
       const logger = createAiRequestLogger(
         {
@@ -414,7 +453,11 @@ export const createRepositoryAgent = async ({
           : {}),
         instructions,
         prompt,
-        tools: resolvedContext.createModel ? {} : repositoryTools,
+        tools:
+          resolvedContext.createModel ||
+          resolvedContext.toolsSupported === false
+            ? {}
+            : repositoryTools,
         stopWhen: isStepCount(resolvedContext.createModel ? 1 : 4),
         maxOutputTokens: contextOutputTokens,
         maxRetries: 2,
@@ -432,8 +475,7 @@ export const createRepositoryAgent = async ({
                 ? toolChoice
                 : (toolChoice?.type ?? "auto"),
             estimatedInputTokens:
-              estimateTokens({ instructions, messages }) +
-              repositorySchemaTokens,
+              estimateTokens({ instructions, messages }) + contextSchemaTokens,
           }),
         onStepEnd: logger.stepCompleted,
         prepareStep: ({ messages, instructions, stepNumber }) => {
@@ -443,7 +485,7 @@ export const createRepositoryAgent = async ({
             : instructions;
           assertContextBudget(
             estimateTokens({ instructions: stepInstructions, messages }) +
-              (finalizing ? 0 : repositorySchemaTokens),
+              (finalizing ? 0 : contextSchemaTokens),
             contextLimit,
             contextOutputTokens,
           );
@@ -534,10 +576,13 @@ export const createRepositoryAgent = async ({
         }
       : {}),
     instructions,
-    tools: {
-      ...repositoryTools,
-      ...(assignedModel(settings, "context") ? { askContext } : {}),
-    },
+    tools:
+      model.toolsSupported === false
+        ? {}
+        : {
+            ...repositoryTools,
+            ...(assignedModel(settings, "context") ? { askContext } : {}),
+          },
     maxOutputTokens,
     maxRetries: 2,
     stopWhen: isStepCount(chatStepLimit),
@@ -558,8 +603,8 @@ export const createRepositoryAgent = async ({
       const compact = messages;
       assertContextBudget(
         estimateTokens({ instructions, messages: compact }) +
-          repositorySchemaTokens +
-          (assignedModel(settings, "context")
+          activeRepositorySchemaTokens +
+          (model.toolsSupported !== false && assignedModel(settings, "context")
             ? schemaTokens(askContext.inputSchema as z.ZodType)
             : 0) +
           extraSchemaTokens,
@@ -672,7 +717,7 @@ export const createRepositoryAgent = async ({
         capacity.inputTokensPerMinute === null
           ? Infinity
           : getBatchTokenBudget(
-              repositorySchemaTokens +
+              activeRepositorySchemaTokens +
                 schemaTokens(schema) +
                 estimateTokens({ instructions, prompt }) +
                 1024,
@@ -680,7 +725,7 @@ export const createRepositoryAgent = async ({
               0,
             ),
         getBatchTokenBudget(
-          repositorySchemaTokens +
+          activeRepositorySchemaTokens +
             schemaTokens(schema) +
             estimateTokens({ instructions, prompt }) +
             1024,
@@ -705,7 +750,10 @@ export const createRepositoryAgent = async ({
       previousSummaries,
     });
   return {
-    tools: options.tools,
+    tools: {
+      ...repositoryTools,
+      ...(assignedModel(settings, "context") ? { askContext } : {}),
+    },
     grouping: async () => {
       const retainedPaths = new Set(
         groupingSeed?.retained.groups.flatMap((group) =>

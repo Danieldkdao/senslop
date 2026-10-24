@@ -8,7 +8,8 @@ const state = vi.hoisted(() => ({
   resolved: {} as object,
   contextResolved: {} as object,
   contextWindow: null as number | null,
-  provider: "lm-studio" as "lm-studio" | "openrouter" | "ollama",
+  provider: "lm-studio" as ProviderConfigSchema["provider"],
+  models: undefined as ProviderConfigSchema["models"],
 }));
 vi.mock("../../../features/providers/lib/provider-service", () => ({
   ProviderService: class {
@@ -16,6 +17,7 @@ vi.mock("../../../features/providers/lib/provider-service", () => ({
       connection: {
         provider: state.provider,
         contextWindow: state.contextWindow,
+        models: state.models,
       },
       secret: null,
     });
@@ -35,6 +37,7 @@ vi.mock("../../credentials/os-credentials", () => ({ osCredentials: {} }));
 beforeEach(() => {
   state.contextWindow = null;
   state.provider = "lm-studio";
+  state.models = undefined;
   vi.spyOn(console, "info").mockImplementation(() => {});
   vi.spyOn(console, "warn").mockImplementation(() => {});
 });
@@ -81,6 +84,37 @@ const resultAgent = (signal = new AbortController().signal) =>
     signal,
     executionPolicy: { groupingSteps: 4, groupingOutputTokens: 8000 },
   });
+
+test("custom model limits bound grouping even when connection capacity is larger", async () => {
+  state.provider = "openai-compatible";
+  state.contextWindow = 128000;
+  state.models = [
+    {
+      id: "model",
+      contextWindow: 16000,
+      maxOutputTokens: 1000,
+      maxCompletionTokens: 500,
+      supportsTools: false,
+      supportsImages: false,
+      supportsParallelToolCalls: false,
+      supportsPromptCacheKey: false,
+      supportsChatCompletions: true,
+      usesMaxTokens: false,
+      supportsThinking: false,
+    },
+  ];
+  const model = new MockLanguageModelV4({
+    doGenerate: jsonResponse(resultGroups),
+  });
+  state.resolved = { model, toolsSupported: false };
+  await (await resultAgent()).grouping();
+  expect(model.doGenerateCalls[0]!.maxOutputTokens).toBe(500);
+  expect(model.doGenerateCalls[0]!.tools ?? []).toHaveLength(0);
+  expect(console.info).toHaveBeenCalledWith(
+    "[senslop:ai-request]",
+    expect.objectContaining({ event: "started", contextWindow: 16000 }),
+  );
+});
 
 const jsonResponse = (value: unknown) => ({
   content: [{ type: "text" as const, text: JSON.stringify(value) }],
