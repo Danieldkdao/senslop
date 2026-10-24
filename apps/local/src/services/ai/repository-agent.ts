@@ -364,16 +364,27 @@ export const createRepositoryAgent = async ({
         selection.modelId,
         signal,
       );
+      const contextCapacity = {
+        ...(settings.capacity?.[selection.connectionId] ??
+          defaultConnectionCapacity(connection.connection)),
+      };
+      const contextConnection = {
+        ...connection.connection,
+        contextWindow: contextCapacity.contextTokens,
+      };
       const resolvedContext = resolveLanguageModel(
-        connection.connection,
+        contextConnection,
         connection.secret,
         selection.modelId,
+        undefined,
+        contextCapacity,
       );
-      const contextLimit = connection.connection.contextWindow ?? 64000;
+      const contextLimit = contextCapacity.contextTokens;
       const contextGeneration = getGenerationOptions(
-        connection.connection,
+        contextConnection,
         contextLimit,
         2500,
+        contextCapacity,
       );
       const contextOutputTokens = contextGeneration.maxOutputTokens;
       const prompt = `Retrieve compact evidence for snapshot ${snapshot.id}: ${query}`;
