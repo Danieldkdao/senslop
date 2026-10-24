@@ -1,5 +1,6 @@
 import "server-only";
 import { createHash } from "node:crypto";
+import { defaultConnectionCapacity } from "../../features/ai-capacity/lib/capacity";
 import { AsyncLocalStorage } from "node:async_hooks";
 import {
   generateText,
@@ -110,17 +111,34 @@ export const createRepositoryAgent = async ({
     aliases?: { key: string; title: string }[];
   };
 }) => {
-  const policy = { ...defaultAnalysisExecutionPolicy, ...executionPolicy };
+  settings = structuredClone(settings);
   const resolved = await resolveProviderConnection(
     local,
     selection.connectionId,
     selection.modelId,
     signal,
   );
+  const capacity = {
+    ...(settings.capacity?.[selection.connectionId] ??
+      defaultConnectionCapacity(resolved.connection)),
+  };
+  const runtimeConnection = {
+    ...resolved.connection,
+    contextWindow: capacity.contextTokens,
+  };
+  const policy = {
+    ...defaultAnalysisExecutionPolicy,
+    groupingInputTokens: capacity.groupingInputTokens,
+    groupingOutputTokens: capacity.outputTokens,
+    batchConcurrency: capacity.concurrency,
+    ...executionPolicy,
+  };
   const model = resolveLanguageModel(
-    resolved.connection,
+    runtimeConnection,
     resolved.secret,
     selection.modelId,
+    undefined,
+    capacity,
   );
   const requestLimiter = model.requestLimiter;
   const batchConcurrency = () =>
@@ -138,7 +156,7 @@ export const createRepositoryAgent = async ({
         };
       }
     : undefined;
-  const limit = resolved.connection.contextWindow ?? 128000;
+  const limit = capacity.contextTokens;
   const tools = sourceTools(context);
   const querySchema = z.object({
     query: z
@@ -471,7 +489,12 @@ export const createRepositoryAgent = async ({
     cycles,
     limitations: [...context.limitations, ...context.analysis.limitations],
   });
-  const generation = getGenerationOptions(resolved.connection, limit, 8000);
+  const generation = getGenerationOptions(
+    runtimeConnection,
+    limit,
+    8000,
+    capacity,
+  );
   const maxOutputTokens = generation.maxOutputTokens;
   const chatStepLimit = 8;
   const options = {
@@ -538,9 +561,10 @@ export const createRepositoryAgent = async ({
       const taskGeneration =
         mode === "grouping" || mode === "ordering"
           ? getGenerationOptions(
-              resolved.connection,
+              runtimeConnection,
               limit,
               policy.groupingOutputTokens * outputMultiplier,
+              capacity,
             )
           : generation;
       const state = requestState.getStore()!;
@@ -608,7 +632,7 @@ export const createRepositoryAgent = async ({
   const batchesFor = (
     prompt: string,
     schema: z.ZodType,
-    maxTokens = 24000,
+    maxTokens = capacity.reviewInputTokens,
     maxFiles = 24,
     outputTokens = maxOutputTokens,
     batchChanges = changes,
@@ -617,6 +641,16 @@ export const createRepositoryAgent = async ({
       batchChanges,
       Math.min(
         maxTokens,
+        capacity.inputTokensPerMinute === null
+          ? Infinity
+          : getBatchTokenBudget(
+              repositorySchemaTokens +
+                schemaTokens(schema) +
+                estimateTokens({ instructions, prompt }) +
+                1024,
+              Math.floor((capacity.inputTokensPerMinute - 256) / 3 / 0.8),
+              0,
+            ),
         getBatchTokenBudget(
           repositorySchemaTokens +
             schemaTokens(schema) +
@@ -663,9 +697,10 @@ export const createRepositoryAgent = async ({
         );
       const prompt = `Summarize and provisionally group ONLY the Batch input files, exactly once. Do not create a guide for the entire snapshot or examine unrelated changes. Other paths are supporting context, not output members. Prerequisites before consumers, tests last; keep summaries under 300 characters and rationales under 240; use at most three related paths per file. When a diff has offset/total, incorporate its previous summary without assuming omitted text is unchanged. Use repository tools only for focused questions necessary to explain this batch. User preferences guide grouping behavior, not output scope or format:\n${settings.prompt}${groupingSeed ? `\nExisting groups are placement context only. To add a changed file to an existing group, use its exact title identifier, not its display name. Choose a new title only for a new flow. Never return unchanged files. Existing groups: ${JSON.stringify({ groups: groupingSeed.context.groups.map((group) => ({ title: group.title, name: groupingSeed.aliases?.find((alias) => alias.key === group.title)?.title ?? group.title, rationale: group.rationale, files: group.files.map((file) => file.path) })) })}` : ""}`;
       const groupingGeneration = getGenerationOptions(
-        resolved.connection,
+        runtimeConnection,
         limit,
         policy.groupingOutputTokens,
+        capacity,
       );
       const answerAllowance =
         groupingGeneration.maxOutputTokens /
@@ -1013,9 +1048,10 @@ export const createRepositoryAgent = async ({
         snapshot,
       );
       const summaryGeneration = getGenerationOptions(
-        resolved.connection,
+        runtimeConnection,
         limit,
         1024,
+        capacity,
       );
       validated.summary = await generateReviewSummary({
         findings: validated.findings,
@@ -1023,7 +1059,7 @@ export const createRepositoryAgent = async ({
         createModel: model.createModel,
         providerOptions: {
           ...model.providerOptions,
-          ...getGenerationOptions(resolved.connection, limit, 1024)
+          ...getGenerationOptions(runtimeConnection, limit, 1024, capacity)
             .providerOptions,
         },
         signal,
