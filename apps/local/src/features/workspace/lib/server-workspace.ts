@@ -7,12 +7,18 @@ let workspace: LocalWorkspace | undefined;
 export const getWorkspace = () => {
   const {
     SENSLOP_LOCAL_REPOSITORY: repository,
+    SENSLOP_LOCAL_DIRECTORY: directory,
     SENSLOP_LOCAL_DATABASE: databasePath,
     SENSLOP_LOCAL_SNAPSHOT: snapshotPath,
   } = serverEnv;
   if (!repository || !databasePath || !snapshotPath)
     throw new Error("Start the local workspace using the Senslop CLI.");
-  workspace ??= new LocalWorkspace({ repository, databasePath, snapshotPath });
+  workspace ??= new LocalWorkspace({
+    repository,
+    directory,
+    databasePath,
+    snapshotPath,
+  });
   return workspace;
 };
 

@@ -5,6 +5,10 @@ status: approved
 
 # Senslop — Product Requirements
 
+## Review history organized by CLI launch folder
+
+Saved reviews track the absolute folder where the local CLI app was started, including a selected `--repo` folder. This is separate from the Git repository root. The saved-review dialog groups reviews within the open repository by that recorded launch folder, places the active folder first, and keeps reviews newest first within each group. Search matches review names or launch-folder paths. File names and folder headings use the existing monospace font. Older reviews with no recorded launch folder appear under “Folder not recorded”; do not infer a subproject from their files. Keeping an existing review during re-sync preserves its original folder.
+
 ## Agent-operated local reviews
 
 The owner approved app/CLI separation and full agent-oriented parity for saved reviews, grouping, correctness runs, syncing, notes, progress, provider configuration, and settings. One terminal owns the local app and worker; short CLI commands discover it by canonical repository and update the open UI automatically. Preparing and opening a human review is the primary workflow. Explicit grouping overrides saved defaults and requires a configured model; ordinary ungrouped review remains available. Saved snapshots and AI runs retain separate identities. Ship the same discoverable skill for Claude in `.claude/skills` and all other agents in `.agents/skills`, with explicit project/user installation. An explicit `--agent` selects one target; `--all` selects both and skips to the symlink question. Running skills without target flags uses a Clack multiselect with Space to select and Enter to confirm; choosing none defaults to both. Installing both asks whether to share one file through a symlink or keep two independent files. Include generated command help, structured JSON/errors, and confirmation for destructive commands. Preserve standalone inspect JSON output. AI chat and terminal diff UI are outside this change. This instruction supersedes the earlier same-terminal command menu.

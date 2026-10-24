@@ -104,6 +104,7 @@ export const GET = async (request: Request) => {
       {
         repository,
         root,
+        directory: workspace.directory(),
         history: paginated ? existingReviews.slice(0, limit) : existingReviews,
         next:
           paginated && existingReviews.length > limit ? offset + limit : null,

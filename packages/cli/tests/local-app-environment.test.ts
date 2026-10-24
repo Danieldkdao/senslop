@@ -97,10 +97,15 @@ test("the app launcher forwards Claude account, proxy and certificate settings w
   let app: Awaited<ReturnType<typeof startLocalApp>> | undefined;
   try {
     app = await startLocalApp({
+      repository: "/fixture-repository/apps/client",
       serverPath: entry,
       dataDirectory: directory,
       jobs: false,
     });
+    expect(options?.env?.SENSLOP_LOCAL_DIRECTORY).toBe(
+      "/fixture-repository/apps/client",
+    );
+    expect(options?.env?.SENSLOP_LOCAL_REPOSITORY).toBe("/fixture-repository");
     for (const key of forwarded)
       expect(options?.env?.[key], key).toBe(
         key === "TMPDIR" ? directory : `fixture-${key}`,

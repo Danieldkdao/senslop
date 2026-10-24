@@ -51,6 +51,8 @@ test("local history can load while the browser reports no internet connectivity"
 const review = {
   id: "9cf6e565-c38e-48aa-a5aa-aac759789b6c",
   title: "Fix API",
+  repository: "/work",
+  directory: "/work/current",
   createdAt: "2026-10-09",
   updatedAt: "2026-10-09",
   hash: "a".repeat(64),

@@ -11,7 +11,7 @@ import {
 } from "node:fs/promises";
 import { startLocalJobs, availablePort, workspacePort } from "./local-jobs.js";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { setTimeout as sleep } from "node:timers/promises";
 import {
@@ -52,6 +52,7 @@ export const startLocalApp = async ({
   startupTimeout = 60000,
   jobs = true,
 }: LocalAppOptions = {}) => {
+  const directoryPath = resolve(repository);
   const repositoryRoot = await resolveRepository(repository);
   const userData = dataDirectory ?? applicationDataDirectory();
   let cwd = dirname(serverPath);
@@ -173,6 +174,7 @@ export const startLocalApp = async ({
       SENSLOP_LOCAL_TOKEN: token,
       SENSLOP_LOCAL_SNAPSHOT: snapshotPath,
       SENSLOP_LOCAL_REPOSITORY: repositoryRoot,
+      SENSLOP_LOCAL_DIRECTORY: directoryPath,
       SENSLOP_LOCAL_DATABASE: join(userData, "reviews.sqlite"),
     },
     execArgv: ["--import", pathToFileURL(parentModule).href],

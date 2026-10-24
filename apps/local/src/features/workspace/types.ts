@@ -7,6 +7,8 @@ export type RepositoryState = {
   commits: { id: string; subject: string; date: string }[];
 };
 export type SavedReviewSummary = {
+  directory: string | null;
+  repository: string;
   round?: number;
   id: string;
   title: string;
@@ -19,6 +21,7 @@ export type SavedReviewSummary = {
   completedCount: number;
 };
 export type WorkspaceMetadata = {
+  directory: string;
   root: string;
   repository: RepositoryState | null;
   history: SavedReviewSummary[];

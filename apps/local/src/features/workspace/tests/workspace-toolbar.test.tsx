@@ -54,6 +54,7 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 const metadata = {
+  directory: "/opened/repo",
   root: "/opened/repo",
   repository: {
     root: "/opened/repo",
@@ -67,6 +68,8 @@ const metadata = {
 };
 
 const shortcutReviews = ["Newest", "Middle", "Oldest"].map((title, index) => ({
+  repository: "/opened/repo",
+  directory: "/opened/repo",
   id: `00000000-0000-4000-8000-00000000000${index}`,
   title,
   createdAt: "2026-10-17",

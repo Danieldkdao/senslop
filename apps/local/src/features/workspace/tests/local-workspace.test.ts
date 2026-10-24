@@ -193,7 +193,7 @@ test("browser inspection is repository-bound, restarts restore reviews, and term
   }
 });
 
-const syncWorkspace = async () => {
+const syncWorkspace = async (subfolder?: string) => {
   const directory = await mkdtemp(join(tmpdir(), "senslop-resync-"));
   directories.push(directory);
   await mkdir(join(directory, "repo"));
@@ -209,11 +209,39 @@ const syncWorkspace = async () => {
   git("commit", "-m", "baseline");
   const workspace = new LocalWorkspace({
     repository,
+    directory: subfolder ? join(repository, subfolder) : repository,
     databasePath: join(directory, "data/reviews.sqlite"),
     snapshotPath: join(directory, "handoff.json"),
   });
   return { workspace, repository, git };
 };
+
+test("browser inspections, re-syncs and CLI handoffs retain the CLI launch folder", async () => {
+  const { workspace, repository } = await syncWorkspace("apps/client");
+  const directory = join(repository, "apps/client");
+  try {
+    await writeFile(join(repository, "a.ts"), "one\n");
+    const first = await workspace.inspect({ kind: "working-tree" }, false);
+    expect(first.directory).toBe(directory);
+    await writeFile(join(repository, "a.ts"), "two\n");
+    const keptReview = await workspace.resync(first.id, "keep", false);
+    expect(keptReview.directory).toBe(directory);
+    await writeFile(join(repository, "a.ts"), "three\n");
+    const newReview = await workspace.resync(first.id, "new", false);
+    expect(newReview.directory).toBe(directory);
+    await writeFile(
+      join(repository, "..", "handoff.json"),
+      JSON.stringify({ ...first, id: crypto.randomUUID() }),
+    );
+    const handoffReview = await workspace.current();
+    expect(handoffReview?.directory).toBe(directory);
+    expect(
+      workspace.store.listReviews(repository).map((review) => review.directory),
+    ).toEqual([directory, directory, directory]);
+  } finally {
+    await workspace.close();
+  }
+});
 
 test("new reviews save alongside large artwork without replacing previously saved reviews", async () => {
   const { workspace, repository } = await syncWorkspace();

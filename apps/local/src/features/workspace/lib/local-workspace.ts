@@ -22,6 +22,7 @@ import { LocalStore } from "@senslop/review-core/storage";
 
 type LocalWorkspaceOptions = {
   repository: string;
+  directory?: string;
   databasePath: string;
   snapshotPath: string;
 };
@@ -44,6 +45,8 @@ export class LocalWorkspace {
   };
 
   repository = async () => readRepository(await this.root());
+
+  directory = () => this.options.directory ?? this.options.repository;
 
   private groupingEnabled = (root: string, selected?: boolean) => {
     const settings = new AgentStore(this.store, root).settings();
@@ -91,7 +94,7 @@ export class LocalWorkspace {
       },
       inspection.fingerprint,
       groupingEnabled,
-      { repositoryState: inspection.repository },
+      { directory: this.directory(), repositoryState: inspection.repository },
     );
     this.captureContext(root, savedReview);
     return savedReview;
@@ -157,6 +160,7 @@ export class LocalWorkspace {
       after.fingerprint,
       snapshot.files.length > 0 && this.groupingEnabled(root, group),
       {
+        directory: this.directory(),
         repositoryState: after,
         previousReviewId: id,
         expectedHash: previousReview.hash,
@@ -199,12 +203,15 @@ export class LocalWorkspace {
             preview,
             preview.repositoryFingerprint ?? repository?.fingerprint ?? null,
             this.groupingEnabled(root),
-            repository &&
+            {
+              directory: this.directory(),
+              ...(repository &&
               preview.source.kind === "working-tree" &&
               preview.source.base === repository.head &&
               preview.repositoryFingerprint === repository.fingerprint
-              ? { repositoryState: repository }
-              : {},
+                ? { repositoryState: repository }
+                : {}),
+            },
           );
           this.captureContext(root, savedReview);
         } finally {

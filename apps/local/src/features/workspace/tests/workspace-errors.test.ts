@@ -29,6 +29,7 @@ vi.mock(
       resync: state.resync,
       inspect: state.inspect,
       root: state.root,
+      directory: () => "/repository/apps/client",
       repository: state.repository,
       store: {
         listReviews: state.listReviews,
@@ -112,6 +113,7 @@ test("metadata polling loads saved history only on an explicit history request",
   );
   expect(metadata.status).toBe(200);
   expect(await metadata.json()).toMatchObject({
+    directory: "/repository/apps/client",
     history: [],
     repository: { fingerprint: "fresh" },
   });
