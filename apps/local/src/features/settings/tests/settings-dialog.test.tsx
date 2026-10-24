@@ -41,6 +41,7 @@ vi.mock("../../agents/hooks/use-ai-settings", async () => {
   return {
     useAiSettings: () => ({
       settings: { data: defaultAiSettings },
+      capacityStatus: { data: { locked: false } },
       save: vi.fn(async () => {}),
     }),
   };

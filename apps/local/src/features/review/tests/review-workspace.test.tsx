@@ -40,6 +40,7 @@ vi.mock("../../agents/hooks/use-ai-settings", async () => {
   const { defaultAiSettings } = await import("../../agents/constants");
   return {
     useAiSettings: () => ({
+      capacityStatus: { data: { locked: false } },
       settings: {
         data: {
           ...defaultAiSettings,
