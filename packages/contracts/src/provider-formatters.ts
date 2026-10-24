@@ -94,7 +94,7 @@ export const formatProvider = (provider: ProviderId) => {
         icon: "LmStudio" as const,
         baseURL: "http://localhost:1234/v1",
         keyRequired: false,
-        contextWindow: false,
+        contextWindow: true,
         description:
           "Start LM Studio's local server with a downloaded model, or use a remote compatible endpoint.",
       };

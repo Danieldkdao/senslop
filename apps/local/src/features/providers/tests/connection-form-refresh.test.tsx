@@ -7,6 +7,11 @@ import { ConnectionForm } from "../components/connection-form";
 
 const state = vi.hoisted(() => ({
   connections: [] as PublicConnectionSchema[],
+  save: vi.fn(),
+}));
+vi.mock("../lib/requests", () => ({ providerRequest: state.save }));
+vi.mock("@/components/ui/toast", () => ({
+  toast: { success: vi.fn(), error: vi.fn() },
 }));
 vi.mock("../hooks/use-provider-models", () => ({
   useProviderModels: () => ({
@@ -61,4 +66,36 @@ test("an open provider form receives CLI changes while preserving an unsaved end
   expect(
     (screen.getByLabelText("API base URL") as HTMLInputElement).value,
   ).toBe("http://localhost:4567");
+});
+
+test("LM Studio exposes and saves the context length actually loaded by the server", async () => {
+  state.connections = [];
+  state.save.mockResolvedValue({
+    connection: {
+      id: crypto.randomUUID(),
+      provider: "lm-studio",
+      name: "LM Studio",
+      baseURL: "http://localhost:1234/v1",
+      model: "",
+      contextWindow: 32768,
+      configured: false,
+      credentialError: null,
+      revision: 1,
+    },
+  });
+  const user = userEvent.setup();
+  render(<ConnectionForm provider="lm-studio" />);
+  await user.type(screen.getByLabelText("Context window"), "32768");
+  await user.click(screen.getByRole("button", { name: "Save connection" }));
+  await waitFor(() =>
+    expect(state.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "save",
+        connection: expect.objectContaining({
+          provider: "lm-studio",
+          contextWindow: 32768,
+        }),
+      }),
+    ),
+  );
 });

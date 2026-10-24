@@ -5,6 +5,7 @@ import { Controller, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
   saveConnectionSchema,
+  defaultLocalContextWindow,
   type SaveConnectionSchema,
   type PublicConnectionSchema,
   type ProviderId,
@@ -24,6 +25,8 @@ type ConnectionFormProps = {
   provider: ProviderId;
   connection?: PublicConnectionSchema;
 };
+
+const formatContextWindow = (tokens: number) => tokens.toLocaleString("en-US");
 
 export const ConnectionForm = ({
   provider,
@@ -169,7 +172,7 @@ export const ConnectionForm = ({
             id={`${id}-context`}
             type="number"
             className="text-base"
-            placeholder="Discovered from server / model"
+            placeholder={String(defaultLocalContextWindow)}
             {...register("contextWindow", {
               setValueAs: (value: string | number | null) =>
                 value === "" || value === null ? null : Number(value),
@@ -190,8 +193,11 @@ export const ConnectionForm = ({
           )}
           <p className="text-muted-foreground">
             {provider === "ollama"
-              ? "Sent as the server context size for generation. Leave blank to use its default."
-              : "Limits input sent by this app; it does not resize the model loaded by your server. Leave blank to use its default."}
+              ? "When set, also configures the server context size for generation."
+              : "Match the context length loaded in your server; this does not resize the loaded model."}{" "}
+            Blank uses a {formatContextWindow(defaultLocalContextWindow)}-token
+            default app budget. AI capacity settings can override this for new
+            runs.
           </p>
         </div>
       )}

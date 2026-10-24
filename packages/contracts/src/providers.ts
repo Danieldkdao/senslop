@@ -18,6 +18,18 @@ export const providerIds = [
 ] as const;
 export type ProviderId = (typeof providerIds)[number];
 
+export const localInferenceProviders = [
+  "llama-cpp",
+  "lm-studio",
+  "ollama",
+] as const;
+export type LocalInferenceProvider = (typeof localInferenceProviders)[number];
+export const isLocalInferenceProvider = (
+  provider: string,
+): provider is LocalInferenceProvider =>
+  localInferenceProviders.some((value) => value === provider);
+export const defaultLocalContextWindow = 16384;
+
 export const subscriptionProviders = [
   "chatgpt-subscription",
   "claude-code",

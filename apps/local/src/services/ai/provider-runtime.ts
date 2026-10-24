@@ -16,7 +16,11 @@ import { createDeepSeek } from "@ai-sdk/deepseek";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import { createOllama } from "ollama-ai-provider-v2";
-import type { ProviderConfigSchema } from "@senslop/contracts";
+import {
+  defaultLocalContextWindow,
+  isLocalInferenceProvider,
+  type ProviderConfigSchema,
+} from "@senslop/contracts";
 import { formatProvider } from "../../features/providers/lib/formatters";
 import {
   AiServiceError,
@@ -43,6 +47,15 @@ type ResolvedLanguageModel = {
     ollama: { options: { num_ctx: number; num_predict: number } };
   };
 };
+
+export const getModelContextWindow = (
+  connection: Pick<ProviderConfigSchema, "provider" | "contextWindow">,
+  fallback = 128000,
+) =>
+  connection.contextWindow ??
+  (isLocalInferenceProvider(connection.provider)
+    ? defaultLocalContextWindow
+    : fallback);
 
 export const getGenerationOptions = (
   connection: Pick<ProviderConfigSchema, "provider" | "contextWindow">,
