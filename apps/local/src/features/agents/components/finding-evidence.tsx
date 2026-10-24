@@ -53,7 +53,7 @@ export const FindingEvidence = ({
       disabled={!onEvidence || !patch}
       onClick={() => onEvidence?.(finding)}
     >
-      <span className="min-w-0 wrap-anywhere">{finding.path}</span>
+      <span className="min-w-0 wrap-anywhere font-mono">{finding.path}</span>
     </Button>
   );
   return (

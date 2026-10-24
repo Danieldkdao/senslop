@@ -286,7 +286,8 @@ export const PreviewDiff = ({
       <div className="m-6 rounded-xl border bg-card p-8">
         <h2 className="font-sans text-xl font-medium">Binary file changed</h2>
         <p className="mt-3 text-muted-foreground">
-          {file.path} is included as metadata. Binary contents are not uploaded.
+          <span className="font-mono">{file.path}</span> is included as
+          metadata. Binary contents are not uploaded.
         </p>
       </div>
     );

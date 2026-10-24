@@ -38,7 +38,7 @@ export const PreviewFileItem = ({
     <span className="min-w-0 flex-1 flex flex-col gap-1">
       <span
         className={cn(
-          "block break-all font-medium",
+          "block break-all font-mono font-medium",
           completed && "text-success",
         )}
       >
