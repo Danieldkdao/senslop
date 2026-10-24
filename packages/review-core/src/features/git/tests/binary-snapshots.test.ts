@@ -83,6 +83,62 @@ test("large binary deletion preserves the original hash without uploading binary
   });
 });
 
+test.each(["working-tree", "merge"] as const)(
+  "%s inspection counts binary metadata rather than aggregate artwork bytes toward the snapshot limit",
+  async (selection) => {
+    const { cwd, git } = await fixture();
+    const originalBranch = (await git.branch()).current;
+    if (selection === "merge") await git.checkoutLocalBranch("artwork");
+    const bytes = Buffer.alloc(SNAPSHOT_LIMITS.totalBytes / 2 + 1);
+    for (const path of ["first.png", "second.pxo"])
+      await writeFile(join(cwd, path), bytes);
+    await writeFile(join(cwd, "file.ts"), "export const value = 2;\n");
+    if (selection === "merge") {
+      await git.add(".");
+      await git.commit("artwork");
+      await git.checkout(originalBranch);
+      await writeFile(
+        join(cwd, "main-only.ts"),
+        "export const retained = true;\n",
+      );
+      await git.add(".");
+      await git.commit("independent change");
+      await git.merge(["--no-ff", "artwork", "-m", "merge artwork"]);
+    }
+    const snapshot = await collectSnapshot({
+      cwd,
+      source:
+        selection === "merge"
+          ? { kind: "commit", commit: "HEAD" }
+          : { kind: "working-tree" },
+    });
+    expect(snapshot.source.firstParent).toBe(selection === "merge");
+    expect(snapshot.files.map((file) => file.path).sort()).toEqual([
+      "file.ts",
+      "first.png",
+      "second.pxo",
+    ]);
+    const hash = createHash("sha256").update(bytes).digest("hex");
+    for (const path of ["first.png", "second.pxo"])
+      expect(snapshot.files.find((file) => file.path === path)).toMatchObject({
+        binary: true,
+        before: null,
+        after: null,
+        beforeHash: null,
+        afterHash: hash,
+      });
+    expect(snapshot.frozenContents).toEqual({
+      "file.ts": {
+        before: "export const value = 1;\n",
+        after: "export const value = 2;\n",
+      },
+    });
+    expect(Buffer.byteLength(JSON.stringify(snapshot))).toBeLessThan(
+      SNAPSHOT_LIMITS.totalBytes,
+    );
+  },
+);
+
 test("oversized text still rejects inspection even when its replacement is binary", async () => {
   const { cwd, git } = await fixture();
   await writeFile(
