@@ -1,8 +1,15 @@
 "use client";
 
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMemo } from "react";
+import {
+  useMutation,
+  useMutationState,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { toast } from "@/components/ui/toast";
-import { aiSettingsSchema, type AiSettingsSchema } from "../schemas";
+import { aiSettingsSchema, type AiSettingsPatchSchema } from "../schemas";
+import { mergeAiSettings } from "../lib/ai-settings";
 
 export const useAiSettings = ({
   watchCapacity = false,
@@ -45,30 +52,52 @@ export const useAiSettings = ({
     retry: false,
     networkMode: "always",
   });
-  const save = async (input: AiSettingsSchema) => {
-    const response = await fetch("/api/agents/settings", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(input),
-    });
-    if (!response.ok) {
-      const error: unknown = await response.json().catch(() => null);
-      toast.error(
-        error &&
-          typeof error === "object" &&
-          "message" in error &&
-          typeof error.message === "string"
-          ? error.message
-          : "AI settings could not be saved. Retry.",
-      );
-      await client.invalidateQueries({ queryKey: ["ai-capacity-status"] });
-      throw new Error("Save failed.");
-    }
-    client.setQueryData(
-      ["ai-settings"],
-      aiSettingsSchema.parse(await response.json()),
-    );
-    toast.success("AI settings saved");
+  const mutation = useMutation({
+    mutationKey: ["ai-settings"],
+    scope: { id: "ai-settings" },
+    onMutate: () => client.cancelQueries({ queryKey: ["ai-settings"] }),
+    mutationFn: async (patch: AiSettingsPatchSchema) => {
+      const response = await fetch("/api/agents/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patch),
+        keepalive: true,
+      });
+      if (!response.ok) {
+        const error: unknown = await response.json().catch(() => null);
+        throw new Error(
+          error &&
+            typeof error === "object" &&
+            "message" in error &&
+            typeof error.message === "string"
+            ? error.message
+            : "AI settings could not be saved. Retry.",
+        );
+      }
+      return aiSettingsSchema.parse(await response.json());
+    },
+    onSuccess: (updatedSettings) =>
+      client.setQueryData(["ai-settings"], updatedSettings),
+    onError: (error) => {
+      toast.error(`${error.message} Your last saved settings were restored.`);
+      void client.invalidateQueries({ queryKey: ["ai-capacity-status"] });
+    },
+    retry: false,
+    networkMode: "always",
+  });
+  const pending = useMutationState<AiSettingsPatchSchema>({
+    filters: { mutationKey: ["ai-settings"], status: "pending" },
+    select: (update) => update.state.variables as AiSettingsPatchSchema,
+  });
+  // Overlay pending patches so older responses cannot undo newer choices.
+  const data = useMemo(
+    () => settings.data && pending.reduce(mergeAiSettings, settings.data),
+    [settings.data, pending],
+  );
+  return {
+    settings: { ...settings, data },
+    save: mutation.mutate,
+    saving: pending.length > 0,
+    capacityStatus,
   };
-  return { settings, save, capacityStatus };
 };

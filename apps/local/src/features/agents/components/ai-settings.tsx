@@ -1,5 +1,6 @@
 "use client";
 
+import { useCallback, useEffect, useRef } from "react";
 import type { z } from "zod";
 import {
   Select,
@@ -10,7 +11,6 @@ import {
 } from "@/components/ui/select";
 import { useForm, Controller, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { LoadingSwap } from "@/components/ui/loading-swap";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
@@ -36,7 +36,7 @@ export const AiSettings = ({
 }: {
   navigation: SettingsNavigation;
 }) => {
-  const { settings, save, capacityStatus } = useAiSettings({
+  const { settings, save, saving, capacityStatus } = useAiSettings({
     watchCapacity: true,
   });
   const { entries } = useProviderModels();
@@ -48,15 +48,43 @@ export const AiSettings = ({
   const {
     control,
     register,
-    handleSubmit,
-    reset,
-    formState: { errors, isSubmitting },
+    resetField,
+    trigger,
+    formState: { errors },
   } = useForm<z.input<typeof aiSettingsSchema>, unknown, AiSettingsSchema>({
     resolver: zodResolver(aiSettingsSchema),
     defaultValues: defaultAiSettings,
     values: settings.data,
     resetOptions: { keepDirtyValues: true },
   });
+  const promptField = register("prompt");
+  const promptDraft = useRef<string | null>(null);
+  const promptTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const savePrompt = useCallback(() => {
+    if (promptTimer.current) clearTimeout(promptTimer.current);
+    if (promptDraft.current === null) return;
+    const parsed = aiSettingsSchema.shape.prompt.safeParse(promptDraft.current);
+    if (!parsed.success) {
+      void trigger("prompt");
+      return;
+    }
+    promptDraft.current = null;
+    resetField("prompt", { defaultValue: parsed.data });
+    save({ prompt: parsed.data });
+  }, [resetField, save, trigger]);
+  useEffect(
+    () => () => {
+      if (promptTimer.current) clearTimeout(promptTimer.current);
+      // Closing settings must not discard a valid draft waiting for its debounce.
+      if (promptDraft.current !== null) {
+        const parsed = aiSettingsSchema.shape.prompt.safeParse(
+          promptDraft.current,
+        );
+        if (parsed.success) save({ prompt: parsed.data });
+      }
+    },
+    [save],
+  );
   const separate = useWatch({ control, name: "separate" });
   const shared = useWatch({ control, name: "shared" });
   const roles = useWatch({ control, name: "roles" });
@@ -68,11 +96,10 @@ export const AiSettings = ({
     <div className="flex flex-col gap-6">
       <form
         noValidate
-        onSubmit={handleSubmit(async (values) => {
-          await save(values)
-            .then(() => reset(values, { keepDirtyValues: false }))
-            .catch(() => {});
-        })}
+        onSubmit={(event) => {
+          event.preventDefault();
+          savePrompt();
+        }}
         className="flex flex-col gap-5"
       >
         <fieldset
@@ -88,7 +115,10 @@ export const AiSettings = ({
               render={({ field }) => (
                 <Switch
                   checked={field.value}
-                  onCheckedChange={field.onChange}
+                  onCheckedChange={(separate) => {
+                    resetField("separate", { defaultValue: separate });
+                    save({ separate });
+                  }}
                   disabled={!available}
                 />
               )}
@@ -113,7 +143,10 @@ export const AiSettings = ({
                     render={({ field }) => (
                       <ModelPicker
                         value={field.value}
-                        onChange={field.onChange}
+                        onChange={(model) => {
+                          resetField(field.name, { defaultValue: model });
+                          save({ roles: { [role]: model } });
+                        }}
                         disabled={!available}
                         preserveSelection
                       />
@@ -135,7 +168,10 @@ export const AiSettings = ({
                 render={({ field }) => (
                   <ModelPicker
                     value={field.value}
-                    onChange={field.onChange}
+                    onChange={(shared) => {
+                      resetField("shared", { defaultValue: shared });
+                      save({ shared });
+                    }}
                     disabled={!available}
                     preserveSelection
                   />
@@ -160,7 +196,14 @@ export const AiSettings = ({
                   value={
                     groupingConfigured ? (field.value ?? "never") : "never"
                   }
-                  onValueChange={(value) => value && field.onChange(value)}
+                  onValueChange={(value) => {
+                    const groupingMode = groupingModes.find(
+                      (mode) => mode === value,
+                    );
+                    if (!groupingMode) return;
+                    resetField("groupingMode", { defaultValue: groupingMode });
+                    save({ groupingMode });
+                  }}
                   disabled={settings.isPending || !groupingConfigured}
                 >
                   <SelectTrigger
@@ -226,7 +269,17 @@ export const AiSettings = ({
             id="grouping-instructions"
             disabled={!groupingConfigured || settings.isPending}
             className="h-48 max-h-80 text-base md:text-base"
-            {...register("prompt")}
+            {...promptField}
+            onChange={(event) => {
+              void promptField.onChange(event);
+              promptDraft.current = event.target.value;
+              if (promptTimer.current) clearTimeout(promptTimer.current);
+              promptTimer.current = setTimeout(savePrompt, 500);
+            }}
+            onBlur={(event) => {
+              void promptField.onBlur(event);
+              savePrompt();
+            }}
             aria-invalid={!!errors.prompt}
             aria-describedby="grouping-error"
           />
@@ -243,9 +296,15 @@ export const AiSettings = ({
             <AiCapacitySettings
               connections={entries.map((entry) => entry.connection)}
               value={field.value ?? {}}
-              onChange={field.onChange}
+              onChange={(capacity) => {
+                if (
+                  JSON.stringify(capacity) === JSON.stringify(field.value ?? {})
+                )
+                  return;
+                resetField("capacity", { defaultValue: capacity });
+                save({ capacity });
+              }}
               disabled={capacityStatus.data?.locked === true}
-              saving={isSubmitting}
               unavailable={
                 settings.isPending ||
                 capacityStatus.isPending ||
@@ -255,15 +314,9 @@ export const AiSettings = ({
           )}
         />
         <FieldError errors={[errors.capacity]} className="text-base" />
-        <Button
-          className="text-base"
-          type="submit"
-          aria-label="Save AI settings"
-          aria-busy={isSubmitting}
-          disabled={isSubmitting || !settings.data}
-        >
-          <LoadingSwap isLoading={isSubmitting}>Save AI settings</LoadingSwap>
-        </Button>
+        <p role="status" className="text-muted-foreground">
+          {saving ? "Saving AI settings…" : "AI settings save automatically."}
+        </p>
       </form>
       <section className="border-t pt-5 flex flex-col gap-3">
         <h3 className="font-medium">Configure Providers</h3>
