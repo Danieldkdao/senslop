@@ -373,6 +373,73 @@ test.each(cases)(
   },
 );
 
+test.each([
+  {
+    provider: "anthropic" as const,
+    modelId: "claude-sonnet-4-6",
+    payload: {
+      id: "msg-refusal",
+      type: "message",
+      role: "assistant",
+      model: "claude-sonnet-4-6",
+      content: [{ type: "text", text }],
+      stop_reason: "refusal",
+      stop_sequence: null,
+      usage: { input_tokens: 10, output_tokens: 3 },
+    },
+  },
+  {
+    provider: "google" as const,
+    modelId: "gemini-3.1-pro",
+    payload: {
+      candidates: [
+        {
+          content: { role: "model", parts: [{ text }] },
+          finishReason: "SAFETY",
+        },
+      ],
+      usageMetadata: {
+        promptTokenCount: 10,
+        candidatesTokenCount: 3,
+        totalTokenCount: 13,
+      },
+    },
+  },
+  {
+    provider: "google" as const,
+    modelId: "gemini-3.1-pro",
+    payload: {
+      promptFeedback: { blockReason: "SAFETY" },
+      usageMetadata: { promptTokenCount: 10, totalTokenCount: 10 },
+    },
+  },
+])(
+  "$provider reports provider blocking before attempting JSON repair",
+  async ({ provider, modelId, payload }) => {
+    const fetcher = vi.fn<typeof fetch>(async () => Response.json(payload));
+    await expect(
+      generateText({
+        ...resolveLanguageModel(
+          {
+            provider,
+            name: "Fixture",
+            baseURL: formatProvider(provider).baseURL,
+            model: "",
+            contextWindow: null,
+          },
+          "fixture-key",
+          modelId,
+          fetcher,
+        ),
+        prompt: "Return JSON",
+        maxRetries: 0,
+        output: Output.object({ schema: z.object({ answer: z.string() }) }),
+      }),
+    ).rejects.toThrow(/blocked/);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  },
+);
+
 test.each(cases)(
   "$provider $protocol replays a tool result before the structured answer",
   async (entry) => {

@@ -7,6 +7,7 @@ import {
   type UIMessage,
 } from "ai";
 import { AiServiceError, formatAiError } from "./errors";
+import { assertModelCompletion } from "./model-stream";
 
 export const agentStreamResponse = <Tools extends ToolSet>(
   stream: ReadableStream<TextStreamPart<Tools>>,
@@ -52,10 +53,10 @@ export const agentStreamResponse = <Tools extends ToolSet>(
                 throw new AiServiceError("Response size limit reached.");
             }
             if (part.type === "finish") {
-              if (part.finishReason === "length")
-                throw new AiServiceError(
-                  "The model reached its response limit. Retry or choose another model.",
-                );
+              assertModelCompletion({
+                unified: part.finishReason,
+                raw: undefined,
+              });
               if (
                 part.finishReason === "tool-calls" ||
                 stepHasTools ||
