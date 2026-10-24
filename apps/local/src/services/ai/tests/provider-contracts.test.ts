@@ -372,3 +372,40 @@ test.each(cases)(
     expect(fetcher).toHaveBeenCalledTimes(1);
   },
 );
+
+test.each(cases)(
+  "$provider $protocol replays a tool result before the structured answer",
+  async (entry) => {
+    let calls = 0;
+    const execute = vi.fn(
+      async ({ path }: { path: string }) => `frozen source for ${path}`,
+    );
+    const fetcher: typeof fetch = async (_url, init) => {
+      calls++;
+      if (calls === 2) {
+        const body = String(init?.body);
+        expect(body).toContain("frozen source for a.ts");
+        if (entry.protocol === "gemini") expect(body).toContain("c2lnbmF0dXJl");
+        if (entry.protocol === "messages")
+          expect(body).toContain("signature-fixture");
+      }
+      return Response.json(wireResponse(entry, calls === 1));
+    };
+    const result = await generateText({
+      ...runtime(entry, fetcher),
+      prompt: "Read a.ts, then return JSON",
+      maxRetries: 0,
+      tools: {
+        readSource: tool({
+          inputSchema: z.object({ path: z.string() }),
+          execute,
+        }),
+      },
+      stopWhen: isStepCount(2),
+      output: Output.object({ schema: z.object({ answer: z.string() }) }),
+    });
+    expect(result.output).toEqual(answer);
+    expect(execute).toHaveBeenCalledExactlyOnceWith(input, expect.any(Object));
+    expect(calls).toBe(2);
+  },
+);
