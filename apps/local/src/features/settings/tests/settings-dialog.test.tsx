@@ -12,6 +12,7 @@ import {
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 import { ReviewSettings } from "../components/review-settings";
+import { ProviderSettingsDialog } from "../components/provider-settings-dialog";
 import { defaultDiffSettings } from "../../review/constants";
 import { parseDiffFromFile } from "@pierre/diffs";
 import type { MultiFileDiffProps } from "@pierre/diffs/react";
@@ -87,6 +88,38 @@ const render = (element: ReactNode) => {
     </QueryClientProvider>,
   );
 };
+
+test("compatible providers open a nested form inside the same settings dialog and cancel returns", async () => {
+  HTMLElement.prototype.scrollTo = vi.fn();
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        connections: [],
+        defaultId: null,
+        cleanupPending: false,
+      }),
+    }),
+  );
+  render(<ProviderSettingsDialog open onOpenChange={vi.fn()} />);
+  const user = userEvent.setup();
+  await user.click(await screen.findByRole("button", { name: "Add provider" }));
+  await user.click(await screen.findByRole("menuitem", { name: "OpenAI" }));
+  expect(screen.getAllByRole("dialog")).toHaveLength(1);
+  expect(
+    await screen.findByRole("heading", {
+      name: "Add OpenAI-Compatible Provider",
+    }),
+  ).toBeTruthy();
+  expect(screen.getByLabelText("Provider name")).toBeTruthy();
+  expect(
+    screen.getByRole("navigation", { name: "Settings breadcrumb" }).textContent,
+  ).toContain("Add OpenAI-Compatible Provider");
+  await user.click(screen.getByRole("button", { name: "Cancel" }));
+  expect(screen.queryByLabelText("Provider name")).toBeNull();
+  expect(screen.getByRole("button", { name: "Add provider" })).toBeTruthy();
+});
 
 afterEach(() => {
   queryClients.splice(0).forEach((client) => client.clear());
