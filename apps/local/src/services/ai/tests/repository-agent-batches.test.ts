@@ -1745,6 +1745,125 @@ test("persistent final ordering exhaustion still publishes the validated batch g
   expect(orderingCalls).toBe(2);
 });
 
+test("final ordering does not reserve context for disabled repository tools", async () => {
+  state.provider = "lm-studio";
+  state.contextWindow = 16384;
+  const selected = Array.from({ length: 35 }, (_, index) => ({
+    ...files[0]!,
+    path: `src/${"segment/".repeat(30)}${index}.ts`,
+    diff: "small patch",
+  }));
+  state.model = new MockLanguageModelV4({
+    doGenerate: async (options) => {
+      requests.push(options);
+      if (text(options).includes("Order these prepared files")) {
+        expect(options.tools ?? []).toHaveLength(0);
+        return response({
+          groups: [
+            {
+              title: "Flow",
+              rationale: "Globally ordered",
+              files: selected.map((_, index) => index),
+            },
+          ],
+        });
+      }
+      return response({
+        groups: [
+          {
+            title: "Flow",
+            rationale: "r".repeat(400),
+            files: batch(options).changes.map((file) => ({
+              path: file.path,
+              summary: "PREPARED",
+              related: [],
+            })),
+          },
+        ],
+      });
+    },
+  });
+  const result = await (
+    await agent(selected, undefined, undefined, undefined, undefined, {
+      groupingMaxFiles: 1,
+      groupingSteps: 2,
+      groupingOutputTokens: 2048,
+      batchConcurrency: 1,
+    })
+  ).grouping();
+  expect(result.groups).toHaveLength(1);
+  expect(result.groups[0]!.rationale).toBe("Globally ordered");
+  expect(result.groups[0]!.files.map((file) => file.path)).toEqual(
+    selected.map((file) => file.path),
+  );
+  expect(requests).toHaveLength(selected.length + 1);
+});
+
+test.each(["ordering", "placement repair"])(
+  "a local context-budget failure in %s retains every completed batch",
+  async (phase) => {
+    state.provider = "lm-studio";
+    state.contextWindow = 16384;
+    const selected = Array.from(
+      { length: phase === "ordering" ? 35 : 80 },
+      (_, index) => ({
+        ...files[0]!,
+        path:
+          phase === "ordering"
+            ? `src/${"segment/".repeat(70)}${index}.ts`
+            : `${index}.ts`,
+        diff: "small patch",
+      }),
+    );
+    const summary =
+      phase === "placement repair" ? "PREPARED ".repeat(50) : "PREPARED";
+    state.model = new MockLanguageModelV4({
+      doGenerate: async (options) => {
+        requests.push(options);
+        if (text(options).includes("Order these prepared files"))
+          return response({
+            groups: [{ title: "Partial", rationale: "Ordering", files: [0] }],
+          });
+        return response({
+          groups: [
+            {
+              title: "Flow",
+              rationale: phase === "ordering" ? "r".repeat(400) : "Change",
+              files: batch(options).changes.map((file) => ({
+                path: file.path,
+                summary,
+                related: [],
+              })),
+            },
+          ],
+        });
+      },
+    });
+    const result = await (
+      await agent(selected, undefined, undefined, undefined, undefined, {
+        groupingMaxFiles: 1,
+        groupingSteps: 2,
+        groupingOutputTokens: 2048,
+        batchConcurrency: 1,
+      })
+    ).grouping();
+    expect(
+      result.groups.flatMap((group) => group.files.map((file) => file.path)),
+    ).toEqual(selected.map((file) => file.path));
+    expect(
+      result.groups.flatMap((group) => group.files.map((file) => file.summary)),
+    ).toEqual(selected.map(() => summary));
+    expect(requests).toHaveLength(
+      selected.length + (phase === "ordering" ? 0 : 1),
+    );
+    expect(
+      result.groups.every((group) =>
+        group.rationale.includes("Global ordering"),
+      ),
+    ).toBe(true);
+  },
+);
+
 test("canceling final ordering prevents the fallback from publishing prepared groups", async () => {
   const abort = new AbortController();
   state.model = new MockLanguageModelV4({

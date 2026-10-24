@@ -19,6 +19,7 @@ import {
   AiOutputLimitError,
   AiGroupingRepairError,
   AiStructuredOutputError,
+  AiContextBudgetError,
 } from "./errors";
 import { getGenerationOptions, resolveLanguageModel } from "./provider-runtime";
 import {
@@ -598,13 +599,16 @@ export const createRepositoryAgent = async ({
       }: { messages: ModelMessage[]; instructions?: unknown },
       extraSchemaTokens = 0,
       reservedOutputTokens = maxOutputTokens,
+      toolsEnabled = true,
     ) => {
       signal.throwIfAborted();
       const compact = messages;
       assertContextBudget(
         estimateTokens({ instructions, messages: compact }) +
-          activeRepositorySchemaTokens +
-          (model.toolsSupported !== false && assignedModel(settings, "context")
+          (toolsEnabled ? activeRepositorySchemaTokens : 0) +
+          (toolsEnabled &&
+          model.toolsSupported !== false &&
+          assignedModel(settings, "context")
             ? schemaTokens(askContext.inputSchema as z.ZodType)
             : 0) +
           extraSchemaTokens,
@@ -664,6 +668,7 @@ export const createRepositoryAgent = async ({
             { messages, instructions },
             schemaTokens(schema),
             taskGeneration.maxOutputTokens,
+            mode !== "ordering" && !(repair && mode === "grouping"),
           ).messages,
         onRequest: (requestId) => {
           state.requestId = requestId;
@@ -875,8 +880,22 @@ export const createRepositoryAgent = async ({
         watchCapacity,
       );
       const candidates = batchCandidates.flat();
-      const retainBatchGroups = () => {
+      const retainBatchGroups = (
+        reason:
+          | "context-budget"
+          | "structured-output"
+          | "output-limit"
+          | "placement-repair",
+      ) => {
         signal.throwIfAborted();
+        console.warn("[senslop:ai-batches]", {
+          ...diagnosticContext,
+          event: "ordering-fallback",
+          reason,
+        });
+        onProgress?.(
+          "Keeping validated batch groups; global ordering could not complete",
+        );
         const seen = new Set<string>();
         return validateGrouping(
           {
@@ -945,8 +964,10 @@ export const createRepositoryAgent = async ({
           );
           break;
         } catch (error) {
+          if (error instanceof AiContextBudgetError)
+            return retainBatchGroups("context-budget");
           if (error instanceof AiStructuredOutputError)
-            return retainBatchGroups();
+            return retainBatchGroups("structured-output");
           if (!(error instanceof AiOutputLimitError)) throw error;
           if (attempt === 0) {
             onProgress?.(
@@ -954,15 +975,7 @@ export const createRepositoryAgent = async ({
             );
             continue;
           }
-          console.warn("[senslop:ai-batches]", {
-            ...diagnosticContext,
-            event: "ordering-fallback",
-            reason: "output-limit",
-          });
-          onProgress?.(
-            "Keeping validated batch groups; global ordering exceeded its completion budget",
-          );
-          return retainBatchGroups();
+          return retainBatchGroups("output-limit");
         }
       }
       const outlineGroups =
@@ -1006,11 +1019,16 @@ export const createRepositoryAgent = async ({
         if (
           !(error instanceof AiGroupingRepairError) &&
           !(error instanceof AiStructuredOutputError) &&
-          !(error instanceof AiOutputLimitError)
+          !(error instanceof AiOutputLimitError) &&
+          !(error instanceof AiContextBudgetError)
         )
           throw error;
         signal.throwIfAborted();
-        return retainBatchGroups();
+        return retainBatchGroups(
+          error instanceof AiContextBudgetError
+            ? "context-budget"
+            : "placement-repair",
+        );
       }
     },
     review: async () => {
