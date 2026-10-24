@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState, useRef } from "react";
+import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { useTheme } from "next-themes";
 import { FileDiff, File, type FileDiffOptions } from "@pierre/diffs/react";
 import type { DiffLineAnnotation, SelectedLineRange } from "@pierre/diffs";
@@ -62,6 +62,17 @@ export const PreviewDiff = ({
   const [selectedRange, setSelectedRange] = useState<SelectedLineRange | null>(
     null,
   );
+  const [selectionPreview, setSelectionPreview] = useState<{
+    range: SelectedLineRange | null;
+  } | null>(null);
+  const selecting = selectionPreview !== null;
+  useEffect(() => {
+    if (!selecting) return;
+    // Pierre does not emit a selection-end callback for pointer cancellation.
+    const cancel = () => setSelectionPreview(null);
+    document.addEventListener("pointercancel", cancel);
+    return () => document.removeEventListener("pointercancel", cancel);
+  }, [selecting]);
   const [hoveredNoteId, setHoveredNoteId] = useState<string | null>(null);
   const hoveredNote = notes.find((note) => note.id === hoveredNoteId)?.line;
   const host = useRef<HTMLElement | null>(null);
@@ -147,24 +158,26 @@ export const PreviewDiff = ({
   const activeNoteRange = commentTarget ?? hoveredNote;
   const selectedLines = useMemo<SelectedLineRange | null>(
     () =>
-      activeNoteRange
-        ? {
-            start: activeNoteRange.lineNumber,
-            end: activeNoteRange.endLineNumber ?? activeNoteRange.lineNumber,
-            side: activeNoteRange.side,
-          }
-        : (selectedRange ??
-          (evidence
-            ? {
-                start: evidence.start,
-                end: evidence.end,
-                side:
-                  evidence.side === "before"
-                    ? ("deletions" as const)
-                    : ("additions" as const),
-              }
-            : null)),
-    [activeNoteRange, selectedRange, evidence],
+      selectionPreview
+        ? selectionPreview.range
+        : activeNoteRange
+          ? {
+              start: activeNoteRange.lineNumber,
+              end: activeNoteRange.endLineNumber ?? activeNoteRange.lineNumber,
+              side: activeNoteRange.side,
+            }
+          : (selectedRange ??
+            (evidence
+              ? {
+                  start: evidence.start,
+                  end: evidence.end,
+                  side:
+                    evidence.side === "before"
+                      ? ("deletions" as const)
+                      : ("additions" as const),
+                }
+              : null)),
+    [selectionPreview, activeNoteRange, selectedRange, evidence],
   );
   const closeComment = () => {
     commentPending.current = false;
@@ -184,8 +197,15 @@ export const PreviewDiff = ({
     },
     [selectedLines],
   );
+  const onLineSelectionChange = useCallback(
+    (range: SelectedLineRange | null) => {
+      if (!commentPending.current) setSelectionPreview({ range });
+    },
+    [],
+  );
   const onLineSelectionEnd = useCallback(() => {
     selectionGesture.current = true;
+    setSelectionPreview(null);
   }, []);
   const revealedEvidence = useRef<PreviewDiffProps["evidence"]>(null);
   const revealEvidence = useCallback(
@@ -227,6 +247,8 @@ export const PreviewDiff = ({
       enableLineSelection: commentTarget === null,
       controlledSelection: true,
       onLineSelected,
+      onLineSelectionStart: onLineSelectionChange,
+      onLineSelectionChange,
       onLineSelectionEnd,
       // Pierre's native utility tracks gutter width and line height, including hidden numbers.
       enableGutterUtility:
@@ -255,6 +277,7 @@ export const PreviewDiff = ({
       commentTarget,
       revealEvidence,
       onLineSelected,
+      onLineSelectionChange,
       onLineSelectionEnd,
     ],
   );
@@ -327,7 +350,7 @@ export const PreviewDiff = ({
       </article>
     );
   };
-  const explanation = selectedRange && snapshotId && (
+  const explanation = !selectionPreview && selectedRange && snapshotId && (
     <SelectionExplanation
       key={`${selectedRange.side}:${selectedRange.start}:${selectedRange.endSide}:${selectedRange.end}`}
       snapshotId={snapshotId}
@@ -372,6 +395,8 @@ export const PreviewDiff = ({
             enableLineSelection: commentTarget === null,
             controlledSelection: true,
             onLineSelected,
+            onLineSelectionStart: onLineSelectionChange,
+            onLineSelectionChange,
             onLineSelectionEnd,
           }}
           lineAnnotations={annotations.map(({ lineNumber, metadata }) => {
