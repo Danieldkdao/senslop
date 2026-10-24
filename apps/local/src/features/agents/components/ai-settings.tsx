@@ -36,7 +36,7 @@ export const AiSettings = ({
 }: {
   navigation: SettingsNavigation;
 }) => {
-  const { settings, save, saving, capacityStatus } = useAiSettings({
+  const { settings, save, capacityStatus } = useAiSettings({
     watchCapacity: true,
   });
   const { entries } = useProviderModels();
@@ -314,9 +314,6 @@ export const AiSettings = ({
           )}
         />
         <FieldError errors={[errors.capacity]} className="text-base" />
-        <p role="status" className="text-muted-foreground">
-          {saving ? "Saving AI settings…" : "AI settings save automatically."}
-        </p>
       </form>
       <section className="border-t pt-5 flex flex-col gap-3">
         <h3 className="font-medium">Configure Providers</h3>
