@@ -1,11 +1,91 @@
 import type { ProviderId } from "@senslop/contracts";
 import type { ModelCatalogSchema } from "../model-schemas";
+import type { compatibleModelCapabilities } from "../constants";
 
-import { formatProvider } from "@senslop/contracts";
+import { formatProvider, compatibleModelTokenBounds } from "@senslop/contracts";
 export {
   formatProvider,
   formatSubscriptionRequirements,
 } from "@senslop/contracts";
+
+export const formatCompatibleCapability = (
+  capability: (typeof compatibleModelCapabilities)[number],
+) => {
+  switch (capability) {
+    case "supportsTools":
+      return {
+        label: "Supports tools",
+        description:
+          "Allow repository tools and context lookups. Turn off for models that cannot call tools.",
+      };
+    case "supportsImages":
+      return {
+        label: "Supports images",
+        description:
+          "Allow image input when it is supplied to this model. This does not add image uploads to chat.",
+      };
+    case "supportsParallelToolCalls":
+      return {
+        label: "Supports parallel tool calls",
+        description:
+          "Allow multiple tool calls in a model response. Requires tool support.",
+      };
+    case "supportsPromptCacheKey":
+      return {
+        label: "Supports prompt_cache_key",
+        description:
+          "Send a stable cache-routing key. Enable only if your endpoint accepts this field.",
+      };
+    case "supportsChatCompletions":
+      return {
+        label: "Supports /chat/completions",
+        description:
+          "Use Chat Completions. When off, the endpoint must support the Responses API.",
+      };
+    case "usesMaxTokens":
+      return {
+        label: "Uses max_tokens for output limit",
+        description:
+          "Use the legacy max_tokens field instead of max_completion_tokens for chat requests.",
+      };
+    case "supportsThinking":
+      return {
+        label: "Supports thinking",
+        description:
+          "Allow requested reasoning settings. This does not enable thinking automatically.",
+      };
+  }
+};
+
+export const formatCompatibleTokenField = (
+  field: "maxCompletionTokens" | "maxOutputTokens" | "contextWindow",
+) => {
+  switch (field) {
+    case "maxCompletionTokens":
+      return {
+        label: "Max completion tokens",
+        description:
+          "Maximum completion allowance accepted by the chat API. Requests also respect Max output tokens.",
+        ...compatibleModelTokenBounds.maxCompletionTokens,
+      };
+    case "maxOutputTokens":
+      return {
+        label: "Max output tokens",
+        description: "Maximum tokens this model can generate in one response.",
+        ...compatibleModelTokenBounds.maxOutputTokens,
+      };
+    case "contextWindow":
+      return {
+        label: "Max tokens",
+        description:
+          "The model context window, including input and output tokens.",
+        ...compatibleModelTokenBounds.contextWindow,
+      };
+  }
+};
+
+export const formatCompatibleTokenRange = (min: number, max: number) =>
+  `Minimum ${min.toLocaleString("en-US")}; maximum ${max.toLocaleString("en-US")}.`;
 
 export const formatConnectionLabel = (connection: {
   provider: ProviderId;
