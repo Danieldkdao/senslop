@@ -1,11 +1,66 @@
 import { afterEach, expect, test, vi } from "vitest";
 import { APICallError } from "ai";
-import { createRequestLimiter } from "../request-limiter";
+import { createRequestLimiter, getRequestLimiter } from "../request-limiter";
 import { getAiProviderBackoff } from "../errors";
 
 afterEach(() => vi.useRealTimers());
 const pause = (milliseconds: number) =>
   new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
+
+test("output tokens are reserved before admission and reconciled after generation", async () => {
+  vi.useFakeTimers();
+  const limiter = createRequestLimiter({
+    limits: { outputTokensPerMinute: 100 },
+  });
+  await limiter.run(async () => 20, undefined, {
+    outputTokens: 80,
+    actualOutputTokens: (result) => result,
+  });
+  const next = vi.fn(async () => 80);
+  await limiter.run(next, undefined, { outputTokens: 80 });
+  const third = vi.fn(async () => {});
+  const pending = limiter.run(third, undefined, { outputTokens: 1 });
+  await vi.advanceTimersByTimeAsync(59999);
+  expect(third).not.toHaveBeenCalled();
+  await vi.advanceTimersByTimeAsync(1);
+  await pending;
+  expect(third).toHaveBeenCalledOnce();
+});
+
+test("stream finish usage releases unused input and output reservations", async () => {
+  vi.useFakeTimers();
+  const limiter = createRequestLimiter({
+    limits: { inputTokensPerMinute: 100, outputTokensPerMinute: 100 },
+  });
+  const stream = await limiter.runStream(
+    async () => ({
+      stream: new ReadableStream({
+        start(controller) {
+          controller.enqueue({ input: 10, output: 20 });
+          controller.close();
+        },
+      }),
+    }),
+    undefined,
+    {
+      inputTokens: 80,
+      outputTokens: 80,
+      actualInputTokens: (chunk) => (chunk as { input: number }).input,
+      actualOutputTokens: (chunk) => (chunk as { output: number }).output,
+    },
+  );
+  const reader = stream.stream.getReader();
+  await reader.read();
+  await reader.read();
+  const operation = vi.fn(async () => {});
+  const pending = limiter.run(operation, undefined, {
+    inputTokens: 90,
+    outputTokens: 80,
+  });
+  await vi.advanceTimersByTimeAsync(0);
+  expect(operation).toHaveBeenCalledOnce();
+  await pending;
+});
 
 test("streaming holds its request slot through consumption and releases on cancellation", async () => {
   const limiter = createRequestLimiter({
