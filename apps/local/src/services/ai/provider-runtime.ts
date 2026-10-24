@@ -225,7 +225,14 @@ export const resolveLanguageModel = (
           model: createOllama({
             baseURL: `${options.baseURL}/api`,
             headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : {},
-            fetch: safeFetch,
+            fetch: (url, init) => {
+              if (typeof init?.body !== "string") return safeFetch(url, init);
+              const body = JSON.parse(init.body);
+              // This adapter forces boolean thinking; some Ollama models accept only named levels.
+              // Omit the override so the server preserves its configured model default.
+              delete body.think;
+              return safeFetch(url, { ...init, body: JSON.stringify(body) });
+            },
           })(modelId),
           ...(connection.contextWindow
             ? {

@@ -93,6 +93,35 @@ test.each(["lm-studio", "llama-cpp"] as const)(
   },
 );
 
+test.each(["gpt-oss", "qwen3"])(
+  "Ollama preserves %s's server thinking default",
+  async (modelId) => {
+    let body: Record<string, unknown> = {};
+    await generateText({
+      ...resolveLanguageModel(
+        connection("ollama", "http://localhost:11434"),
+        null,
+        modelId,
+        async (_url, init) => {
+          body = JSON.parse(String(init?.body));
+          return Response.json({
+            model: modelId,
+            created_at: new Date().toISOString(),
+            message: { role: "assistant", content: "ok" },
+            done: true,
+            done_reason: "stop",
+            prompt_eval_count: 2,
+            eval_count: 1,
+          });
+        },
+      ),
+      prompt: "Reply",
+      reasoning: "none",
+    });
+    expect(body).not.toHaveProperty("think");
+  },
+);
+
 test("cloud model calls using the same provider credentials share an adaptive request limit", async () => {
   const releases: (() => void)[] = [];
   let active = 0;
