@@ -52,6 +52,27 @@ vi.mock("../../settings/components/provider-settings-dialog", () => ({
 }));
 afterEach(cleanup);
 
+test("capacity edits submit with AI settings and active runs disable capacity controls", async () => {
+  const navigation = { navigate: vi.fn() } as never;
+  const view = render(<AiSettings navigation={navigation} />);
+  const user = userEvent.setup();
+  const input = screen.getByRole("spinbutton", { name: "Concurrent requests" });
+  await user.clear(input);
+  await user.type(input, "3");
+  await user.click(screen.getByRole("button", { name: "Save AI settings" }));
+  await waitFor(() =>
+    expect(state.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        capacity: { test: expect.objectContaining({ concurrency: 3 }) },
+      }),
+    ),
+  );
+  state.locked = true;
+  view.rerender(<AiSettings navigation={navigation} />);
+  expect((input as HTMLInputElement).disabled).toBe(true);
+  expect(screen.getByText(/disabled while grouping or review/)).toBeTruthy();
+});
+
 test("CLI settings refresh updates clean fields while preserving unsaved grouping instructions", async () => {
   state.settings = {
     ...defaultAiSettings,
