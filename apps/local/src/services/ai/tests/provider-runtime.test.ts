@@ -3,7 +3,7 @@ import { generateText, APICallError, Output } from "ai";
 import { z } from "zod";
 import type { ProviderConfigSchema } from "@senslop/contracts";
 import { resolveLanguageModel } from "../provider-runtime";
-import { formatAiError } from "../errors";
+import { formatAiError, isFatalAiError } from "../errors";
 import { defaultConnectionCapacity } from "../../../features/ai-capacity/lib/capacity";
 import {
   createReviewBatchSchema,
@@ -133,6 +133,37 @@ test.each(["lm-studio", "llama-cpp"] as const)(
     });
   },
 );
+
+test("OpenAI Responses refusals have a safe fatal diagnostic rather than a decoding error", async () => {
+  const refusal = {
+    id: "resp-refusal",
+    created_at: 1,
+    status: "completed",
+    model: "gpt-4o-2024-08-06",
+    output: [
+      {
+        id: "msg-refusal",
+        type: "message",
+        role: "assistant",
+        content: [{ type: "refusal", refusal: "PRIVATE_REFUSAL" }],
+      },
+    ],
+    usage: { input_tokens: 10, output_tokens: 1, total_tokens: 11 },
+  };
+  const error = await generateText({
+    ...resolveLanguageModel(
+      connection("chatgpt"),
+      "fixture",
+      refusal.model,
+      async () => Response.json(refusal),
+    ),
+    prompt: "Reply",
+    maxRetries: 0,
+  }).catch((error: unknown) => error);
+  expect(formatAiError(error)).toMatch(/blocked/);
+  expect(isFatalAiError(error)).toBe(true);
+  expect(formatAiError(error)).not.toContain("PRIVATE_REFUSAL");
+});
 
 test("OpenRouter schema requests require a compatible upstream route", async () => {
   let body: Record<string, unknown> = {};
