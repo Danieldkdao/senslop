@@ -341,11 +341,11 @@ test("arrow shortcuts leave text editing, modifiers and diff settings alone", as
   expect(screen.getByText("Diff for src/first.ts")).toBeTruthy();
 });
 
-test("command K searches files and Enter selects a result without global arrow navigation", async () => {
+test("K searches files and Enter selects a result without global arrow navigation", async () => {
   setNavigationPreview();
   const user = userEvent.setup();
   render(<ReviewWorkspace>Setup</ReviewWorkspace>);
-  fireEvent.keyDown(document, { key: "k", metaKey: true });
+  fireEvent.keyDown(document, { key: "k" });
   const dialog = await screen.findByRole("dialog", { name: "Find a file" });
   const input = within(dialog).getByRole("combobox", { name: "Search files" });
   await user.type(input, "second");
@@ -362,11 +362,11 @@ test("command K searches files and Enter selects a result without global arrow n
   expect(screen.getByText("Diff for src/second.tsx")).toBeTruthy();
 });
 
-test("Ctrl K supports empty searches, streamed files and Escape", async () => {
+test("K supports empty searches, streamed files and Escape", async () => {
   setNavigationPreview();
   const user = userEvent.setup();
   const view = render(<ReviewWorkspace>Setup</ReviewWorkspace>);
-  fireEvent.keyDown(document, { key: "k", ctrlKey: true });
+  fireEvent.keyDown(document, { key: "k" });
   const dialog = await screen.findByRole("dialog", { name: "Find a file" });
   const input = within(dialog).getByRole("combobox", { name: "Search files" });
   await user.type(input, "missing");
@@ -815,7 +815,7 @@ test("file search follows review groups and searches by group title", async () =
     kind: "grouping",
     snapshotId: state.preview!.id,
   });
-  fireEvent.keyDown(document, { key: "k", metaKey: true });
+  fireEvent.keyDown(document, { key: "k" });
   const dialog = await screen.findByRole("dialog", { name: "Find a file" });
   const groups = dialog.querySelectorAll("[cmdk-group]");
   expect(groups).toHaveLength(2);
@@ -976,7 +976,7 @@ test("only header actions have tooltips and mobile drawers still open", async ()
   for (const [label, hint] of [
     ["Previous file", "Previous file"],
     ["Next file", "Next file"],
-    ["Find a file", "Find a file (⌘K / Ctrl+K)"],
+    ["Find a file", "Find a file (K)"],
     ["Add note", "Add note"],
   ]) {
     const button = screen.getByRole("button", { name: label });

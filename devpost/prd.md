@@ -7,7 +7,7 @@ status: approved
 
 ## Settings header actions and managed shortcuts
 
-Settings sections and nested screens accept optional header actions beside their title. Use a flex row with centered items, gap-2, and min-w-0; wrap the title in flex-1 min-w-0 and actions in shrink-0. The Providers add menu belongs in that header, including when opened from AI settings.
+Settings sections and nested screens accept optional header actions beside their title. Use a flex row with centered items, gap-2, and min-w-0; wrap the title in flex-1 min-w-0 and actions in shrink-0. The Providers add menu belongs in that header, including when opened from AI settings. Application shortcuts use TanStack Hotkeys through one reusable hook with shared defaults and per-shortcut overrides. Plain K opens file search. Keep existing file navigation, completion, review history, sidebar shortcuts, and protections for typing, composition, open overlays, held keys, and pending review operations.
 
 ## Review history organized by CLI launch folder
 

@@ -1,10 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import {
-  hasOpenKeyboardOverlay,
-  isPlainKeyboardShortcutBlocked,
-} from "@senslop/ui/lib/keyboard-shortcuts";
+import { useCallback, useState } from "react";
+import { useKeyboardShortcuts } from "@senslop/ui/hooks/use-keyboard-shortcuts";
 import type { LivePreview } from "../types";
 
 type ReviewNavigationOptions = {
@@ -32,34 +29,27 @@ export const useReviewNavigation = ({
     [preview, selectedPath, onSelect],
   );
 
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || event.isComposing || !preview) return;
-      const overlayOpen = hasOpenKeyboardOverlay();
-      if (
-        event.key.toLowerCase() === "k" &&
-        (event.metaKey || event.ctrlKey) &&
-        !event.altKey &&
-        !event.shiftKey
-      ) {
-        if (overlayOpen && !searchOpen) return;
-        event.preventDefault();
-        if (!event.repeat) setSearchOpen((open) => !open);
-        return;
-      }
-      if (searchOpen || isPlainKeyboardShortcutBlocked(event)) return;
-      if (event.key.toLowerCase() === "d" && onToggleCompletion) {
-        event.preventDefault();
-        if (!event.repeat) onToggleCompletion();
-        return;
-      }
-      if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
-      event.preventDefault();
-      navigateFile(event.key === "ArrowLeft" ? -1 : 1);
-    };
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [navigateFile, preview, searchOpen, onToggleCompletion]);
+  useKeyboardShortcuts(
+    [
+      { hotkey: "K", callback: () => setSearchOpen(true) },
+      {
+        hotkey: "D",
+        callback: () => onToggleCompletion?.(),
+        options: { shouldHandle: () => !!onToggleCompletion },
+      },
+      {
+        hotkey: "ArrowLeft",
+        callback: () => navigateFile(-1),
+        options: { allowRepeat: true },
+      },
+      {
+        hotkey: "ArrowRight",
+        callback: () => navigateFile(1),
+        options: { allowRepeat: true },
+      },
+    ],
+    { enabled: !!preview && !searchOpen },
+  );
 
   return { searchOpen, setSearchOpen, navigateFile };
 };

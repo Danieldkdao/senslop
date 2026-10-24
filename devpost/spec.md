@@ -7,7 +7,7 @@ status: approved
 
 ## Settings header composition and TanStack Hotkeys
 
-Add optional headerActions ReactNode fields to SettingsSection and SettingsScreen and render them with SettingsScreenHeader in both settings layouts. Reuse the full provider section when navigating from AI settings so actions survive navigation. Extract AddProviderMenu from provider content.
+Add optional headerActions ReactNode fields to SettingsSection and SettingsScreen and render them with SettingsScreenHeader in both settings layouts. Reuse the full provider section when navigating from AI settings so actions survive navigation. Extract AddProviderMenu from provider content. packages/ui owns @tanstack/react-hotkeys and exports useKeyboardShortcuts for registration, lifecycle cleanup, input and overlay guards, per-binding options, and an AbortSignal for asynchronous callbacks. Migrate review navigation, saved-review shortcuts, and the shared sidebar to that hook. File search uses K with matching tooltip and aria-keyshortcuts text. Preserve async review-switch revalidation and prevent Shift-modified bracket navigation. Add root shared-hook tests and cover header actions through the real AI-to-Providers route.
 
 ## CLI launch-folder review history
 

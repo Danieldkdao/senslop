@@ -226,8 +226,11 @@ test("review shortcuts leave editable controls, shadow-root inputs, overlays, an
     document.createElement("select"),
     document.createElement("div"),
   ]) {
-    if (target.tagName === "DIV")
+    if (target.tagName === "DIV") {
       target.setAttribute("contenteditable", "true");
+      // JSDOM does not implement the browser's isContentEditable property.
+      Object.defineProperty(target, "isContentEditable", { value: true });
+    }
     host.append(target);
     for (const key of ["r", "[", "]"]) fireEvent.keyDown(target, { key });
   }

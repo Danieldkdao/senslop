@@ -437,12 +437,12 @@ export const ReviewWorkspace = ({ children }: ReviewWorkspaceProps) => {
                   <Check aria-hidden="true" className="size-5" />
                 </Button>
               </TooltipWrapper>
-              <TooltipWrapper content="Find a file (⌘K / Ctrl+K)">
+              <TooltipWrapper content="Find a file (K)">
                 <Button
                   variant="ghost"
                   size="icon"
                   aria-label="Find a file"
-                  aria-keyshortcuts="Meta+K Control+K"
+                  aria-keyshortcuts="k"
                   disabled={preparing}
                   onClick={() => setSearchOpen(true)}
                 >
