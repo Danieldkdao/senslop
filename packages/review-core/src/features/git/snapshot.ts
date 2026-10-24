@@ -413,11 +413,6 @@ export const collectSnapshot = async ({
       });
       continue;
     }
-    total += (before.bytes?.length ?? 0) + (after.bytes?.length ?? 0);
-    if (total > SNAPSHOT_LIMITS.totalBytes)
-      throw new SnapshotLimitError(
-        "Selected before/after contents exceed the 20 MiB snapshot limit; nothing was truncated.",
-      );
     const beforeText = textContent(before.bytes);
     const afterText = textContent(after.bytes);
     if (beforeText !== null)
@@ -435,6 +430,13 @@ export const collectSnapshot = async ({
     const binary =
       (before.bytes !== null && beforeText === null) ||
       (after.bytes !== null && afterText === null);
+    // Binary contents are hashed locally; only retained text counts toward the payload budget.
+    if (!binary)
+      total += (before.bytes?.length ?? 0) + (after.bytes?.length ?? 0);
+    if (total > SNAPSHOT_LIMITS.totalBytes)
+      throw new SnapshotLimitError(
+        "Selected before/after contents exceed the 20 MiB snapshot limit; nothing was truncated.",
+      );
     files.push({
       ...change,
       before: binary ? null : beforeText,
