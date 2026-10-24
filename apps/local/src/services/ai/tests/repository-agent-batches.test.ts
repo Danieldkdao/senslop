@@ -355,6 +355,77 @@ const batch = (options: LanguageModelV4CallOptions) => {
   };
 };
 
+test.each([64000, null])(
+  "local review batches with context %s carry only their file inventory and adjacent dependency context",
+  async (contextWindow) => {
+    state.contextWindow = contextWindow;
+    state.provider = "lm-studio";
+    const selected = Array.from({ length: 40 }, (_, index) => ({
+      ...files[0]!,
+      path: `${index}.ts`,
+      diff: "context ".repeat(1500),
+    }));
+    const edges = selected.slice(0, -1).map((file, index) => ({
+      from: file.path,
+      to: selected[index + 1]!.path,
+      specifier: "./next",
+      typeOnly: false,
+      provenance: "compiler-resolved" as const,
+    }));
+    state.model = new MockLanguageModelV4({
+      doGenerate: async (options) => {
+        requests.push(options);
+        const input = batch(options);
+        const prompt = options.prompt
+          .filter((message) => message.role === "user")
+          .flatMap((message) => message.content)
+          .filter((part) => part.type === "text")
+          .map((part) => part.text)
+          .join("\n");
+        const context = JSON.parse(
+          prompt.match(/Snapshot context:\n([^\n]+)/)![1]!,
+        ) as {
+          changes: { path: string }[];
+          dependencies: typeof edges;
+        };
+        const members = input.changes.map((file) => file.path);
+        expect(context.changes.map((file) => file.path)).toEqual(members);
+        expect(context.dependencies).toEqual(
+          edges.filter(
+            (edge) => members.includes(edge.from) || members.includes(edge.to),
+          ),
+        );
+        return response({
+          files: members.map((path) => ({ path, findings: [] })),
+          limitations: [],
+        });
+      },
+    });
+    const result = await (
+      await agent(selected, undefined, {
+        edges,
+        symbols: [],
+        diagnostics: [],
+        cycles: [],
+        limitations: [],
+      })
+    ).review();
+    expect(result.findings).toEqual([]);
+    expect(requests.length).toBeGreaterThan(1);
+    const reviewed = requests.flatMap((request) => batch(request).changes);
+    expect([...new Set(reviewed.map((file) => file.path))].sort()).toEqual(
+      selected.map((file) => file.path).sort(),
+    );
+    for (const file of selected)
+      expect(
+        reviewed
+          .filter((part) => part.path === file.path)
+          .map((part) => part.diff)
+          .join(""),
+      ).toBe(file.diff);
+  },
+);
+
 test("grouping constrains each request to its batch and orders with compact file references", async () => {
   const selected = Array.from({ length: 12 }, (_, index) => ({
     ...files[0]!,

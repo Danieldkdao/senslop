@@ -500,6 +500,23 @@ export const createRepositoryAgent = async ({
     cycles,
     limitations: [...context.limitations, ...context.analysis.limitations],
   });
+  const batchContext = (batch: typeof changes) => {
+    const members = new Set(batch.map((change) => change.path));
+    return JSON.stringify({
+      snapshotId: snapshot.id,
+      source: snapshot.source,
+      changes: batch.map(({ path, oldPath, binary }) => ({
+        path,
+        oldPath,
+        binary,
+      })),
+      dependencies: dependencies.filter(
+        (edge) => members.has(edge.from) || members.has(edge.to),
+      ),
+      cycles: cycles.filter((cycle) => cycle.some((path) => members.has(path))),
+      limitations: [...context.limitations, ...context.analysis.limitations],
+    });
+  };
   const generation = getGenerationOptions(
     runtimeConnection,
     limit,
@@ -769,32 +786,12 @@ export const createRepositoryAgent = async ({
                 `Grouping batch ${index + 1} of ${batches.length}${attempt ? ` — smaller request ${attempt}` : ""}`,
               );
               const members = [...new Set(part.map((change) => change.path))];
-              const memberPaths = new Set(members);
-              const batchContext = JSON.stringify({
-                snapshotId: snapshot.id,
-                source: snapshot.source,
-                changes: part.map(({ path, oldPath, binary }) => ({
-                  path,
-                  oldPath,
-                  binary,
-                })),
-                dependencies: dependencies.filter(
-                  (edge) =>
-                    memberPaths.has(edge.from) || memberPaths.has(edge.to),
-                ),
-                cycles: cycles.filter((cycle) =>
-                  cycle.some((path) => memberPaths.has(path)),
-                ),
-                limitations: [
-                  ...context.limitations,
-                  ...context.analysis.limitations,
-                ],
-              });
+              const scopedContext = batchContext(part);
               const previous = members.flatMap(
                 (path) => summaries.get(path) ?? [],
               );
               const batchSchema = createGroupingBatchSchema(members);
-              const batchPrompt = `${prompt}\nSnapshot context:\n${batchContext}\nBatch input:\n${batchInput(part, previous)}`;
+              const batchPrompt = `${prompt}\nSnapshot context:\n${scopedContext}\nBatch input:\n${batchInput(part, previous)}`;
               const result = validateGrouping(
                 await checkpointed("grouping", batchPrompt, batchSchema, () =>
                   structured(
@@ -808,7 +805,7 @@ export const createRepositoryAgent = async ({
                       repairOptions(
                         members,
                         part,
-                        `${prompt}\n${batchContext}\nPrevious summaries: ${JSON.stringify(previous)}`,
+                        `${prompt}\n${scopedContext}\nPrevious summaries: ${JSON.stringify(previous)}`,
                         "grouping",
                       ),
                     ),
@@ -970,7 +967,7 @@ export const createRepositoryAgent = async ({
     },
     review: async () => {
       const schema = reviewBatchSchema;
-      const prompt = `Review this batch of selected changes for concrete correctness bugs. Use the Context agent and repository tools to verify relevant callers, declarations and tests across the snapshot. Read captured diagnostics for files with nonzero diagnosticCounts and distinguish compiler facts from inference. Offset/total identifies part of a large diff; use readDiff and readSource when more evidence is needed. No speculative findings. Each finding needs an exact contiguous source excerpt, side before/after, 1-based start/end line and a useful fix prompt. Return one files assessment per batch path, including findings: [] when no bug is established. Write each problem as one concise paragraph, ideally 40–80 words, explaining the trigger, failure, impact and essential evidence, ending with one short sentence suggesting a focused fix. Do not generate additional description paragraphs. Use Markdown code spans for identifiers. Each fixPrompt is short Markdown guidance with the targeted change and relevant verification in 1–2 sentences. Do not repeat the problem, location or excerpt in fixPrompt; the application wraps it in a review comment and adds: For this issue, determine whether it is valid and should be fixed. If so, fix it directly. Style example — problem: If another program takes the saved workspace port between sessions, \`workspacePort\` keeps returning that occupied port. The availability check fails without replacing it. Every retry uses the same port, so the repository cannot reopen. When no workspace owns the repository, choose and save another available port. Fix guidance: When no workspace owns the repository, choose and save another available port; test startup with the saved port occupied. This example illustrates writing style only and is not evidence of an issue in this snapshot. Omit unrelated pre-existing bugs. Report only specific evidence gaps that materially limit a conclusion. Do not repeat the static read-only scope or shared snapshot limitations for every batch; the application records those centrally. Zero diagnostics, lists of files checked and successful tool reads are not limitations.\nSnapshot context:\n${initial}`;
+      const prompt = `Review this batch of selected changes for concrete correctness bugs. Use the Context agent and repository tools to verify relevant callers, declarations and tests across the snapshot. Read captured diagnostics for files with nonzero diagnosticCounts and distinguish compiler facts from inference. Offset/total identifies part of a large diff; use readDiff and readSource when more evidence is needed. No speculative findings. Each finding needs an exact contiguous source excerpt, side before/after, 1-based start/end line and a useful fix prompt. Return one files assessment per batch path, including findings: [] when no bug is established. Write each problem as one concise paragraph, ideally 40–80 words, explaining the trigger, failure, impact and essential evidence, ending with one short sentence suggesting a focused fix. Do not generate additional description paragraphs. Use Markdown code spans for identifiers. Each fixPrompt is short Markdown guidance with the targeted change and relevant verification in 1–2 sentences. Do not repeat the problem, location or excerpt in fixPrompt; the application wraps it in a review comment and adds: For this issue, determine whether it is valid and should be fixed. If so, fix it directly. Style example — problem: If another program takes the saved workspace port between sessions, \`workspacePort\` keeps returning that occupied port. The availability check fails without replacing it. Every retry uses the same port, so the repository cannot reopen. When no workspace owns the repository, choose and save another available port. Fix guidance: When no workspace owns the repository, choose and save another available port; test startup with the saved port occupied. This example illustrates writing style only and is not evidence of an issue in this snapshot. Omit unrelated pre-existing bugs. Report only specific evidence gaps that materially limit a conclusion. Do not repeat the static read-only scope or shared snapshot limitations for every batch; the application records those centrally. Zero diagnostics, lists of files checked and successful tool reads are not limitations. Other files remain available through repository tools for focused supporting evidence.`;
       const batches = batchesFor(prompt, schema);
       console.info("[senslop:ai-batches]", {
         ...diagnosticContext,
@@ -1003,18 +1000,20 @@ export const createRepositoryAgent = async ({
               onProgress?.(
                 `Reviewing batch ${index + 1} of ${batches.length}${attempt ? ` — smaller request ${attempt}` : ""}`,
               );
+              const scopedContext = batchContext(part);
+              const batchPrompt = `${prompt}\nSnapshot context:\n${scopedContext}\nBatch input:\n${batchInput(part)}`;
               batchResults[index]!.push(
                 validateReview(
                   await checkpointed(
                     "review",
-                    { prompt, part },
+                    batchPrompt,
                     correctnessSchema,
                     () =>
                       structured(
                         createReviewBatchSchema([
                           ...new Set(part.map((file) => file.path)),
                         ]),
-                        `${prompt}\nBatch input:\n${batchInput(part)}`,
+                        batchPrompt,
                         `Review batch ${index + 1} of ${batches.length}`,
                       ).then((candidate) =>
                         repairReviewResult(
@@ -1022,7 +1021,7 @@ export const createRepositoryAgent = async ({
                           repairOptions(
                             [...new Set(part.map((file) => file.path))],
                             part,
-                            initial,
+                            scopedContext,
                             "review",
                           ),
                         ),
