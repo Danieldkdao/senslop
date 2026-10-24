@@ -14,7 +14,7 @@ import { normalizeModels } from "./normalize-models";
 
 const metadataModelSchema = z.object({
   id: z.string().max(200).optional(),
-  name: z.string().max(200).optional(),
+  name: z.string().max(200).nullish(),
   display_name: z.string().max(200).optional(),
   displayName: z.string().max(200).optional(),
   aliases: z.array(z.string().max(200)).max(20000).optional(),
