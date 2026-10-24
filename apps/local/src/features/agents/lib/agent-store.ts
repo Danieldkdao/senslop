@@ -1,5 +1,6 @@
 import type { UIMessage } from "ai";
 import { randomUUID } from "node:crypto";
+import { storedConnectionSchema } from "@senslop/contracts";
 import type { LocalStore } from "@senslop/review-core/storage";
 import {
   aiSettingsSchema,
@@ -14,6 +15,7 @@ import {
 } from "../schemas";
 import { defaultAiSettings, groupingFallbackDelayMs } from "../constants";
 import { matchesJobSnapshot } from "./job-snapshots";
+import { defaultConnectionCapacity } from "../../ai-capacity/lib/capacity";
 
 export class AgentStore {
   constructor(
@@ -30,6 +32,20 @@ export class AgentStore {
         ? JSON.parse(String(existingSettings.value))
         : defaultAiSettings,
     );
+  };
+
+  private runSettings = () => {
+    const settings = this.settings();
+    for (const row of this.local.database
+      .prepare("SELECT body FROM connections")
+      .all()) {
+      const connection = storedConnectionSchema.parse(
+        JSON.parse(String(row.body)),
+      );
+      settings.capacity[connection.id] ??=
+        defaultConnectionCapacity(connection);
+    }
+    return settings;
   };
 
   saveSettings = (input: AiSettingsSchema) =>
@@ -177,7 +193,7 @@ export class AgentStore {
         snapshotRound: snapshot.round,
         kind,
         generation: (jobs[0]?.generation ?? 0) + 1,
-        settings: this.settings(),
+        settings: this.runSettings(),
         status: "queued",
         progress: "Waiting for local worker",
         error: null,

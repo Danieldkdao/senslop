@@ -89,6 +89,37 @@ test("patching one connection's capacity keeps other connection budgets", async 
   }
 });
 
+test("queued jobs capture default connection budgets before configuration changes", async () => {
+  const { local, review, agents } = await fixture();
+  try {
+    const connection = {
+      id: randomUUID(),
+      provider: "lm-studio",
+      name: "Local",
+      model: "",
+      baseURL: "http://localhost:1234/v1",
+      contextWindow: 32768,
+      credentialRef: null,
+      revision: 0,
+    };
+    local.database
+      .prepare("INSERT INTO connections VALUES (?, ?)")
+      .run(connection.id, JSON.stringify(connection));
+    const job = agents.createJob(review.id, "review");
+    local.database
+      .prepare("UPDATE connections SET body = ? WHERE id = ?")
+      .run(
+        JSON.stringify({ ...connection, contextWindow: 64000 }),
+        connection.id,
+      );
+    expect(
+      agents.job(job.id)?.settings.capacity[connection.id]?.contextTokens,
+    ).toBe(32768);
+    expect(agents.settings().capacity).toEqual({});
+  } finally {
+    local.close();
+  }
+});
 test("validated batch checkpoints survive restart and stay scoped to active repository jobs", async () => {
   const { local, review, agents, databasePath } = await fixture();
   const job = agents.createJob(review.id, "grouping");
