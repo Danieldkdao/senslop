@@ -27,7 +27,43 @@ export type AiRequestState = { contextCalls: number; requestId?: string };
 
 export type ProviderRequestLimits = {
   inputTokensPerMinute?: number;
+  outputTokensPerMinute?: number;
   requestsPerMinute?: number;
+};
+
+export type RequestCapacity = {
+  concurrency: number;
+  limits: ProviderRequestLimits;
+};
+
+export type RequestReservation = {
+  startedAt: number;
+  inputTokens: number;
+  outputTokens: number;
+};
+
+export type RequestBudget<T> = {
+  inputTokens?: number;
+  outputTokens?: number;
+  capacity?: RequestCapacity;
+  actualInputTokens?: (result: T) => number | undefined;
+  actualOutputTokens?: (result: T) => number | undefined;
+};
+
+export type RequestLimiter = {
+  run: <T>(
+    operation: () => PromiseLike<T>,
+    signal?: AbortSignal,
+    budget?: RequestBudget<T>,
+  ) => Promise<T>;
+  runStream: <T extends { stream: ReadableStream<unknown> }>(
+    operation: () => PromiseLike<T>,
+    signal?: AbortSignal,
+    budget?: RequestBudget<unknown>,
+  ) => Promise<T>;
+  state: () => { concurrency: number; active: number; queued: number };
+  subscribe: (listener: () => void) => () => void;
+  registerDemand: (pending: () => number) => () => void;
 };
 
 export type AnalysisRepairIssue = {

@@ -11,6 +11,13 @@ export class AiServiceError extends Error {
   }
 }
 
+export class AiContextBudgetError extends AiServiceError {
+  constructor(message: string) {
+    super(message);
+    this.name = "AiContextBudgetError";
+  }
+}
+
 export class AiOutputLimitError extends AiServiceError {
   constructor() {
     super(
