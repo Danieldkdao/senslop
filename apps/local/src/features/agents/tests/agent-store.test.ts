@@ -59,6 +59,54 @@ const fixture = async () => {
   };
 };
 
+test("capacity settings lock across repositories and remain frozen in saved runs", async () => {
+  const { local, review, agents, databasePath } = await fixture();
+  try {
+    const settings = agents.settings();
+    settings.capacity = {
+      test: {
+        concurrency: 2,
+        requestsPerMinute: 20,
+        inputTokensPerMinute: 100000,
+        outputTokensPerMinute: null,
+        contextTokens: 16384,
+        outputTokens: 2048,
+        groupingInputTokens: 8000,
+        reviewInputTokens: 8000,
+      },
+    };
+    agents.saveSettings(settings);
+    const job = agents.createJob(review.id, "grouping");
+    const other = new AgentStore(local, "/other");
+    expect(other.capacityLocked()).toBe(true);
+    expect(() =>
+      other.patchSettings({
+        capacity: { test: { ...settings.capacity.test, concurrency: 4 } },
+      }),
+    ).toThrow(/grouping or review/);
+    other.patchSettings({ prompt: "Unrelated preference" });
+    expect(agents.job(job.id)?.settings.capacity.test?.concurrency).toBe(2);
+    agents.updateJob(job.id, { status: "completed" });
+    other.patchSettings({
+      capacity: { test: { ...settings.capacity.test, concurrency: 4 } },
+    });
+    expect(
+      agents.createJob(review.id, "review").settings.capacity.test?.concurrency,
+    ).toBe(4);
+    const reopened = new LocalStore(databasePath);
+    try {
+      expect(
+        new AgentStore(reopened, "/repo").job(job.id)?.settings.capacity.test
+          ?.concurrency,
+      ).toBe(2);
+    } finally {
+      reopened.close();
+    }
+  } finally {
+    local.close();
+  }
+});
+
 test("an unrelated settings patch preserves capacity and legacy preferences get defaults", async () => {
   const { local, agents } = await fixture();
   try {

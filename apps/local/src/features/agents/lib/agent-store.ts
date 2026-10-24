@@ -1,5 +1,6 @@
 import type { UIMessage } from "ai";
 import { randomUUID } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 import { storedConnectionSchema } from "@senslop/contracts";
 import type { LocalStore } from "@senslop/review-core/storage";
 import {
@@ -15,7 +16,10 @@ import {
 } from "../schemas";
 import { defaultAiSettings, groupingFallbackDelayMs } from "../constants";
 import { matchesJobSnapshot } from "./job-snapshots";
+import { capacityLockedMessage } from "../../ai-capacity/constants";
 import { defaultConnectionCapacity } from "../../ai-capacity/lib/capacity";
+
+export class CapacityLockedError extends Error {}
 
 export class AgentStore {
   constructor(
@@ -33,6 +37,13 @@ export class AgentStore {
         : defaultAiSettings,
     );
   };
+
+  capacityLocked = () =>
+    !!this.local.database
+      .prepare(
+        "SELECT 1 FROM ai_jobs WHERE json_extract(body, '$.status') IN ('queued', 'running') LIMIT 1",
+      )
+      .get();
 
   private runSettings = () => {
     const settings = this.settings();
@@ -53,6 +64,11 @@ export class AgentStore {
 
   private writeSettings = (input: AiSettingsSchema) => {
     const settings = aiSettingsSchema.parse(input);
+    if (
+      this.capacityLocked() &&
+      !isDeepStrictEqual(settings.capacity, this.settings().capacity)
+    )
+      throw new CapacityLockedError(capacityLockedMessage);
     this.local.database
       .prepare(
         "INSERT INTO preferences VALUES ('ai_settings', ?) ON CONFLICT(name) DO UPDATE SET value = excluded.value",
