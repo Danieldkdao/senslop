@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { LocalStore } from "@senslop/review-core/storage";
 import { AgentStore } from "../lib/agent-store";
+import { defaultConnectionCapacity } from "../../ai-capacity/lib/capacity";
 
 const directories: string[] = [];
 afterEach(async () => {
@@ -57,6 +58,37 @@ const fixture = async () => {
     databasePath,
   };
 };
+
+test("an unrelated settings patch preserves capacity and legacy preferences get defaults", async () => {
+  const { local, agents } = await fixture();
+  try {
+    expect(agents.settings().capacity).toEqual({});
+    agents.patchSettings({ capacity: {} });
+    agents.patchSettings({ prompt: "Changed instructions" });
+    expect(agents.settings().capacity).toEqual({});
+  } finally {
+    local.close();
+  }
+});
+
+test("patching one connection's capacity keeps other connection budgets", async () => {
+  const { local, agents } = await fixture();
+  try {
+    const profile = defaultConnectionCapacity({
+      provider: "lm-studio",
+      contextWindow: null,
+    });
+    agents.patchSettings({ capacity: { first: profile, second: profile } });
+    agents.patchSettings({
+      capacity: { first: { ...profile, concurrency: 2 } },
+    });
+    expect(agents.settings().capacity.second).toEqual(profile);
+    expect(agents.settings().capacity.first?.concurrency).toBe(2);
+  } finally {
+    local.close();
+  }
+});
+
 test("validated batch checkpoints survive restart and stay scoped to active repository jobs", async () => {
   const { local, review, agents, databasePath } = await fixture();
   const job = agents.createJob(review.id, "grouping");

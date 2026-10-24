@@ -32,7 +32,10 @@ export class AgentStore {
     );
   };
 
-  saveSettings = (input: AiSettingsSchema) => {
+  saveSettings = (input: AiSettingsSchema) =>
+    this.local.transaction(() => this.writeSettings(input));
+
+  private writeSettings = (input: AiSettingsSchema) => {
     const settings = aiSettingsSchema.parse(input);
     this.local.database
       .prepare(
@@ -46,9 +49,10 @@ export class AgentStore {
     this.local.transaction(() => {
       const patch = aiSettingsPatchSchema.parse(input);
       const existingSettings = this.settings();
-      return this.saveSettings({
+      return this.writeSettings({
         ...existingSettings,
         ...patch,
+        capacity: { ...existingSettings.capacity, ...patch.capacity },
         roles: { ...existingSettings.roles, ...patch.roles },
       });
     });
