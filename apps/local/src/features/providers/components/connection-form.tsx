@@ -11,7 +11,7 @@ import {
   type ProviderId,
 } from "@senslop/contracts";
 import { ProviderIcon } from "../../../components/provider-icon";
-import { formatProvider } from "../lib/formatters";
+import { formatContextWindow, formatProvider } from "../lib/formatters";
 import { providerRequest } from "../lib/requests";
 import { useProviderModels } from "../hooks/use-provider-models";
 import { ProviderModelStatus } from "./provider-model-status";
@@ -25,8 +25,6 @@ type ConnectionFormProps = {
   provider: ProviderId;
   connection?: PublicConnectionSchema;
 };
-
-const formatContextWindow = (tokens: number) => tokens.toLocaleString("en-US");
 
 export const ConnectionForm = ({
   provider,

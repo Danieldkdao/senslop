@@ -1,8 +1,20 @@
-import { expect, test, vi } from "vitest";
+import { beforeEach, expect, test, vi } from "vitest";
 import type { WorkspaceClient } from "../src/features/workspace/workspace-client.js";
 import { executeSettingsCommand } from "../src/features/settings/commands.js";
 import { executeProviderCommand } from "../src/features/providers/commands.js";
 import { parseCliCommand } from "../src/features/commands/parse-command.js";
+import { readTextInput } from "../src/features/commands/input.js";
+
+vi.mock("../src/features/commands/input.js", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("../src/features/commands/input.js")
+  >()),
+  readTextInput: vi.fn(),
+}));
+
+beforeEach(() => {
+  vi.mocked(readTextInput).mockReset();
+});
 
 const fixture = () => {
   const request = vi.fn().mockResolvedValue({
@@ -62,6 +74,95 @@ test("provider commands reuse presets and save through the existing credential s
     "/api/providers",
     expect.objectContaining({ action: "test" }),
   );
+});
+
+test.each(["key", "endpoint"])(
+  "compatible provider %s updates preserve saved models",
+  async (change) => {
+    const { request, client } = fixture();
+    const models = [
+      {
+        id: "custom/model",
+        contextWindow: 16384,
+        maxCompletionTokens: 4096,
+        maxOutputTokens: 2048,
+        supportsTools: true,
+        supportsImages: false,
+        supportsParallelToolCalls: false,
+        supportsPromptCacheKey: false,
+        supportsChatCompletions: true,
+        usesMaxTokens: false,
+        supportsThinking: false,
+      },
+    ];
+    const existing = {
+      id: crypto.randomUUID(),
+      provider: "openai-compatible",
+      name: "Private server",
+      baseURL: "https://original.example.test/v1",
+      model: "custom/model",
+      contextWindow: 16384,
+      models,
+      configured: true,
+      revision: 1,
+    };
+    request.mockResolvedValueOnce({ connections: [existing] });
+    vi.mocked(readTextInput).mockResolvedValue("rotated-test-key\n");
+    await executeProviderCommand(
+      client,
+      parseCliCommand([
+        "providers",
+        "save",
+        "--id",
+        existing.id,
+        ...(change === "key"
+          ? ["--key-stdin"]
+          : ["--endpoint", "https://replacement.example.test/v1"]),
+      ]),
+    );
+    expect(request).toHaveBeenCalledWith("/api/providers", {
+      action: "save",
+      connection: expect.objectContaining({
+        id: existing.id,
+        name: existing.name,
+        model: existing.model,
+        models,
+        baseURL:
+          change === "key"
+            ? existing.baseURL
+            : "https://replacement.example.test/v1",
+        apiKey: change === "key" ? "rotated-test-key" : "",
+      }),
+    });
+    expect(request).toHaveBeenCalledTimes(3);
+    if (change === "key")
+      expect(readTextInput).toHaveBeenCalledExactlyOnceWith("-");
+    else expect(readTextInput).not.toHaveBeenCalled();
+  },
+);
+
+test("new compatible providers require a JSON file before reading a replacement key", async () => {
+  const { request, client } = fixture();
+  vi.mocked(readTextInput).mockResolvedValue("test-key");
+  await expect(
+    executeProviderCommand(
+      client,
+      parseCliCommand([
+        "providers",
+        "save",
+        "--provider",
+        "openai-compatible",
+        "--key-stdin",
+        "--json",
+      ]),
+    ),
+  ).rejects.toMatchObject({
+    code: "invalid_arguments",
+    exitCode: 2,
+    message: expect.stringMatching(/--file.*model/i),
+  });
+  expect(readTextInput).not.toHaveBeenCalled();
+  expect(request).not.toHaveBeenCalled();
 });
 
 test("noninteractive destructive commands require explicit confirmation before making requests", async () => {

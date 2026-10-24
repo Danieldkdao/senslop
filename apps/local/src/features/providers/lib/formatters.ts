@@ -8,6 +8,9 @@ export {
   formatSubscriptionRequirements,
 } from "@senslop/contracts";
 
+export const formatContextWindow = (tokens: number) =>
+  tokens.toLocaleString("en-US");
+
 export const formatCompatibleCapability = (
   capability: (typeof compatibleModelCapabilities)[number],
 ) => {
