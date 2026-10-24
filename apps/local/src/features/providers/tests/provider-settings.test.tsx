@@ -380,3 +380,48 @@ test("deleting a connection still requires confirmation and cancel preserves it"
   expect(fixture.writes).toEqual([]);
   expect(screen.queryByRole("dialog")).toBeNull();
 });
+
+test("Add provider opens a Compatible APIs group and routes OpenAI to configuration", async () => {
+  const fixture = setup();
+  const onConfigure = vi.fn();
+  fixture.view(<ProviderSettings onConfigure={onConfigure} />);
+  const user = userEvent.setup();
+  await user.click(await screen.findByRole("button", { name: "Add provider" }));
+  const menu = within(await screen.findByRole("menu"));
+  expect(menu.getByText("Compatible APIs")).toBeTruthy();
+  await user.click(menu.getByRole("menuitem", { name: "OpenAI" }));
+  expect(onConfigure).toHaveBeenCalledWith("openai-compatible", undefined);
+});
+
+test("saved custom providers display their own name and offer configuration", async () => {
+  const saved = {
+    ...connection("openrouter"),
+    provider: "openai-compatible" as const,
+    name: "My custom server",
+    models: [
+      {
+        id: "model",
+        contextWindow: 32000,
+        maxOutputTokens: 4096,
+        maxCompletionTokens: 32000,
+        supportsTools: true,
+        supportsImages: false,
+        supportsParallelToolCalls: false,
+        supportsPromptCacheKey: false,
+        supportsChatCompletions: true,
+        usesMaxTokens: false,
+        supportsThinking: false,
+      },
+    ],
+  };
+  const fixture = setup([saved]);
+  const onConfigure = vi.fn();
+  fixture.view(<ProviderSettings onConfigure={onConfigure} />);
+  expect(
+    await screen.findByRole("heading", { name: /My custom server/ }),
+  ).toBeTruthy();
+  await userEvent
+    .setup()
+    .click(screen.getByRole("button", { name: "Configure My custom server" }));
+  expect(onConfigure).toHaveBeenCalledWith("openai-compatible", saved);
+});
