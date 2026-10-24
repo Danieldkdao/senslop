@@ -2,6 +2,7 @@ import { expect, test, vi } from "vitest";
 import type { SavedReviewSchema } from "@senslop/contracts";
 import { repairGroupingResult, repairReviewResult } from "../analysis-repairs";
 import type { AnalysisRepairOptions } from "../types";
+import { AiContextBudgetError } from "../errors";
 
 const file = (path: string, summary = `Summary for ${path}`) => ({
   path,
@@ -148,6 +149,59 @@ test("review repairs missing coverage and bad evidence without regenerating acce
   expect(prompt).toContain("c.ts");
   expect(prompt).toContain("finding-0");
 });
+
+test.each(["split", "cancel", "provider failure"])(
+  "oversized review repairs handle %s without repeating accepted assessments",
+  async (mode) => {
+    const abort = new AbortController();
+    const failure = new Error(
+      mode === "cancel" ? "Canceled repair" : "Provider unavailable",
+    );
+    const generate = vi.fn<AnalysisRepairOptions["generate"]>(
+      async (_, prompt) => {
+        const input = JSON.parse(prompt.split("Repair input:\n")[1]!) as {
+          pendingFiles: string[];
+          pendingFindings: { id: string }[];
+          issues: unknown[];
+        };
+        if (mode === "provider failure") throw failure;
+        if (input.pendingFiles.length + input.pendingFindings.length > 1)
+          throw new AiContextBudgetError("Repair exceeds context budget");
+        expect(input.issues).toHaveLength(1);
+        expect(prompt).not.toContain('"path":"a.ts"');
+        if (mode === "cancel") abort.abort(failure);
+        return {
+          files: input.pendingFiles.map((path) => ({ path, findings: [] })),
+          findings: input.pendingFindings.map(({ id }) => ({
+            id,
+            finding: finding("b.ts"),
+          })),
+          limitations: [],
+        };
+      },
+    );
+    const result = repairReviewResult(
+      {
+        files: [
+          { path: "a.ts", findings: [finding("a.ts")] },
+          { path: "b.ts", findings: [finding("b.ts", "WRONG")] },
+        ],
+        limitations: [],
+      },
+      { ...options(generate), signal: abort.signal },
+    );
+    if (mode === "split") {
+      expect((await result).findings.map((entry) => entry.path)).toEqual([
+        "a.ts",
+        "b.ts",
+      ]);
+      expect(generate).toHaveBeenCalledTimes(3);
+    } else {
+      await expect(result).rejects.toBe(failure);
+      expect(generate).toHaveBeenCalledTimes(mode === "cancel" ? 2 : 1);
+    }
+  },
+);
 
 test("an unsupported finding can be retracted while other findings in the same file survive", async () => {
   const generate = vi.fn<AnalysisRepairOptions["generate"]>(async () => ({

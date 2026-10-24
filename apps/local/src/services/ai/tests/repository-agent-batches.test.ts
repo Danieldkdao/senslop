@@ -1416,6 +1416,100 @@ test("a 16K model can use the default grouping instructions with smaller request
   }
 });
 
+test.each([
+  [1, 0],
+  [2, 0],
+  [5, 0],
+  [1, 5],
+])(
+  "%s review evidence repairs fit a small context and preserve %s accepted findings",
+  async (count, acceptedCount) => {
+    state.provider = "lm-studio";
+    state.contextWindow = 16384;
+    const source = Array.from(
+      { length: 125 },
+      (_, index) => `export const value${index} = ${index};`,
+    );
+    const selected = [
+      {
+        ...files[0]!,
+        after: source.join("\n"),
+        diff: `@@ -1 +1 @@\n-old\n+${source[0]}`,
+      },
+    ];
+    const finding = {
+      severity: "high",
+      title: "Issue",
+      problem: "Verify this specific failure. ".repeat(40),
+      path: "0.ts",
+      side: "after",
+      start: 1,
+      end: 1,
+      code: "invented code",
+      fixPrompt: "Verify the implementation.",
+    };
+    state.model = new MockLanguageModelV4({
+      doGenerate: async (options) => {
+        requests.push(options);
+        if (
+          text(options).includes("Summarize the supplied code review findings")
+        )
+          return response({ summary: "Check the implementation." });
+        if (text(options).includes("Repair input:")) {
+          expect(text(options)).not.toContain("ALREADY ACCEPTED");
+          const input = JSON.parse(
+            options.prompt
+              .filter((message) => message.role === "user")
+              .flatMap((message) => message.content)
+              .filter((part) => part.type === "text")
+              .map((part) => part.text)
+              .join("\n")
+              .split("Repair input:\n")[1]!,
+          ) as { pendingFindings: { id: string }[] };
+          return response({
+            files: [],
+            findings: input.pendingFindings.map(({ id }) => ({
+              id,
+              finding: { ...finding, title: id, code: source[0] },
+            })),
+            limitations: [],
+          });
+        }
+        return response({
+          files: [
+            {
+              path: "0.ts",
+              findings: [
+                ...Array.from({ length: acceptedCount }, (_, index) => ({
+                  ...finding,
+                  title: `ALREADY ACCEPTED ${index}`,
+                  code: source[0],
+                })),
+                ...Array.from({ length: count }, (_, index) => ({
+                  ...finding,
+                  title: `Issue ${index}`,
+                })),
+              ],
+            },
+          ],
+          limitations: [],
+        });
+      },
+    });
+    const result = await (await agent(selected)).review();
+    expect(result.findings).toHaveLength(count + acceptedCount);
+    expect(
+      requests.filter((request) =>
+        text(request).includes("Return one files assessment per batch path"),
+      ),
+    ).toHaveLength(1);
+    expect(
+      requests.filter((request) => text(request).includes("Repair input:"))
+        .length,
+    ).toBeGreaterThan(0);
+  },
+);
+
 test("invalid review evidence receives bounded repair and explicit limitations without losing other batches", async () => {
   state.model = new MockLanguageModelV4({
     doGenerate: async (options) => {

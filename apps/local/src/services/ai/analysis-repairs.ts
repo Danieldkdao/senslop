@@ -22,6 +22,7 @@ import {
   AiGroupingRepairError,
   AiReviewRepairError,
   AiServiceError,
+  AiContextBudgetError,
 } from "./errors";
 import type { AnalysisRepairIssue, AnalysisRepairOptions } from "./types";
 
@@ -457,37 +458,79 @@ export const repairReviewResult = async (
     ];
     if (attempt === 2) exhausted(issues);
     options.onRepair?.(issues, attempt + 1);
-    const targets = new Set([
-      ...pendingFiles,
-      ...[...pendingFindings.values()].map((entry) => entry.path),
-    ]);
-    const patch = record(
-      await options.generate(
-        createReviewRepairSchema(
-          [...pendingFiles],
-          [...pendingFindings.keys()],
-          repairLimitations,
-        ),
-        repairPrompt(
-          options,
-          'Repair only the requested file assessments and finding IDs. Return {"files":[{"path":"requested path","findings":[]}],"findings":[{"id":"requested finding ID","finding":null}],"limitations":[]}, substituting the requested paths, IDs and verified findings. Empty arrays are required for sections with no requested repairs. A retraction is an object with an ID and finding: null, never a bare null array entry. Do not generate additional findings for already accepted assessments. Source line numbers refer to the complete frozen before/after file, never offsets in a diff page. Do not copy diff markers or line-number prefixes into code. Preserve whitespace exactly and join the selected source lines with newline characters. Source lines listed in omittedLines exceed the context budget; cite them only if their complete text appears in expected.code. Never invent omitted contents. Evidence ranges must have at most 101 lines and code at most 10000 characters. Re-evaluate the claimed bug against this source; retract it with null if the source does not establish it.',
-          issues,
-          targets,
-          {
-            pendingFiles: [...pendingFiles],
-            pendingFindings: [...pendingFindings].map(([id, entry]) => ({
-              id,
-              path: entry.path,
-            })),
-            acceptedFindings: [...accepted]
-              .filter(([path]) => targets.has(path))
-              .map(([path, findings]) => ({ path, findings })),
-            repairLimitations,
-          },
-        ),
-        "Targeted review repair",
-      ),
-    );
+    const repairTargets = [
+      ...[...pendingFiles].map((path) => ({
+        kind: "file" as const,
+        target: path,
+      })),
+      ...[...pendingFindings.keys()].map((id) => ({
+        kind: "finding" as const,
+        target: id,
+      })),
+      ...(repairLimitations
+        ? [{ kind: "limitations" as const, target: "limitations" }]
+        : []),
+    ];
+    const generatePatch = async (
+      requested: typeof repairTargets,
+    ): Promise<Record<string, unknown>> => {
+      options.signal.throwIfAborted();
+      const filePaths = requested.flatMap((item) =>
+        item.kind === "file" ? [item.target] : [],
+      );
+      const findingIds = requested.flatMap((item) =>
+        item.kind === "finding" ? [item.target] : [],
+      );
+      const needsLimitations = requested.some(
+        (item) => item.kind === "limitations",
+      );
+      const targets = new Set([
+        ...filePaths,
+        ...findingIds.map((id) => pendingFindings.get(id)!.path),
+      ]);
+      const requestedIssues = issues.filter((issue) =>
+        requested.some((item) => item.target === issue.target),
+      );
+      try {
+        return record(
+          await options.generate(
+            createReviewRepairSchema(filePaths, findingIds, needsLimitations),
+            repairPrompt(
+              options,
+              'Repair only the requested file assessments and finding IDs. Return {"files":[{"path":"requested path","findings":[]}],"findings":[{"id":"requested finding ID","finding":null}],"limitations":[]}, substituting the requested paths, IDs and verified findings. Empty arrays are required for sections with no requested repairs. A retraction is an object with an ID and finding: null, never a bare null array entry. Do not generate additional findings for already accepted assessments. Source line numbers refer to the complete frozen before/after file, never offsets in a diff page. Do not copy diff markers or line-number prefixes into code. Preserve whitespace exactly and join the selected source lines with newline characters. Source lines listed in omittedLines exceed the context budget; cite them only if their complete text appears in expected.code. Never invent omitted contents. Evidence ranges must have at most 101 lines and code at most 10000 characters. Re-evaluate the claimed bug against this source; retract it with null if the source does not establish it.',
+              requestedIssues,
+              targets,
+              {
+                pendingFiles: filePaths,
+                pendingFindings: findingIds.map((id) => ({
+                  id,
+                  path: pendingFindings.get(id)!.path,
+                })),
+                repairLimitations: needsLimitations,
+              },
+            ),
+            "Targeted review repair",
+          ),
+        );
+      } catch (error) {
+        options.signal.throwIfAborted();
+        if (!(error instanceof AiContextBudgetError) || requested.length < 2)
+          throw error;
+        // Repair payloads grow with findings and evidence, independently of diff size.
+        const middle = Math.ceil(requested.length / 2);
+        const first = await generatePatch(requested.slice(0, middle));
+        const second = await generatePatch(requested.slice(middle));
+        return {
+          files: [...array(first.files), ...array(second.files)],
+          findings: [...array(first.findings), ...array(second.findings)],
+          limitations: [
+            ...array(first.limitations),
+            ...array(second.limitations),
+          ],
+        };
+      }
+    };
+    const patch = await generatePatch(repairTargets);
     options.signal.throwIfAborted();
     ingestFiles(array(patch.files));
     const replacementCounts = new Map<string, number>();
