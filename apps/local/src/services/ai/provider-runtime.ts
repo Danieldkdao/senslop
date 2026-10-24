@@ -41,6 +41,10 @@ import type { ConnectionCapacitySchema } from "../../features/ai-capacity/schema
 import { getCompatibleModel } from "../../features/providers/lib/compatible-models";
 import { createCompatibleModel } from "./compatible-provider";
 import { defaultConnectionCapacity } from "../../features/ai-capacity/lib/capacity";
+import {
+  requireCompletedModelResult,
+  requireCompletedModelStream,
+} from "./model-stream";
 
 type ResolvedLanguageModel = {
   toolsSupported?: boolean;
@@ -397,43 +401,47 @@ export const resolveLanguageModel = (
           return params;
         },
         wrapGenerate: ({ doGenerate, params }) =>
-          limiter.run(doGenerate, params.abortSignal, {
-            inputTokens: estimateInputTokenUpperBound({
-              prompt: params.prompt,
-              tools: params.tools,
-              responseFormat: params.responseFormat,
-            }),
-            actualInputTokens: (result) => result.usage.inputTokens.total,
-            outputTokens: params.maxOutputTokens ?? 0,
-            actualOutputTokens: (result) => result.usage.outputTokens.total,
-          }),
+          limiter
+            .run(doGenerate, params.abortSignal, {
+              inputTokens: estimateInputTokenUpperBound({
+                prompt: params.prompt,
+                tools: params.tools,
+                responseFormat: params.responseFormat,
+              }),
+              actualInputTokens: (result) => result.usage.inputTokens.total,
+              outputTokens: params.maxOutputTokens ?? 0,
+              actualOutputTokens: (result) => result.usage.outputTokens.total,
+            })
+            .then(requireCompletedModelResult),
         wrapStream: ({ doStream, params }) =>
-          limiter.runStream(doStream, params.abortSignal, {
-            outputTokens: params.maxOutputTokens ?? 0,
-            actualInputTokens: (part) => {
-              const chunk = part as {
-                type: string;
-                usage?: { inputTokens?: { total?: number } };
-              };
-              return chunk.type === "finish"
-                ? chunk.usage?.inputTokens?.total
-                : undefined;
-            },
-            actualOutputTokens: (part) => {
-              const chunk = part as {
-                type: string;
-                usage?: { outputTokens?: { total?: number } };
-              };
-              return chunk.type === "finish"
-                ? chunk.usage?.outputTokens?.total
-                : undefined;
-            },
-            inputTokens: estimateInputTokenUpperBound({
-              prompt: params.prompt,
-              tools: params.tools,
-              responseFormat: params.responseFormat,
-            }),
-          }),
+          limiter
+            .runStream(doStream, params.abortSignal, {
+              outputTokens: params.maxOutputTokens ?? 0,
+              actualInputTokens: (part) => {
+                const chunk = part as {
+                  type: string;
+                  usage?: { inputTokens?: { total?: number } };
+                };
+                return chunk.type === "finish"
+                  ? chunk.usage?.inputTokens?.total
+                  : undefined;
+              },
+              actualOutputTokens: (part) => {
+                const chunk = part as {
+                  type: string;
+                  usage?: { outputTokens?: { total?: number } };
+                };
+                return chunk.type === "finish"
+                  ? chunk.usage?.outputTokens?.total
+                  : undefined;
+              },
+              inputTokens: estimateInputTokenUpperBound({
+                prompt: params.prompt,
+                tools: params.tools,
+                responseFormat: params.responseFormat,
+              }),
+            })
+            .then(requireCompletedModelStream),
       },
     });
   return {

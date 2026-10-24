@@ -1,11 +1,41 @@
 import type { LanguageModelMiddleware } from "ai";
-import { AiServiceError } from "./errors";
+import { AiOutputLimitError, AiServiceError, AiTransientError } from "./errors";
 
 type MiddlewareCall = Parameters<
   NonNullable<LanguageModelMiddleware["wrapGenerate"]>
 >[0];
 type ModelStream = Awaited<ReturnType<MiddlewareCall["doStream"]>>;
 type ModelResult = Awaited<ReturnType<MiddlewareCall["doGenerate"]>>;
+
+export const assertModelCompletion = (
+  finishReason: ModelResult["finishReason"],
+) => {
+  if (
+    finishReason.unified === "content-filter" ||
+    finishReason.raw === "refusal"
+  )
+    throw new AiServiceError(
+      "The provider blocked this response. Try rephrasing the request or choose another model.",
+    );
+  switch (finishReason.unified) {
+    case "stop":
+    case "tool-calls":
+      return;
+    case "length":
+      throw new AiOutputLimitError();
+    default:
+      throw new AiTransientError(
+        "The provider response did not complete. Retry when ready.",
+      );
+  }
+};
+
+export const requireCompletedModelResult = (
+  result: ModelResult,
+): ModelResult => {
+  assertModelCompletion(result.finishReason);
+  return result;
+};
 
 export const requireCompletedModelStream = (
   result: ModelStream,
@@ -14,15 +44,7 @@ export const requireCompletedModelStream = (
   stream: result.stream.pipeThrough(
     new TransformStream({
       transform(part, controller) {
-        if (
-          part.type === "finish" &&
-          (part.finishReason.unified === "other" ||
-            part.finishReason.unified === "error")
-        )
-          throw new AiServiceError(
-            "The provider stream ended before completion. Retry when ready.",
-            502,
-          );
+        if (part.type === "finish") assertModelCompletion(part.finishReason);
         controller.enqueue(part);
       },
     }),

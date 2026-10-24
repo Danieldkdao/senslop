@@ -63,6 +63,47 @@ test("required credentials fail before creating a model or making requests", () 
   expect(fetcher).not.toHaveBeenCalled();
 });
 
+test.each([
+  { provider: "lm-studio", finishReason: "content_filter" },
+  { provider: "lm-studio", finishReason: "error" },
+  { provider: "lm-studio", finishReason: "unknown" },
+  { provider: "lm-studio", finishReason: "length" },
+  { provider: "openrouter", finishReason: "error" },
+] as const)(
+  "$provider rejects schema-valid JSON when generation ends with $finishReason",
+  async ({ provider, finishReason }) => {
+    const fetcher = vi.fn<typeof fetch>(async () =>
+      Response.json({
+        choices: [
+          {
+            index: 0,
+            message: { role: "assistant", content: '{"answer":"partial"}' },
+            finish_reason: finishReason,
+            ...(provider === "openrouter"
+              ? { error: { code: 502, message: "Upstream disconnected" } }
+              : {}),
+          },
+        ],
+        usage: { prompt_tokens: 10, completion_tokens: 10, total_tokens: 20 },
+      }),
+    );
+    await expect(
+      generateText({
+        ...resolveLanguageModel(
+          connection(provider),
+          "fixture",
+          "fixture",
+          fetcher,
+        ),
+        prompt: "Respond with JSON",
+        output: Output.object({ schema: z.object({ answer: z.string() }) }),
+        maxRetries: 0,
+      }),
+    ).rejects.toThrow(/blocked|did not complete|completion budget/);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  },
+);
+
 test.each(["lm-studio", "llama-cpp"] as const)(
   "%s sends structured schemas to its compatible server",
   async (provider) => {
