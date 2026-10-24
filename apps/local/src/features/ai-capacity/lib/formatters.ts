@@ -11,49 +11,49 @@ export const formatCapacitySetting = (
       return {
         label: "Concurrent requests",
         description:
-          "Maximum requests in flight together, including context lookups and retries. Start at 1 on a local machine; increase gradually if memory stays comfortable.",
+          "Requests allowed at once, including context lookups; start at 1 for local models and increase only if memory allows.",
       };
     case "requestsPerMinute":
       return {
         label: "Requests per minute",
         description:
-          "Spaces request starts over a rolling minute. Use your provider's allowance or lower it to reduce bursts. This controls frequency, not memory per request.",
+          "Request starts allowed per rolling minute; lower values reduce bursts but add waiting.",
       };
     case "inputTokensPerMinute":
       return {
         label: "Input tokens per minute",
         description:
-          "Limits source, prompts, and tool results sent in a rolling minute. Match your provider's input quota. Lower values wait longer and may require smaller batches; an individual prompt must fit.",
+          "Prompt, source, and tool-result tokens allowed per rolling minute; match your provider's input quota.",
       };
     case "outputTokensPerMinute":
       return {
         label: "Output tokens per minute",
         description:
-          "Reserves each request's maximum output before starting, then uses reported usage when available. Set this when your provider has a separate output quota. Small allowances can serialize requests.",
+          "Output tokens reserved per rolling minute; unused reservations are released when usage is reported.",
       };
     case "contextTokens":
       return {
         label: "Context budget",
         description:
-          "Application budget for input plus output per request, with 20% headroom. Match the model's actual loaded context. Smaller budgets reduce local memory pressure. Ollama receives this context size; other servers must be configured separately.",
+          "Input and output budget per request, with 20% headroom; match the loaded context and configure non-Ollama servers separately.",
       };
     case "outputTokens":
       return {
         label: "Maximum output tokens",
         description:
-          "Upper bound requested per response, including reasoning where the provider counts it. Lower it for shorter, lighter generations; too low can truncate findings. Context lookups and summaries may use less. Subscription backends may not enforce this cap.",
+          "Maximum tokens per response, including reasoning where counted; low limits can truncate findings, and subscriptions may use this as a planning budget.",
       };
     case "groupingInputTokens":
       return {
         label: "Grouping batch tokens",
         description:
-          "Target changed-code input per grouping batch. Smaller batches reduce peak context but make more requests. Prompt and tool overhead is added separately; available context may lower the target.",
+          "Changed-code tokens targeted per grouping batch, excluding prompt and tool overhead; smaller batches use less memory but make more requests.",
       };
     case "reviewInputTokens":
       return {
         label: "Review batch tokens",
         description:
-          "Target changed-code input per correctness-review batch. Start small for local models. Larger batches reduce request count but need more memory and leave less room for follow-up evidence.",
+          "Changed-code tokens targeted per review batch; larger batches reduce requests but leave less room for supporting evidence.",
       };
   }
 };
@@ -63,37 +63,36 @@ export const formatCapacityFeedback = (
   profile: ConnectionCapacitySchema,
 ) => {
   const value = profile[setting];
-  if (value === null)
-    return "No app-imposed limit for this quota. Provider limits and retry delays still apply.";
+  if (value === null) return "No Senslop quota; provider limits still apply.";
   switch (setting) {
     case "concurrency":
       return value === 1
-        ? "One request at a time keeps peak memory lower. Other work waits in the queue."
+        ? "One request at a time keeps peak memory lower."
         : value >= 5
-          ? "High concurrency: several contexts can occupy memory together. Increase only after testing your hardware or provider."
-          : "Some requests can overlap. Watch memory and reduce this if the server struggles.";
+          ? "High concurrency: watch memory use before increasing further."
+          : "Requests can overlap; reduce this if memory becomes tight.";
     case "requestsPerMinute":
       return value <= 5
-        ? "Low request rate: expect pauses between batches, context lookups, and retries."
+        ? "Low request rate: expect pauses between requests."
         : value > 60
-          ? "High request rate: confirm your provider supports it. Concurrency and token quotas still bound throughput."
-          : "Requests wait when this rolling-minute allowance is used.";
+          ? "High request rate: confirm your provider supports this allowance."
+          : "Requests pause when this allowance is used.";
     case "inputTokensPerMinute":
       return value < profile.contextTokens
-        ? "Below the context budget: requests may need smaller batches. If the prompt itself cannot fit, raise this allowance."
+        ? "Below the context budget; large requests may not fit."
         : value >= 1000000
-          ? "High input allowance: allows substantial throughput. It does not make large local contexts fit in memory."
-          : "Input is reserved conservatively before sending and reconciled against reported usage.";
+          ? "High throughput allowance; large local contexts still need sufficient memory."
+          : "Reported usage adjusts reserved input tokens.";
     case "outputTokensPerMinute":
       return value < profile.outputTokens
-        ? "Below maximum output: each request's output cap is lowered to this allowance, and later requests may wait."
-        : "Unused output reservations are released when generation reports usage. Other requests may wait until then.";
+        ? "Below maximum output; response caps are reduced to this allowance."
+        : "Unused output reservations are released after generation.";
     case "contextTokens":
       return value > 64000
-        ? "Large context: local memory use can rise sharply, especially with concurrent requests. Match the loaded model and server."
+        ? "Large context: confirm server settings and available memory."
         : value < 8192
-          ? "Small context: fixed prompts and tool definitions may not fit even with tiny batches. Raise this if analysis reports a context budget error."
-          : "A moderate context budget limits request size. Try a smaller budget before raising local concurrency.";
+          ? "Small context: instructions and tools may not fit."
+          : "A moderate context budget limits memory use.";
     case "outputTokens": {
       const effective = Math.min(
         value,
@@ -101,17 +100,17 @@ export const formatCapacityFeedback = (
         profile.outputTokensPerMinute ?? Infinity,
       );
       return effective < value
-        ? `Effective output is at most ${formatCapacityNumber(effective)} tokens because of the context budget or output quota.`
+        ? `Effective output cap: ${formatCapacityNumber(effective)} tokens.`
         : value >= 8000
-          ? "Large output allowance: longer generations and more reserved capacity. Reduce if responses are slow or memory is tight."
-          : "A compact output allowance. Increase it if complete findings or summaries are repeatedly cut short.";
+          ? "Large output allowance may increase latency and memory use."
+          : "Increase this if findings or summaries are cut short.";
     }
     case "groupingInputTokens":
     case "reviewInputTokens":
       return value >= 24000
-        ? "Large batches: fewer requests, more context and memory per request. Context and token quotas can reduce the actual batch size."
+        ? "Large batches trade fewer requests for higher memory use."
         : value <= 4000
-          ? "Small batches: lower peak context, but more requests and potentially longer total runtime."
-          : "Moderate batches. Adjust one setting at a time and compare memory use and completion time.";
+          ? "Small batches use less context but make more requests."
+          : "Moderate batches; adjust gradually and compare completion time.";
   }
 };

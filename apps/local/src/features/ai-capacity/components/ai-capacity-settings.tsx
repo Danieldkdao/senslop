@@ -14,20 +14,19 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { TooltipWrapper } from "@/components/ui/tooltip-wrapper";
 import {
   isLocalEndpoint,
   isLocalInferenceProvider,
-  isSubscriptionProvider,
   type ProviderConfigSchema,
 } from "@senslop/contracts";
 import { NumberInput } from "@senslop/ui/components/number-input";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, CircleQuestionMark } from "lucide-react";
 import { useId, useState } from "react";
 import { capacityBounds, capacityLockedMessage } from "../constants";
 import { defaultConnectionCapacity } from "../lib/capacity";
 import {
   formatCapacityFeedback,
-  formatCapacityNumber,
   formatCapacitySetting,
 } from "../lib/formatters";
 import type { AiCapacitySchema, ConnectionCapacitySchema } from "../schemas";
@@ -83,18 +82,28 @@ export const AiCapacitySettings = ({
         aria-label={label}
         className="flex flex-col gap-2"
       >
-        <label htmlFor={inputId} className="font-medium">
-          {label}
-        </label>
-        <p className="text-muted-foreground">{description}</p>
-        <p className="text-muted-foreground">
-          Minimum {formatCapacityNumber(bounds.min)}; maximum{" "}
-          {formatCapacityNumber(bounds.max)}
-          {optional ? "; optional" : ""}.
-        </p>
-        {optional && (
-          <label className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
+          <label htmlFor={inputId} className="font-medium">
+            {label}
+          </label>
+          <TooltipWrapper
+            content={`${description} ${formatCapacityFeedback(setting, profile)}`}
+          >
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="size-6 shrink-0 text-muted-foreground"
+              aria-label={`About ${label.toLowerCase()}`}
+              disabled={locked}
+            >
+              <CircleQuestionMark aria-hidden="true" className="size-4" />
+            </Button>
+          </TooltipWrapper>
+          {optional && (
             <Switch
+              className="ml-auto"
+              aria-label={`Limit ${label.toLowerCase()}`}
               checked={profile[setting] !== null}
               disabled={locked}
               onCheckedChange={(checked) =>
@@ -110,9 +119,8 @@ export const AiCapacitySettings = ({
                 )
               }
             />
-            Limit {label.toLowerCase()}
-          </label>
-        )}
+          )}
+        </div>
         <NumberInput
           id={inputId}
           label={label}
@@ -122,9 +130,6 @@ export const AiCapacitySettings = ({
           disabled={locked || profile[setting] === null}
           onValueChange={(next) => update(setting, next)}
         />
-        <p aria-live="polite" className="text-muted-foreground">
-          {formatCapacityFeedback(setting, profile)}
-        </p>
       </div>
     );
   };
@@ -182,19 +187,11 @@ export const AiCapacitySettings = ({
         </SelectContent>
       </Select>
       <p className="text-muted-foreground">
-        Applies to all models on this connection. Use a separate connection if
-        models need different budgets. Connections to the same local endpoint
-        share active slots and quota history. Limits cannot account for requests
-        made outside Senslop.
+        Budgets cover all models on a connection, so use separate connections
+        for different limits; matching local endpoints share capacity, outside
+        requests are untracked, and subscription limits count Senslop calls with
+        estimated token usage.
       </p>
-      {isSubscriptionProvider(connection.provider) && (
-        <p className="text-muted-foreground">
-          Subscription SDKs may perform several model turns inside one Senslop
-          request. Request limits count Senslop calls. Context and output values
-          are planning budgets where the subscription backend does not support
-          hard token caps; usage limits remain estimates.
-        </p>
-      )}
       <div
         className="flex flex-wrap gap-2"
         role="group"
