@@ -2038,6 +2038,118 @@ test("cumulative grouping sends only changed files with existing group context a
   expect(JSON.stringify(requests.at(-1)?.prompt)).toContain("Existing flow");
 });
 
+test.each(["rationales", "membership", "catalog"])(
+  "re-sync fits a small context with large retained %s",
+  async (kind) => {
+    state.provider = "lm-studio";
+    state.contextWindow = 16384;
+    const count = kind === "membership" ? 180 : kind === "catalog" ? 120 : 40;
+    const selected = Array.from({ length: count }, (_, index) => ({
+      ...files[0]!,
+      path:
+        kind === "membership"
+          ? `src/${"segment/".repeat(25)}${index}.ts`
+          : `src/flow-${index}/file.ts`,
+      diff: "small patch",
+    }));
+    const groups = Array.from(
+      { length: kind === "membership" ? 1 : count },
+      (_, index) => ({
+        title: `existing-group-${index + 1}`,
+        rationale:
+          kind === "rationales" ? "OLD RATIONALE ".repeat(80) : "Keep order",
+        files: (kind === "membership" ? selected : [selected[index]!]).map(
+          ({ path }) => ({ path, summary: `KEEP ${path}`, related: [] }),
+        ),
+      }),
+    );
+    const aliases = groups.map(({ title }, index) => ({
+      key: title,
+      title:
+        kind === "catalog"
+          ? `Flow ${index} ${"descriptive name ".repeat(10)}`
+          : `Flow ${index}`,
+    }));
+    const changed = new Set([
+      selected[0]!.path,
+      ...(kind === "catalog" ? [selected.at(-1)!.path] : []),
+    ]);
+    const retained = {
+      groups: groups
+        .map((group) => ({
+          ...group,
+          files: group.files.filter(({ path }) => !changed.has(path)),
+        }))
+        .filter((group) => group.files.length),
+    };
+    state.model = new MockLanguageModelV4({
+      doGenerate: async (options) => {
+        requests.push(options);
+        const paths = batch(options).changes.map(({ path }) => path);
+        expect(paths).toHaveLength(1);
+        expect(changed.has(paths[0]!)).toBe(true);
+        const groupId =
+          kind === "membership"
+            ? "existing-group-1"
+            : groups[selected.findIndex(({ path }) => path === paths[0])]!
+                .title;
+        expect(text(options)).toContain(groupId);
+        expect(text(options)).not.toContain("OLD RATIONALE");
+        return response({
+          groups: [
+            {
+              title: groupId,
+              rationale: "Updated placement",
+              files: [{ path: paths[0]!, summary: "UPDATED", related: [] }],
+            },
+          ],
+        });
+      },
+    });
+    const result = await (
+      await agent(
+        selected,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        {
+          groupingMaxFiles: 1,
+          groupingSteps: 2,
+          groupingOutputTokens: 2048,
+          batchConcurrency: 1,
+        },
+        { context: { groups }, retained, aliases },
+      )
+    ).grouping();
+    expect(requests).toHaveLength(changed.size);
+    expect(result.groups.map(({ title }) => title)).toEqual(
+      aliases.map(({ title }) => title),
+    );
+    expect(
+      result.groups.flatMap((group) => group.files.map(({ path }) => path)),
+    ).toEqual(selected.map(({ path }) => path));
+    expect(
+      result.groups.flatMap((group) =>
+        group.files.map(({ summary }) => summary),
+      ),
+    ).toEqual(
+      selected.map(({ path }) =>
+        changed.has(path) ? "UPDATED" : `KEEP ${path}`,
+      ),
+    );
+    expect(
+      result.groups
+        .filter((group) => group.files.every(({ path }) => !changed.has(path)))
+        .map(({ rationale }) => rationale),
+    ).toEqual(
+      groups
+        .filter((group) => group.files.every(({ path }) => !changed.has(path)))
+        .map(({ rationale }) => rationale),
+    );
+  },
+);
+
 test("chat reserves its final step for an answer after seven tool steps", async () => {
   state.model = new MockLanguageModelV4({
     doStream: async (options) => {

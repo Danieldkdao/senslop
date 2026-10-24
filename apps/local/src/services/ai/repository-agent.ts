@@ -27,7 +27,10 @@ import {
   staticReviewLimitation,
 } from "../../features/agents/lib/review-limitations";
 import { generateReviewSummary } from "./review-summary";
-import { mergeIncrementalGrouping } from "./incremental-grouping";
+import {
+  getIncrementalGroupingContext,
+  mergeIncrementalGrouping,
+} from "./incremental-grouping";
 import { sourceTools } from "../analysis/snapshot-analysis";
 import type { AnalysisContext } from "../analysis/types";
 import {
@@ -707,6 +710,33 @@ export const createRepositoryAgent = async ({
       );
     },
   });
+  const batchTokenBudget = (
+    prompt: string,
+    schema: z.ZodType,
+    maxTokens: number,
+    outputTokens: number,
+  ) =>
+    Math.min(
+      maxTokens,
+      capacity.inputTokensPerMinute === null
+        ? Infinity
+        : getBatchTokenBudget(
+            activeRepositorySchemaTokens +
+              schemaTokens(schema) +
+              estimateTokens({ instructions, prompt }) +
+              1024,
+            Math.floor((capacity.inputTokensPerMinute - 256) / 3 / 0.8),
+            0,
+          ),
+      getBatchTokenBudget(
+        activeRepositorySchemaTokens +
+          schemaTokens(schema) +
+          estimateTokens({ instructions, prompt }) +
+          1024,
+        limit,
+        outputTokens,
+      ),
+    );
   const batchesFor = (
     prompt: string,
     schema: z.ZodType,
@@ -714,30 +744,12 @@ export const createRepositoryAgent = async ({
     maxFiles = 24,
     outputTokens = maxOutputTokens,
     batchChanges = changes,
+    reservedContextTokens = 0,
   ) =>
     batchSnapshotChanges(
       batchChanges,
-      Math.min(
-        maxTokens,
-        capacity.inputTokensPerMinute === null
-          ? Infinity
-          : getBatchTokenBudget(
-              activeRepositorySchemaTokens +
-                schemaTokens(schema) +
-                estimateTokens({ instructions, prompt }) +
-                1024,
-              Math.floor((capacity.inputTokensPerMinute - 256) / 3 / 0.8),
-              0,
-            ),
-        getBatchTokenBudget(
-          activeRepositorySchemaTokens +
-            schemaTokens(schema) +
-            estimateTokens({ instructions, prompt }) +
-            1024,
-          limit,
-          outputTokens,
-        ),
-      ),
+      batchTokenBudget(prompt, schema, maxTokens, outputTokens) -
+        reservedContextTokens,
       maxFiles,
     );
   const batchInput = (
@@ -776,7 +788,7 @@ export const createRepositoryAgent = async ({
           groupingSeed.aliases,
           groupingSeed.context,
         );
-      const prompt = `Summarize and provisionally group ONLY the Batch input files, exactly once. Do not create a guide for the entire snapshot or examine unrelated changes. Other paths are supporting context, not output members. Prerequisites before consumers, tests last; keep summaries under 300 characters and rationales under 240; use at most three related paths per file. When a diff has offset/total, incorporate its previous summary without assuming omitted text is unchanged. Use repository tools only for focused questions necessary to explain this batch. User preferences guide grouping behavior, not output scope or format:\n${settings.prompt}${groupingSeed ? `\nExisting groups are placement context only. To add a changed file to an existing group, use its exact title identifier, not its display name. Choose a new title only for a new flow. Never return unchanged files. Existing groups: ${JSON.stringify({ groups: groupingSeed.context.groups.map((group) => ({ title: group.title, name: groupingSeed.aliases?.find((alias) => alias.key === group.title)?.title ?? group.title, rationale: group.rationale, files: group.files.map((file) => file.path) })) })}` : ""}`;
+      const prompt = `Summarize and provisionally group ONLY the Batch input files, exactly once. Do not create a guide for the entire snapshot or examine unrelated changes. Other paths are supporting context, not output members. Prerequisites before consumers, tests last; keep summaries under 300 characters and rationales under 240; use at most three related paths per file. When a diff has offset/total, incorporate its previous summary without assuming omitted text is unchanged. Use repository tools only for focused questions necessary to explain this batch. User preferences guide grouping behavior, not output scope or format:\n${settings.prompt}${groupingSeed ? "\nExisting groups are bounded placement candidates only. To add a changed file to an existing group, use its exact title identifier, not its display name. Choose a new title only for a new flow. Never return unchanged files. Saved groups and full membership remain preserved locally, including omitted groups." : ""}`;
       const groupingGeneration = getGenerationOptions(
         runtimeConnection,
         limit,
@@ -790,6 +802,17 @@ export const createRepositoryAgent = async ({
         1,
         Math.min(policy.groupingMaxFiles, Math.floor(answerAllowance / 1000)),
       );
+      // Share the available input budget between placement hints and changed diffs.
+      const placementTokens = groupingSeed
+        ? Math.floor(
+            batchTokenBudget(
+              prompt,
+              groupingSchema,
+              policy.groupingInputTokens,
+              groupingGeneration.maxOutputTokens,
+            ) / 4,
+          )
+        : 0;
       const batches = batchesFor(
         prompt,
         groupingSchema,
@@ -797,6 +820,7 @@ export const createRepositoryAgent = async ({
         maxFiles,
         groupingGeneration.maxOutputTokens,
         groupingChanges,
+        placementTokens,
       );
       console.info("[senslop:ai-batches]", {
         ...diagnosticContext,
@@ -839,12 +863,29 @@ export const createRepositoryAgent = async ({
                 `Grouping batch ${index + 1} of ${batches.length}${attempt ? ` — smaller request ${attempt}` : ""}`,
               );
               const members = [...new Set(part.map((change) => change.path))];
+              const memberPaths = new Set(members);
+              const placementContext = groupingSeed
+                ? `\nExisting groups: ${getIncrementalGroupingContext(
+                    groupingSeed.context,
+                    groupingSeed.aliases ?? [],
+                    members,
+                    dependencies.flatMap((edge) =>
+                      memberPaths.has(edge.from)
+                        ? [edge.to]
+                        : memberPaths.has(edge.to)
+                          ? [edge.from]
+                          : [],
+                    ),
+                    placementTokens,
+                  )}`
+                : "";
+              const batchInstructions = `${prompt}${placementContext}`;
               const scopedContext = batchContext(part);
               const previous = members.flatMap(
                 (path) => summaries.get(path) ?? [],
               );
               const batchSchema = createGroupingBatchSchema(members);
-              const batchPrompt = `${prompt}\nSnapshot context:\n${scopedContext}\nBatch input:\n${batchInput(part, previous)}`;
+              const batchPrompt = `${batchInstructions}\nSnapshot context:\n${scopedContext}\nBatch input:\n${batchInput(part, previous)}`;
               const result = validateGrouping(
                 await checkpointed("grouping", batchPrompt, batchSchema, () =>
                   structured(
@@ -858,7 +899,7 @@ export const createRepositoryAgent = async ({
                       repairOptions(
                         members,
                         part,
-                        `${prompt}\n${scopedContext}\nPrevious summaries: ${JSON.stringify(previous)}`,
+                        `${batchInstructions}\n${scopedContext}\nPrevious summaries: ${JSON.stringify(previous)}`,
                         "grouping",
                       ),
                     ),
