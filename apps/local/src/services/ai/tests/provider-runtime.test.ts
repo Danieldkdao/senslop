@@ -520,6 +520,55 @@ test("Google models and credentials at the same endpoint share the 250,000 input
   }
 });
 
+test("a saved capacity profile bounds output and controls local parallel requests", async () => {
+  let active = 0;
+  let peak = 0;
+  const outputs: number[] = [];
+  const fetcher: typeof fetch = async (_url, init) => {
+    outputs.push(JSON.parse(String(init?.body)).max_tokens);
+    active++;
+    peak = Math.max(peak, active);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    active--;
+    return Response.json({
+      choices: [
+        {
+          index: 0,
+          message: { role: "assistant", content: "ok" },
+          finish_reason: "stop",
+        },
+      ],
+      usage: { prompt_tokens: 10, completion_tokens: 1, total_tokens: 11 },
+    });
+  };
+  const capacity = {
+    concurrency: 2,
+    requestsPerMinute: null,
+    inputTokensPerMinute: null,
+    outputTokensPerMinute: null,
+    contextTokens: 16384,
+    outputTokens: 512,
+    groupingInputTokens: 8000,
+    reviewInputTokens: 8000,
+  };
+  const model = resolveLanguageModel(
+    connection("lm-studio", "http://local-capacity.test/v1"),
+    null,
+    "fixture",
+    fetcher,
+    capacity,
+  );
+  capacity.concurrency = 1;
+  capacity.outputTokens = 4096;
+  await Promise.all(
+    Array.from({ length: 4 }, () =>
+      generateText({ ...model, prompt: "Respond", maxOutputTokens: 8000 }),
+    ),
+  );
+  expect(peak).toBe(2);
+  expect(outputs).toEqual([512, 512, 512, 512]);
+});
+
 test("Gemini receives a compilable output schema while SDK array bounds remain enforced", async () => {
   let captured: Record<string, unknown> | undefined;
   const fetcher: typeof fetch = async (_url, init) => {

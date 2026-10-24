@@ -16,11 +16,16 @@ vi.mock("server-only", () => ({}));
 const state = vi.hoisted(() => ({
   model: {} as object,
   contextWindow: 64000 as number | null,
+  provider: undefined as "lm-studio" | undefined,
+  capacity: {} as typeof defaultAiSettings.capacity,
 }));
 vi.mock("../../../features/providers/lib/provider-service", () => ({
   ProviderService: class {
     resolve = async () => ({
-      connection: { contextWindow: state.contextWindow },
+      connection: {
+        contextWindow: state.contextWindow,
+        provider: state.provider,
+      },
       secret: null,
     });
   },
@@ -107,6 +112,7 @@ const agent = (
     settings: {
       ...defaultAiSettings,
       prompt,
+      capacity: state.capacity,
     },
     selection: { connectionId: "connection", modelId: "model", name: "Model" },
     signal,
@@ -730,10 +736,69 @@ test("persistent truncation stops after bounded splitting instead of looping or 
   expect(requests.length).toBeLessThanOrEqual(4);
 });
 beforeEach(() => {
+  state.capacity = {};
   requests.splice(0);
   state.contextWindow = 64000;
+  state.provider = undefined;
   vi.spyOn(console, "info").mockImplementation(() => {});
   vi.spyOn(console, "warn").mockImplementation(() => {});
+});
+
+test("saved capacity bounds batch input and output and is copied when the run starts", async () => {
+  state.capacity = {
+    connection: {
+      concurrency: 1,
+      requestsPerMinute: null,
+      inputTokensPerMinute: null,
+      outputTokensPerMinute: null,
+      contextTokens: 64000,
+      outputTokens: 2048,
+      groupingInputTokens: 1024,
+      reviewInputTokens: 4096,
+    },
+  };
+  state.model = new MockLanguageModelV4({
+    doGenerate: async (options) => {
+      requests.push(options);
+      if (text(options).includes("Order these prepared files"))
+        return response({
+          groups: [
+            {
+              title: "Flow",
+              rationale: "Change",
+              files: files.map((_, id) => id),
+            },
+          ],
+        });
+      return response({
+        groups: [
+          {
+            title: "Flow",
+            rationale: "Change",
+            files: batch(options).changes.map((file) => ({
+              path: file.path,
+              summary: "Change",
+              related: [],
+            })),
+          },
+        ],
+      });
+    },
+  });
+  const run = await agent(
+    files.map((file) => ({ ...file, diff: "small ".repeat(700) })),
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    {},
+  );
+  state.capacity.connection!.outputTokens = 64000;
+  state.capacity.connection!.groupingInputTokens = 128000;
+  await run.grouping();
+  expect(requests.length).toBeGreaterThan(6);
+  for (const request of requests)
+    expect(request.maxOutputTokens).toBeLessThanOrEqual(2048);
 });
 
 test("large grouping uses bounded source batches and a global ordering pass with complete coverage", async () => {

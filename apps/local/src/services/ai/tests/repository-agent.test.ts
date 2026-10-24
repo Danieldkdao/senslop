@@ -2,6 +2,7 @@ import { beforeEach, expect, test, vi } from "vitest";
 import { MockLanguageModelV4 } from "ai/test";
 import { createRepositoryAgent } from "../repository-agent";
 import { defaultAiSettings } from "../../../features/agents/constants";
+import type { ProviderConfigSchema } from "@senslop/contracts";
 vi.mock("server-only", () => ({}));
 const state = vi.hoisted(() => ({
   resolved: {} as object,
@@ -105,6 +106,52 @@ test("grouping uses native structured output and never exposes a result submissi
   await expect((await resultAgent()).grouping()).resolves.toEqual(resultGroups);
   expect(model.doGenerateCalls).toHaveLength(1);
 });
+
+test.each([
+  {
+    provider: "lm-studio" as const,
+    configured: null,
+    expectedContext: 16384,
+    expectedOutput: 2048,
+  },
+  {
+    provider: "ollama" as const,
+    configured: null,
+    expectedContext: 16384,
+    expectedOutput: 2048,
+  },
+  {
+    provider: "lm-studio" as const,
+    configured: 32768,
+    expectedContext: 32768,
+    expectedOutput: 2048,
+  },
+  {
+    provider: "openrouter" as const,
+    configured: null,
+    expectedContext: 128000,
+    expectedOutput: 16000,
+  },
+])(
+  "$provider with context $configured uses an honest bounded request budget",
+  async ({ provider, configured, expectedContext, expectedOutput }) => {
+    state.provider = provider;
+    state.contextWindow = configured;
+    const model = new MockLanguageModelV4({
+      doGenerate: jsonResponse(resultGroups),
+    });
+    state.resolved = { model };
+    await (await resultAgent()).grouping();
+    expect(model.doGenerateCalls[0]!.maxOutputTokens).toBe(expectedOutput);
+    expect(console.info).toHaveBeenCalledWith(
+      "[senslop:ai-request]",
+      expect.objectContaining({
+        event: "started",
+        contextWindow: expectedContext,
+      }),
+    );
+  },
+);
 
 test("format correction reuses frozen tool evidence and preserves reasoning required by multi-turn models", async () => {
   let calls = 0;
