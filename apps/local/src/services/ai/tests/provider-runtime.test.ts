@@ -217,6 +217,9 @@ test.each([
     "x-goog-api-key",
   ],
   ["opencode", "deepseek-v4-pro", "/v1/chat/completions", "authorization"],
+  ["opencode", "muse-wonder-1.0", "/v1/responses", "authorization"],
+  ["opencode", "beam-free", "/v1/chat/completions", "authorization"],
+  ["opencode", "flint-40b-free", "/v1/chat/completions", "authorization"],
 ] as const)(
   "%s routes %s through its protocol using the supplied credential",
   async (provider, modelId, path, header) => {
