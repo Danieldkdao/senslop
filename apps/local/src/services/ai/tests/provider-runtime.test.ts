@@ -60,7 +60,7 @@ test.each(["lm-studio", "llama-cpp"] as const)(
   },
 );
 
-test("model calls using the same provider credentials share a request limit", async () => {
+test("cloud model calls using the same provider credentials share an adaptive request limit", async () => {
   const releases: (() => void)[] = [];
   let active = 0;
   let peak = 0;
@@ -87,7 +87,7 @@ test("model calls using the same provider credentials share a request limit", as
   const runs = Array.from({ length: 3 }, (_, id) =>
     generateText({
       ...resolveLanguageModel(
-        connection("lm-studio"),
+        connection("mistral"),
         "shared-limiter-fixture",
         `model-${id}`,
         fetcher,
@@ -410,7 +410,9 @@ test("Google models and credentials at the same endpoint share the 250,000 input
       "gemini-second",
       fetcher,
     );
-    expect(first.requestLimiter).toBe(second.requestLimiter);
+    expect(first.requestLimiter?.state()).toEqual(
+      second.requestLimiter?.state(),
+    );
     const requests = [first, second].map((resolved) =>
       generateText({
         model: resolved.model,
