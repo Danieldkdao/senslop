@@ -1,5 +1,10 @@
 "use client";
 
+import type {
+  OrganizationSchema,
+  OrganizationActionSchema,
+} from "@senslop/contracts";
+import { RegionBrowser } from "../../precision/components/region-browser";
 import { Skeleton } from "@/components/ui/skeleton";
 import { FolderOpen } from "lucide-react";
 import { GroupedFiles } from "../../agents/components/grouped-files";
@@ -8,6 +13,13 @@ import type { LivePreview } from "../types";
 import { PreviewFileItem } from "./preview-file-item";
 
 type PreviewFilesProps = {
+  impact?: import("@senslop/contracts").ChangeImpactSchema[];
+  organization?: OrganizationSchema;
+  selectedUnitId?: string;
+  onSelectUnit?: (id: string) => void;
+  onOrganizationAction?: (
+    operation: OrganizationActionSchema,
+  ) => Promise<unknown>;
   preview: LivePreview | null;
   grouping?: GroupingSchema | null;
   preparing?: boolean;
@@ -17,6 +29,11 @@ type PreviewFilesProps = {
 
 export const PreviewFiles = ({
   preview,
+  impact,
+  organization,
+  selectedUnitId,
+  onSelectUnit,
+  onOrganizationAction,
   grouping,
   preparing = false,
   selectedPath,
@@ -55,6 +72,14 @@ export const PreviewFiles = ({
             Your changes will appear here as they arrive.
           </p>
         </div>
+      ) : organization && onSelectUnit && onOrganizationAction ? (
+        <RegionBrowser
+          organization={organization}
+          impact={impact}
+          selectedUnitId={selectedUnitId}
+          onSelect={onSelectUnit}
+          onAction={onOrganizationAction}
+        />
       ) : (
         <nav
           aria-label="Changed files"

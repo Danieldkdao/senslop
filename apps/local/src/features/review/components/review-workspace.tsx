@@ -1,7 +1,19 @@
 "use client";
 
+import { formatWhitespaceMode } from "../lib/formatters";
+
+import {
+  useSourceExplorer,
+  useFrozenSource,
+} from "../../precision/hooks/use-source-explorer";
+import { useReadingTrail } from "../../precision/hooks/use-reading-trail";
+import { StructuredDiffPreview } from "../../precision/components/structured-diff-preview";
+import { ChangeImpactPanel } from "../../precision/components/change-impact-panel";
+import type { SourceLocationSchema } from "../../precision/schemas";
+import { Undo2, Redo2, X } from "lucide-react";
 import {
   useCallback,
+  useMemo,
   useEffect,
   useRef,
   useState,
@@ -59,6 +71,7 @@ import {
   SheetDescription,
 } from "@/components/ui/sheet";
 import { WorkspaceToolbar } from "../../workspace/components/workspace-toolbar";
+import { useReviewPrecision } from "../../precision/hooks/use-review-precision";
 import { ProjectSwitcher } from "../../workspace/components/project-switcher";
 import { useWorkspaceBuddy } from "../../buddy/hooks/use-workspace-buddy";
 
@@ -88,7 +101,38 @@ export const ReviewWorkspace = ({ children }: ReviewWorkspaceProps) => {
   const [selection, setSelection] = useState<{
     id: string;
     path: string;
+    unitId?: string;
   } | null>(null);
+  const precision = useReviewPrecision(
+    preview?.hash && preview.round
+      ? { id: preview.id, hash: preview.hash, round: preview.round }
+      : null,
+  );
+  const organization = precision.state.data;
+  const identity = useMemo(
+    () =>
+      preview?.hash && preview.round
+        ? { id: preview.id, hash: preview.hash, round: preview.round }
+        : null,
+    [preview],
+  );
+  const trail = useReadingTrail(
+    `${preview?.id}:${preview?.hash}:${preview?.round}`,
+  );
+  const [contextLocation, setContextLocation] = useState<
+    (SourceLocationSchema & { reviewId: string; revisionKey: string }) | null
+  >(null);
+  const activeContext =
+    contextLocation?.reviewId === preview?.id &&
+    contextLocation?.revisionKey === `${preview?.hash}:${preview?.round}`
+      ? contextLocation
+      : null;
+  const explorer = useSourceExplorer(identity, activeContext?.side ?? "after");
+  const frozenSource = useFrozenSource(identity, activeContext);
+  const readingScroll = useRef<HTMLDivElement>(null);
+
+  const [fullFile, setFullFile] = useState(false);
+  const [regionContext, setRegionContext] = useState(0);
   const agents = useAgentState(preview?.id);
   const { preferences } = useReviewPreferences();
   const ui = useUiPreferences();
@@ -183,21 +227,129 @@ export const ReviewWorkspace = ({ children }: ReviewWorkspaceProps) => {
   const selectedIndex =
     orderedFiles.findIndex((file) => file.path === selectedFile?.path) ?? -1;
   const selectFile = useCallback(
-    (path: string) => {
+    (path: string, unitId?: string) => {
       if (preview?.files.some((file) => file.path === path)) {
-        setSelection({ id: preview.id, path });
+        unitId ??=
+          organization?.units.find(
+            (unit) => unit.path === path && !unit.reviewed,
+          )?.id ?? organization?.units.find((unit) => unit.path === path)?.id;
+        trail.visit(
+          { path, side: "after", unitId },
+          readingScroll.current?.scrollTop ?? 0,
+        );
+        setContextLocation(null);
+        setSelection({ id: preview.id, path, unitId });
         setEvidence(null);
         void changeReview({ action: "select", path }).catch(() => {});
       }
     },
-    [preview, changeReview],
+    [preview, changeReview, trail, organization],
   );
+  const selectedUnit =
+    organization?.units.find(
+      (unit) =>
+        unit.path === selectedFile?.path && unit.id === selection?.unitId,
+    ) ?? organization?.units.find((unit) => unit.path === selectedFile?.path);
+  const orderedUnits = useMemo(
+    () =>
+      organization?.flows.flatMap((flow) =>
+        flow.unitIds.flatMap(
+          (id) => organization.units.find((unit) => unit.id === id) ?? [],
+        ),
+      ) ?? [],
+    [organization],
+  );
+  const selectedUnitIndex = orderedUnits.findIndex(
+    (unit) => unit.id === selectedUnit?.id,
+  );
+  const selectUnit = (id: string) => {
+    const unit = organization?.units.find((item) => item.id === id);
+    if (unit) selectFile(unit.path, unit.id);
+  };
+  const navigateUnit = organization
+    ? (direction: -1 | 1) => {
+        const unit = orderedUnits[selectedUnitIndex + direction];
+        if (unit) selectFile(unit.path, unit.id);
+      }
+    : undefined;
+  useEffect(() => {
+    if (trail.ready && !trail.current && selectedFile)
+      trail.visit(
+        { path: selectedFile.path, side: "after", unitId: selectedUnit?.id },
+        0,
+      );
+  }, [trail, selectedFile, selectedUnit?.id]);
+  const openSource = (location: SourceLocationSchema) => {
+    if (!preview) return;
+    trail.visit(
+      { ...location, context: true },
+      readingScroll.current?.scrollTop ?? 0,
+    );
+    setContextLocation({
+      ...location,
+      reviewId: preview.id,
+      revisionKey: `${preview.hash}:${preview.round}`,
+    });
+  };
+  const restoreLocation = useCallback(
+    (
+      location:
+        | (SourceLocationSchema & { scrollTop: number; context?: boolean })
+        | null
+        | undefined,
+    ) => {
+      if (!location || !preview) return;
+      const key = `${preview.id}:${preview.hash}:${preview.round}:${location.path}:${location.unitId ?? "file"}:${location.context ? location.side : "diff"}`;
+      sessionStorage.setItem(
+        `senslop:scroll:${key}`,
+        String(location.scrollTop),
+      );
+      if (location.context)
+        setContextLocation({
+          ...location,
+          start: undefined,
+          end: undefined,
+          reviewId: preview.id,
+          revisionKey: `${preview.hash}:${preview.round}`,
+        });
+      else {
+        setContextLocation(null);
+        setSelection({
+          id: preview.id,
+          path: location.path,
+          unitId: location.unitId,
+        });
+        setEvidence(null);
+      }
+      requestAnimationFrame(() =>
+        readingScroll.current?.scrollTo({ top: location.scrollTop }),
+      );
+    },
+    [preview],
+  );
+  const goHistory = (direction: -1 | 1) =>
+    restoreLocation(trail.go(direction, readingScroll.current?.scrollTop ?? 0));
+  const returnToReview = () =>
+    restoreLocation(
+      trail.returnToReview(readingScroll.current?.scrollTop ?? 0),
+    );
+  const restoredTrail = useRef<string | null>(null);
+  useEffect(() => {
+    const key = identity
+      ? `${identity.id}:${identity.hash}:${identity.round}`
+      : null;
+    if (!key || !trail.ready || !trail.current || restoredTrail.current === key)
+      return;
+    restoredTrail.current = key;
+    restoreLocation(trail.current);
+  }, [identity, trail, restoreLocation]);
   const completionPending = useRef(new Set<string>());
   const latestSelection = useRef({
     id: preview?.id,
     hash: preview?.hash,
     round: preview?.round,
     path: selectedFile?.path,
+    unitId: selectedUnit?.id,
   });
   useEffect(() => {
     latestSelection.current = {
@@ -205,10 +357,18 @@ export const ReviewWorkspace = ({ children }: ReviewWorkspaceProps) => {
       hash: preview?.hash,
       round: preview?.round,
       path: selectedFile?.path,
+      unitId: selectedUnit?.id,
     };
-  }, [preview?.id, preview?.hash, preview?.round, selectedFile?.path]);
-  const completed =
-    !!selectedFile && !!preview?.completedPaths?.includes(selectedFile.path);
+  }, [
+    preview?.id,
+    preview?.hash,
+    preview?.round,
+    selectedFile?.path,
+    selectedUnit?.id,
+  ]);
+  const completed = selectedUnit
+    ? selectedUnit.reviewed
+    : !!selectedFile && !!preview?.completedPaths?.includes(selectedFile.path);
   const nextFile = orderedFiles[selectedIndex + 1];
   const toggleCompletion = useCallback(() => {
     if (!selectedFile) return;
@@ -217,26 +377,40 @@ export const ReviewWorkspace = ({ children }: ReviewWorkspaceProps) => {
       preview?.hash,
       preview?.round,
       selectedFile.path,
+      selectedUnit?.id,
     ]);
     if (completionPending.current.has(key)) return;
     completionPending.current.add(key);
-    void changeReview({
-      action: "complete",
-      path: selectedFile.path,
-      complete: !completed,
-    })
+    const action = selectedUnit
+      ? precision.act({
+          action: "complete-unit",
+          unitId: selectedUnit.id,
+          reviewed: !completed,
+        })
+      : changeReview({
+          action: "complete",
+          path: selectedFile.path,
+          complete: !completed,
+        });
+    void action
       .then(() => {
         const current = latestSelection.current;
         if (
           !completed &&
           preferences.data?.autoAdvance &&
-          nextFile &&
+          (selectedUnit ? orderedUnits[selectedUnitIndex + 1] : nextFile) &&
           current.id === preview?.id &&
           current.hash === preview?.hash &&
           current.round === preview?.round &&
-          current.path === selectedFile.path
-        )
-          selectFile(nextFile.path);
+          current.path === selectedFile.path &&
+          current.unitId === selectedUnit?.id
+        ) {
+          const next = selectedUnit
+            ? orderedUnits[selectedUnitIndex + 1]
+            : nextFile;
+          if (next)
+            selectFile(next.path, "id" in next ? String(next.id) : undefined);
+        }
       })
       .catch(() => {})
       .finally(() => {
@@ -244,6 +418,10 @@ export const ReviewWorkspace = ({ children }: ReviewWorkspaceProps) => {
       });
   }, [
     changeReview,
+    selectedUnit,
+    precision,
+    orderedUnits,
+    selectedUnitIndex,
     selectedFile,
     completed,
     preferences.data?.autoAdvance,
@@ -257,7 +435,8 @@ export const ReviewWorkspace = ({ children }: ReviewWorkspaceProps) => {
     preview: preparing ? null : orderedPreview,
     selectedPath: selectedFile?.path,
     onSelect: selectFile,
-    onToggleCompletion: toggleCompletion,
+    onToggleCompletion: activeContext ? undefined : toggleCompletion,
+    onNavigate: navigateUnit,
   });
   const addNote = async (body: string, line: ReviewLine | null = null) => {
     if (!preview || !selectedFile) return;
@@ -297,8 +476,22 @@ export const ReviewWorkspace = ({ children }: ReviewWorkspaceProps) => {
         setSettingsOpen(true);
       }}
       onEvidence={(finding) => {
-        selectFile(finding.path);
-        setEvidence({ ...finding });
+        if (preview?.files.some((file) => file.path === finding.path)) {
+          selectFile(
+            finding.path,
+            organization?.units.find(
+              (unit) =>
+                unit.path === finding.path &&
+                unit.ranges.some(
+                  (range) =>
+                    range.side === finding.side &&
+                    range.start <= finding.end &&
+                    range.end >= finding.start,
+                ),
+            )?.id,
+          );
+          setEvidence({ ...finding });
+        } else openSource(finding);
       }}
     />
   );
@@ -313,6 +506,11 @@ export const ReviewWorkspace = ({ children }: ReviewWorkspaceProps) => {
             preparing={preparing}
             selectedPath={selectedFile?.path}
             onSelect={selectFile}
+            organization={organization}
+            impact={explorer.data?.impact}
+            selectedUnitId={selectedUnit?.id}
+            onSelectUnit={selectUnit}
+            onOrganizationAction={precision.act}
           />
         </ResizablePanel>
         <ResizableHandle withHandle aria-label="Resize files and notes" />
@@ -352,6 +550,28 @@ export const ReviewWorkspace = ({ children }: ReviewWorkspaceProps) => {
           !preparing && completed && "border-primary/40 bg-primary/10",
         )}
       >
+        <TooltipWrapper content="Back in reading history">
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="Back in reading history"
+            disabled={!trail.canBack}
+            onClick={() => goHistory(-1)}
+          >
+            <Undo2 className="size-4" />
+          </Button>
+        </TooltipWrapper>
+        <TooltipWrapper content="Forward in reading history">
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="Forward in reading history"
+            disabled={!trail.canForward}
+            onClick={() => goHistory(1)}
+          >
+            <Redo2 className="size-4" />
+          </Button>
+        </TooltipWrapper>
         {mobile && (
           <Sheet>
             <SheetTrigger
@@ -387,7 +607,7 @@ export const ReviewWorkspace = ({ children }: ReviewWorkspaceProps) => {
         >
           {preparing
             ? "Preparing review…"
-            : (selectedFile?.path ?? "No file selected")}
+            : (activeContext?.path ?? selectedFile?.path ?? "No file selected")}
         </span>
         <div
           className="flex min-w-0 max-w-[45%] shrink-0 items-center gap-1 overflow-x-auto overscroll-x-contain md:max-w-[70%]"
@@ -395,51 +615,57 @@ export const ReviewWorkspace = ({ children }: ReviewWorkspaceProps) => {
         >
           {selectedFile && (
             <>
-              <TooltipWrapper content="Previous file">
+              <TooltipWrapper
+                content={organization ? "Previous region" : "Previous file"}
+              >
                 <Button
                   variant="ghost"
                   size="icon"
-                  aria-label="Previous file"
-                  disabled={preparing || selectedIndex <= 0}
+                  aria-label={
+                    organization ? "Previous region" : "Previous file"
+                  }
+                  disabled={
+                    preparing ||
+                    (organization ? selectedUnitIndex : selectedIndex) <= 0
+                  }
                   onClick={() => navigateFile(-1)}
                 >
                   <ArrowLeft aria-hidden="true" className="size-5" />
                 </Button>
               </TooltipWrapper>
-              <TooltipWrapper content="Next file">
+              <TooltipWrapper
+                content={organization ? "Next region" : "Next file"}
+              >
                 <Button
                   variant="ghost"
                   size="icon"
-                  aria-label="Next file"
+                  aria-label={organization ? "Next region" : "Next file"}
                   disabled={
                     preparing ||
                     selectedIndex < 0 ||
-                    selectedIndex >= (preview?.files.length ?? 0) - 1
+                    (organization
+                      ? selectedUnitIndex >= orderedUnits.length - 1
+                      : selectedIndex >= (preview?.files.length ?? 0) - 1)
                   }
                   onClick={() => navigateFile(1)}
                 >
                   <ArrowRight aria-hidden="true" className="size-5" />
                 </Button>
               </TooltipWrapper>
-              <TooltipWrapper content="Toggle file completion (D)">
+              <TooltipWrapper
+                content={
+                  selectedUnit
+                    ? "Toggle region completion (D)"
+                    : "Toggle file completion (D)"
+                }
+              >
                 <Button
-                  variant={
-                    preview?.completedPaths?.includes(selectedFile.path)
-                      ? "secondary"
-                      : "ghost"
-                  }
+                  variant={completed ? "secondary" : "ghost"}
                   size="icon"
-                  aria-label={
-                    preview?.completedPaths?.includes(selectedFile.path)
-                      ? "Mark incomplete"
-                      : "Mark complete"
-                  }
-                  aria-pressed={
-                    preview?.completedPaths?.includes(selectedFile.path) ??
-                    false
-                  }
+                  aria-label={completed ? "Mark incomplete" : "Mark complete"}
+                  aria-pressed={completed}
                   aria-keyshortcuts="d"
-                  disabled={preparing}
+                  disabled={preparing || !!activeContext || precision.pending}
                   onClick={toggleCompletion}
                 >
                   <Check aria-hidden="true" className="size-5" />
@@ -500,6 +726,11 @@ export const ReviewWorkspace = ({ children }: ReviewWorkspaceProps) => {
           />
           <WorkspaceToolbar preparing={preparing} />
           <ReviewSettings
+            review={
+              preview?.hash && preview.round
+                ? { id: preview.id, hash: preview.hash, round: preview.round }
+                : null
+            }
             open={settingsOpen}
             onOpenChange={setSettingsOpen}
             initialSection={initialSettingsSection}
@@ -555,6 +786,116 @@ export const ReviewWorkspace = ({ children }: ReviewWorkspaceProps) => {
           </Button>
         </p>
       )}
+      {activeContext && (
+        <div className="flex items-center gap-2 border-b px-4 py-2 text-base">
+          <span className="min-w-0 flex-1 text-muted-foreground">
+            {preview?.files.some((file) => file.path === activeContext.path)
+              ? "Captured source"
+              : "Unchanged context"}
+            : {activeContext.side === "before" ? "Before" : "After"}
+          </span>
+          <Button variant="outline" onClick={returnToReview}>
+            Return to review
+          </Button>
+          <TooltipWrapper content="Close source context">
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Close source context"
+              onClick={returnToReview}
+            >
+              <X />
+            </Button>
+          </TooltipWrapper>
+        </div>
+      )}
+      {!preparing && selectedFile && (
+        <ChangeImpactPanel
+          side={activeContext?.side ?? "after"}
+          impact={explorer.data?.impact.find(
+            (item) => item.unitId === selectedUnit?.id,
+          )}
+          capability={
+            explorer.data?.capabilities[
+              activeContext?.path ?? selectedFile.path
+            ]
+          }
+          symbols={
+            explorer.data?.symbols.filter(
+              (symbol) =>
+                symbol.path === (activeContext?.path ?? selectedFile.path),
+            ) ?? []
+          }
+          onNavigate={openSource}
+        />
+      )}
+      {!preparing &&
+        selectedFile?.oldPath &&
+        selectedFile.oldPath !== selectedFile.path && (
+          <p className="flex items-center gap-2 border-b px-4 py-2 text-base text-muted-foreground">
+            <span className="font-mono break-all">{selectedFile.oldPath}</span>
+            <ArrowRight className="size-4 shrink-0" />
+            <span className="font-mono break-all">{selectedFile.path}</span>
+          </p>
+        )}
+      {settings.whitespace && settings.whitespace !== "all" && (
+        <p className="border-b px-4 py-2 text-base text-muted-foreground">
+          Whitespace filter: {formatWhitespaceMode(settings.whitespace)}.
+          Completion remains manual.
+        </p>
+      )}
+      {!!grouping?.organizationLimitations?.length && (
+        <p className="border-b px-4 py-2 text-base text-muted-foreground">
+          {grouping.organizationLimitations.join(" ")}
+        </p>
+      )}
+      {!preparing && selectedUnit && !activeContext && (
+        <div className="flex shrink-0 flex-wrap items-center gap-2 border-b px-4 py-2 text-base">
+          <span className="min-w-0 flex-1 text-muted-foreground">
+            {selectedUnit.label}
+          </span>
+          <Button
+            variant={fullFile ? "ghost" : "secondary"}
+            onClick={() => setFullFile(false)}
+          >
+            Region
+          </Button>
+          {!fullFile && (
+            <Button
+              variant="ghost"
+              onClick={() =>
+                setRegionContext((value) => (value >= 20 ? 0 : value + 5))
+              }
+            >
+              Context: {regionContext} lines
+            </Button>
+          )}
+          <Button
+            variant={fullFile ? "secondary" : "ghost"}
+            onClick={() => setFullFile(true)}
+          >
+            Full file
+          </Button>
+          <TooltipWrapper content="Mark all regions in this file reviewed">
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Mark all regions in this file reviewed"
+              onClick={() =>
+                void precision
+                  .act({
+                    action: "complete-file",
+                    path: selectedUnit.path,
+                    reviewed: true,
+                  })
+                  .catch(() => {})
+              }
+            >
+              <Check />
+            </Button>
+          </TooltipWrapper>
+        </div>
+      )}
       {!preparing && selectedFile && (
         <FileSummary
           key={`${preview?.id}:${selectedFile.path}`}
@@ -564,10 +905,11 @@ export const ReviewWorkspace = ({ children }: ReviewWorkspaceProps) => {
         />
       )}
       <div
+        ref={readingScroll}
         data-review-scroll
         data-reading-key={
           preview && selectedFile
-            ? `${preview.id}:${selectedFile.path}`
+            ? `${preview.id}:${preview.hash}:${preview.round}:${activeContext?.path ?? selectedFile.path}:${activeContext ? "file" : (selectedUnit?.id ?? "file")}:${activeContext?.side ?? "diff"}`
             : undefined
         }
         onScroll={(event) => {
@@ -580,7 +922,48 @@ export const ReviewWorkspace = ({ children }: ReviewWorkspaceProps) => {
         }}
         className="min-h-0 flex-1 overflow-auto overscroll-contain"
       >
-        {preparing ? (
+        {activeContext ? (
+          frozenSource.data ? (
+            <PreviewDiff
+              key={`${preview?.id}:${activeContext.path}:${activeContext.side}`}
+              file={{
+                path: activeContext.path,
+                oldPath: null,
+                status: "M",
+                before: frozenSource.data.contents,
+                after: frozenSource.data.contents,
+                beforeHash: null,
+                afterHash: null,
+                binary: false,
+                added: 0,
+                deleted: 0,
+                diff: "",
+              }}
+              view={view}
+              settings={settings}
+              notes={[]}
+              readOnly
+              onAddComment={() => {}}
+              onDeleteNote={() => {}}
+              evidence={
+                activeContext.start
+                  ? {
+                      side: "after",
+                      start: activeContext.start,
+                      end: activeContext.end ?? activeContext.start,
+                    }
+                  : null
+              }
+            />
+          ) : (
+            <p
+              role={frozenSource.error ? "alert" : "status"}
+              className="p-5 text-muted-foreground"
+            >
+              {frozenSource.error?.message ?? "Opening captured source…"}
+            </p>
+          )
+        ) : preparing ? (
           <ReviewPreparation
             job={groupingJobs[0]}
             remainingSeconds={groupingCountdown.seconds}
@@ -614,19 +997,31 @@ export const ReviewWorkspace = ({ children }: ReviewWorkspaceProps) => {
           />
         ) : preview ? (
           selectedFile ? (
-            <PreviewDiff
-              key={`${preview.id}:${selectedFile.path}`}
-              file={selectedFile}
-              view={view}
-              settings={settings}
-              notes={reviewNotes.filter(
-                (note) => note.path === selectedFile.path,
-              )}
-              onAddComment={addNote}
-              onDeleteNote={deleteNote}
-              snapshotId={preview.id}
-              evidence={evidence?.path === selectedFile.path ? evidence : null}
-            />
+            <StructuredDiffPreview file={selectedFile}>
+              <PreviewDiff
+                key={`${preview.id}:${selectedFile.path}:${selectedUnit?.id ?? "file"}:${fullFile}`}
+                file={selectedFile}
+                regions={!fullFile ? selectedUnit?.ranges : undefined}
+                contextLines={regionContext}
+                view={view}
+                settings={settings}
+                notes={reviewNotes.filter(
+                  (note) => note.path === selectedFile.path,
+                )}
+                onAddComment={addNote}
+                onDeleteNote={deleteNote}
+                snapshotId={preview.id}
+                evidence={
+                  evidence?.path === selectedFile.path
+                    ? evidence
+                    : !fullFile && selectedUnit?.ranges.length
+                      ? (selectedUnit.ranges.find(
+                          (range) => range.side === "after",
+                        ) ?? selectedUnit.ranges[0])
+                      : null
+                }
+              />
+            </StructuredDiffPreview>
           ) : (
             <div className="flex h-full items-center justify-center p-8 text-muted-foreground">
               {preview.status === "receiving"
@@ -645,6 +1040,8 @@ export const ReviewWorkspace = ({ children }: ReviewWorkspaceProps) => {
     <div className="fixed inset-0 overflow-clip bg-background text-base text-foreground">
       {preview && (
         <FileSearchDialog
+          review={identity}
+          onSource={openSource}
           key={preview.id}
           open={searchOpen && !preparing}
           onOpenChange={setSearchOpen}

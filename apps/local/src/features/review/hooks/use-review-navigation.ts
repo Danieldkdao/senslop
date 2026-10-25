@@ -9,6 +9,7 @@ type ReviewNavigationOptions = {
   selectedPath?: string;
   onSelect: (path: string) => void;
   onToggleCompletion?: () => void;
+  onNavigate?: (direction: -1 | 1) => void;
 };
 
 export const useReviewNavigation = ({
@@ -16,17 +17,22 @@ export const useReviewNavigation = ({
   selectedPath,
   onSelect,
   onToggleCompletion,
+  onNavigate,
 }: ReviewNavigationOptions) => {
   const [searchOpen, setSearchOpen] = useState(false);
   const navigateFile = useCallback(
     (direction: -1 | 1) => {
+      if (onNavigate) {
+        onNavigate(direction);
+        return;
+      }
       const index =
         preview?.files.findIndex((file) => file.path === selectedPath) ?? -1;
       if (index < 0) return;
       const file = preview?.files[index + direction];
       if (file) onSelect(file.path);
     },
-    [preview, selectedPath, onSelect],
+    [preview, selectedPath, onSelect, onNavigate],
   );
 
   useKeyboardShortcuts(

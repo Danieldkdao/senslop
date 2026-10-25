@@ -1,5 +1,8 @@
 "use client";
 
+import { SourceSearchDialog } from "../../precision/components/source-search-dialog";
+import type { SourceLocationSchema } from "../../precision/schemas";
+import type { ReviewIdentitySchema } from "@senslop/contracts";
 import type { PreviewFileSchema } from "@senslop/contracts";
 import { FileIcon } from "@/components/file-icon";
 import {
@@ -14,6 +17,8 @@ import {
 import type { GroupingSchema } from "../../agents/schemas";
 
 type FileSearchDialogProps = {
+  review?: ReviewIdentitySchema | null;
+  onSource?: (location: SourceLocationSchema) => void;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   files: PreviewFileSchema[];
@@ -23,6 +28,8 @@ type FileSearchDialogProps = {
 };
 
 export const FileSearchDialog = ({
+  review,
+  onSource,
   open,
   onOpenChange,
   files,
@@ -30,6 +37,17 @@ export const FileSearchDialog = ({
   selectedPath,
   onSelect,
 }: FileSearchDialogProps) => {
+  if (review && onSource)
+    return (
+      <SourceSearchDialog
+        open={open}
+        onOpenChange={onOpenChange}
+        review={review}
+        files={files}
+        onSelect={onSelect}
+        onSource={onSource}
+      />
+    );
   const renderFile = (file: PreviewFileSchema, groupTitle?: string) => (
     // cmdk emits data-selected for both states; override the primitive's presence selector.
     <CommandItem
