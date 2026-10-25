@@ -1,10 +1,15 @@
 import { serve } from "inngest/next";
 import { inngest } from "../../../services/inngest/client";
-import { analysisJob, resumeJobs } from "../../../services/inngest/functions";
+import {
+  analysisJob,
+  checkJob,
+  verificationJob,
+  resumeJobs,
+} from "../../../services/inngest/functions";
 
 const handlers = serve({
   client: inngest,
-  functions: [analysisJob],
+  functions: [analysisJob, checkJob, verificationJob],
 });
 
 export const { GET, POST } = handlers;

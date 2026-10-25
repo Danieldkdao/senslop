@@ -4,22 +4,29 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { LocalStore } from "@senslop/review-core/storage";
+import { CheckRunner } from "@senslop/review-core/checks";
 import { AgentStore } from "../../../features/agents/lib/agent-store";
 
 vi.mock("../../../features/workspace/lib/server-workspace", () => ({
   getWorkspace: vi.fn(),
 }));
 vi.mock("../../../data/env/server", () => ({
-  serverEnv: { SENSLOP_LOCAL_STARTED_AT: "2026-10-24T12:00:00.000Z" },
+  serverEnv: {
+    SENSLOP_LOCAL_STARTED_AT: "2026-10-24T12:00:00.000Z",
+    SENSLOP_LOCAL_DATABASE: "/tmp/senslop-dispatch-fixture/reviews.sqlite",
+  },
 }));
 vi.mock("../client", () => ({
   inngest: { createFunction: vi.fn(), send: vi.fn() },
 }));
 vi.mock("../jobs", () => ({ executeJob: vi.fn() }));
+vi.mock("../../../features/workflow/lib/verify-findings", () => ({
+  verifyFindings: vi.fn(),
+}));
 
 import { getWorkspace } from "../../../features/workspace/lib/server-workspace";
 import { inngest } from "../client";
-import { dispatchJobs } from "../functions";
+import { dispatchJobs, resumeJobs } from "../functions";
 
 afterEach(() => vi.clearAllMocks());
 
@@ -59,6 +66,26 @@ const fixture = async () => {
     },
   };
 };
+
+test.each(["running", "interrupted", "canceled"] as const)(
+  "restart releases a dead check owner's lease while preserving %s outcomes",
+  async (status) => {
+    const { agents, review, close } = await fixture();
+    try {
+      const runner = new CheckRunner(agents.local, agents.repository, "");
+      const check = runner.create(review, { command: "node --version" });
+      runner.save({ ...check, status, ownerPid: 2147483647 });
+      vi.mocked(inngest.send).mockResolvedValue({ ids: [] });
+      await resumeJobs();
+      expect(runner.get(check.id)).toMatchObject({
+        status: status === "running" ? "interrupted" : status,
+        ownerPid: null,
+      });
+    } finally {
+      await close();
+    }
+  },
+);
 
 test.each(["reprioritize", "cancel", "start"])(
   "a paused dispatcher cannot overwrite a later job after %s",
