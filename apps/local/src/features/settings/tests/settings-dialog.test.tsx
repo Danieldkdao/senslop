@@ -574,6 +574,7 @@ test("one settings dialog orders appearance/editor/AI, search navigates nested l
     "AI",
     "Source & execution",
     "Data & privacy",
+    "Usage",
   ]);
   const sidebar = within(
     screen.getByRole("navigation", { name: "Settings sections" }),

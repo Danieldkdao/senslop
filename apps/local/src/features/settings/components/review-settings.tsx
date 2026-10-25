@@ -15,6 +15,7 @@ import type { SettingsSection } from "../types";
 import { EditorDiffPreview } from "./editor-diff-preview";
 import { ReviewPreferences } from "./review-preferences";
 import { BuddySettings } from "../../buddy/components/buddy-settings";
+import { UsageSettings } from "../../workflow/components/usage-settings";
 import { SourceSettings } from "../../workflow/components/source-settings";
 import { DataSettings } from "../../workflow/components/data-settings";
 
@@ -168,6 +169,13 @@ export const ReviewSettings = ({
             keywords:
               "data privacy history source export deletion diagnostic bundle",
             content: <DataSettings />,
+          },
+          {
+            id: "usage",
+            label: "Usage",
+            keywords:
+              "usage cost tokens budgets resources accounting charts statistics",
+            content: <UsageSettings />,
           },
         ];
         return sections.map((section) => ({
