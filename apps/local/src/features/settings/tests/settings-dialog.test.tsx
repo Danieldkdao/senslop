@@ -19,6 +19,21 @@ import { parseDiffFromFile } from "@pierre/diffs";
 import type { MultiFileDiffProps } from "@pierre/diffs/react";
 import type { ProviderId, PublicConnectionSchema } from "@senslop/contracts";
 
+vi.mock("../../workflow/hooks/use-project-settings", async () => {
+  const { projectPolicySchema } = await import("@senslop/contracts");
+  return {
+    useProjectSettings: () => ({
+      state: {
+        data: {
+          policy: projectPolicySchema.parse({}),
+          usage: [],
+          workspaces: [],
+        },
+      },
+      save: vi.fn(),
+    }),
+  };
+});
 vi.mock("../hooks/use-ui-preferences", async () => {
   const { defaultUiPreferences } = await import("../constants");
   return {
@@ -557,6 +572,8 @@ test("one settings dialog orders appearance/editor/AI, search navigates nested l
     "Review Preferences",
     "Editor",
     "AI",
+    "Source & execution",
+    "Data & privacy",
   ]);
   const sidebar = within(
     screen.getByRole("navigation", { name: "Settings sections" }),
