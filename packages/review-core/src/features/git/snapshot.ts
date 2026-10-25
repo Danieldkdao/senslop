@@ -181,6 +181,7 @@ export const readBlobBatch = async (
   ref: string,
   paths: string[],
   byteLimit: number,
+  includeBinary = false,
 ) => {
   const tree = await git(cwd, ["ls-tree", "-r", "-l", "-z", ref]);
   const entries = new Map(
@@ -196,7 +197,8 @@ export const readBlobBatch = async (
         ] as const;
       }),
   );
-  const selected: { path: string; id: string; size: number }[] = [];
+  const selected: { path: string; id: string; size: number; mode: number }[] =
+    [];
   const unavailable: string[] = [];
   let bytes = 0;
   let limited = false;
@@ -204,12 +206,15 @@ export const readBlobBatch = async (
     const entry = entries.get(path);
     if (!entry) continue;
     const [mode, type, id, length] = entry;
-    if (mode === "120000" || type !== "blob") continue;
+    if (mode === "120000" || type !== "blob") {
+      if (includeBinary) unavailable.push(path);
+      continue;
+    }
     const size = Number(length);
     if (
       !Number.isSafeInteger(size) ||
       size < 0 ||
-      size > SNAPSHOT_LIMITS.fileBytes
+      size > (includeBinary ? byteLimit : SNAPSHOT_LIMITS.fileBytes)
     ) {
       unavailable.push(path);
       continue;
@@ -219,10 +224,13 @@ export const readBlobBatch = async (
       break;
     }
     bytes += size;
-    selected.push({ path, id: id!, size });
+    selected.push({ path, id: id!, size, mode: parseInt(mode!, 8) });
   }
   const sources: Record<string, string> = {};
-  if (!selected.length) return { sources, unavailable, limited };
+  const binarySources: Record<string, Buffer> = {};
+  const modes: Record<string, number> = {};
+  if (!selected.length)
+    return { sources, binarySources, modes, unavailable, limited };
   // Object IDs keep batch input safe even when repository filenames contain newlines.
   const output = await git(
     cwd,
@@ -230,7 +238,7 @@ export const readBlobBatch = async (
     selected.map(({ id }) => id).join("\n") + "\n",
   );
   let offset = 0;
-  for (const { path, id, size } of selected) {
+  for (const { path, id, size, mode } of selected) {
     const end = output.indexOf(10, offset);
     if (
       end < 0 ||
@@ -239,10 +247,13 @@ export const readBlobBatch = async (
     )
       throw new Error("Git context batch returned an invalid object.");
     const contents = output.subarray(end + 1, end + 1 + size);
-    if (!contents.includes(0)) sources[path] = contents.toString("utf8");
+    if (includeBinary) {
+      binarySources[path] = contents;
+      modes[path] = mode;
+    } else if (!contents.includes(0)) sources[path] = contents.toString("utf8");
     offset = end + size + 2;
   }
-  return { sources, unavailable, limited };
+  return { sources, binarySources, modes, unavailable, limited };
 };
 
 export const localBytes = async (
@@ -313,9 +324,11 @@ const textContent = (bytes: Buffer | null): string | null => {
 export const collectSnapshot = async ({
   cwd,
   source,
+  allowPath,
 }: {
   cwd: string;
   source: GitSource;
+  allowPath?: (path: string) => boolean;
 }): Promise<FrozenSnapshot> => {
   const root = (await simpleGit(cwd).revparse(["--show-toplevel"])).trim();
   let base: string;
@@ -392,6 +405,17 @@ export const collectSnapshot = async ({
   let total = 0;
   // Read the selected source in full before producing diffs or letting callers invoke agents.
   for (const change of changes) {
+    if (
+      allowPath &&
+      (!allowPath(change.path) ||
+        (change.oldPath && !allowPath(change.oldPath)))
+    ) {
+      excluded.push({
+        path: change.path,
+        reason: "Excluded by project source policy.",
+      });
+      continue;
+    }
     const secret =
       secretReason(change.path) ??
       (change.oldPath ? secretReason(change.oldPath) : null);

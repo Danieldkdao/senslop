@@ -9,6 +9,7 @@
     "./storage": "./src/db/local-store.ts",
     "./workflow": "./src/features/workflow/workflow-store.ts",
     "./policy": "./src/features/workflow/project-policy.ts",
+    "./execution": "./src/features/workflow/execution-manifest.ts",
     "./usage": "./src/features/workflow/usage-store.ts",
     "./verification": "./src/features/workflow/verification-store.ts"
   },

@@ -22,6 +22,14 @@ export {
 } from "./snapshot";
 export type { FrozenSnapshot, GitSource, SnapshotFile } from "./snapshot";
 
+export const readCommonGitDirectory = async (root: string) =>
+  (
+    await simpleGit(root).revparse([
+      "--path-format=absolute",
+      "--git-common-dir",
+    ])
+  ).trim();
+
 export const resolveRepository = async (cwd: string) =>
   realpath((await simpleGit(cwd).revparse(["--show-toplevel"])).trim());
 
@@ -105,10 +113,15 @@ export const readRepository = async (cwd: string) => {
 export const inspectRepository = async (
   cwd: string,
   input: SourceSelectionSchema,
+  allowPath?: (path: string) => boolean,
 ) => {
   const source = sourceSelectionSchema.parse(input);
   const before = await readRepository(cwd);
-  const snapshot = await collectSnapshot({ cwd: before.root, source });
+  const snapshot = await collectSnapshot({
+    cwd: before.root,
+    source,
+    allowPath,
+  });
   const after = await readRepository(cwd);
   if (
     before.head !== after.head ||
@@ -207,3 +220,5 @@ export const readSourceTexts = async (
   }
   return { sources, unavailable, limited: false };
 };
+
+export { localBytes } from "./snapshot";
