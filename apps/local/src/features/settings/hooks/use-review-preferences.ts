@@ -1,5 +1,6 @@
 "use client";
 
+import { trackSettingsSave } from "../lib/settings-save-store";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "@/components/ui/toast";
 import {
@@ -25,16 +26,19 @@ export const useReviewPreferences = () => {
     networkMode: "always",
   });
   const mutation = useMutation({
-    mutationFn: async (input: ReviewPreferencesSchema) => {
-      const response = await fetch("/api/review-preferences", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(input),
-      });
-      if (!response.ok)
-        throw new Error("Could not save review preferences. Retry.");
-      return reviewPreferencesSchema.parse(await response.json());
-    },
+    mutationKey: ["review-preferences"],
+    scope: { id: "review-preferences" },
+    mutationFn: (input: ReviewPreferencesSchema) =>
+      trackSettingsSave("review-preferences", async () => {
+        const response = await fetch("/api/review-preferences", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(input),
+        });
+        if (!response.ok)
+          throw new Error("Could not save review preferences. Retry.");
+        return reviewPreferencesSchema.parse(await response.json());
+      }),
     onSuccess: (savedPreferences) =>
       client.setQueryData(["review-preferences"], savedPreferences),
     onError: (error) => toast.error(error.message),

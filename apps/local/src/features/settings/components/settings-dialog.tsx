@@ -14,6 +14,7 @@ import {
   DialogDescription,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import { SettingsSaveIndicator } from "./settings-save-indicator";
 import { SettingsContentsItem } from "./settings-contents-item";
 import { SettingsScreenHeader } from "./settings-screen-header";
 import { cn } from "@/lib/utils";
@@ -165,7 +166,7 @@ export const SettingsDialog = ({
             aria-label="Settings contents"
             className="shrink-0 border-b sm:border-b-0 sm:border-r sm:w-56 bg-sidebar p-4 flex flex-col gap-4 min-h-0"
           >
-            <div className="relative">
+            <div className="relative shrink-0">
               <Search
                 aria-hidden="true"
                 className="absolute left-2 top-2.5 size-4 text-muted-foreground"
@@ -184,7 +185,7 @@ export const SettingsDialog = ({
             </div>
             <nav
               aria-label="Settings sections"
-              className="flex sm:flex-col gap-1 overflow-auto min-h-0 max-h-40 sm:max-h-none"
+              className="flex sm:flex-1 sm:flex-col gap-1 overflow-auto min-h-0 max-h-40 sm:max-h-none"
             >
               {sections
                 .filter((section) => section.visible !== false)
@@ -197,6 +198,7 @@ export const SettingsDialog = ({
                   />
                 ))}
             </nav>
+            <SettingsSaveIndicator />
           </aside>
           <div className="flex flex-1 min-w-0 min-h-0 flex-col">
             <nav
