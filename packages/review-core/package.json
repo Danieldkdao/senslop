@@ -4,6 +4,8 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./review-intent": "./src/features/precision/review-intent.ts",
+    "./review-rules": "./src/features/precision/review-rules.ts",
     "./precision": "./src/features/precision/precision-store.ts",
     "./review-units": "./src/features/precision/review-units.ts",
     ".": "./src/index.ts",
