@@ -292,6 +292,10 @@ export const ReviewWorkspace = ({ children }: ReviewWorkspaceProps) => {
       hasChanges={!!preview?.files.length}
       preparing={preparing}
       agents={agents}
+      onOpenSettings={(section) => {
+        setInitialSettingsSection(section);
+        setSettingsOpen(true);
+      }}
       onEvidence={(finding) => {
         selectFile(finding.path);
         setEvidence({ ...finding });

@@ -12,6 +12,9 @@ import { AgentPanel } from "../components/agent-panel";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { NoteControls } from "../../review/components/note-controls";
 import userEvent from "@testing-library/user-event";
+vi.mock("../../workflow/hooks/use-review-workflow", () => ({
+  useReviewWorkflow: () => ({ state: {}, act: vi.fn() }),
+}));
 vi.mock("../../settings/hooks/use-ui-preferences", () => ({
   useUiPreferences: () => ({ values: defaultUiPreferences }),
 }));
@@ -496,7 +499,7 @@ test.each([
     await user.click(screen.getByRole("button", { name: "Saved reviews" }));
     expect(screen.getByText(/Older round/)).toBeTruthy();
     await user.click(screen.getByRole("option", { name: /Previous findings/ }));
-    expect(screen.getByText(/Evidence navigation is unavailable/)).toBeTruthy();
+    expect(screen.getByText(/Open original evidence/)).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Old issue" }));
     const evidence = screen.getByRole("button", { name: /a.ts/ });
     expect(evidence.hasAttribute("disabled")).toBe(true);

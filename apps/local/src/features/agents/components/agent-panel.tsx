@@ -24,6 +24,11 @@ import { formatResyncUnavailableReason } from "../../workspace/lib/formatters";
 import { AgentChat } from "./agent-chat";
 import { ReviewResults } from "./review-results";
 import { AgentReviewHistory } from "./agent-review-history";
+import { useReviewWorkflow } from "../../workflow/hooks/use-review-workflow";
+import { FixTaskForm } from "../../workflow/components/fix-task-form";
+import { WorkPanel } from "../../workflow/components/work-panel";
+import { savedReviewSchema } from "@senslop/contracts";
+import { UsagePopover } from "../../workflow/components/usage-popover";
 
 export const AgentPanel = ({
   snapshotId,
@@ -34,16 +39,23 @@ export const AgentPanel = ({
   snapshotFingerprint,
   requireFreshSnapshot = false,
   hasChanges = true,
+  onOpenSettings,
 }: {
   snapshotId?: string;
   snapshot?: LivePreview | null;
   snapshotFingerprint?: string | null;
   requireFreshSnapshot?: boolean;
   hasChanges?: boolean;
+  onOpenSettings?: (section: string) => void;
   preparing?: boolean;
   agents: ReturnType<typeof useAgentState>;
   onEvidence: (finding: FindingSchema) => void;
 }) => {
+  const workflow = useReviewWorkflow(
+    snapshot?.hash && snapshot.round
+      ? { id: snapshot.id, hash: snapshot.hash, round: snapshot.round }
+      : null,
+  );
   const repository = useWorkspaceMetadata(
     requireFreshSnapshot || !!snapshotFingerprint,
   );
@@ -66,6 +78,8 @@ export const AgentPanel = ({
   const { settings } = useAiSettings();
   const configured = !!assignedModel(settings.data, "review");
   const [tab, setTab] = useState("chat");
+  const [fixIds, setFixIds] = useState<string[] | null>(null);
+  const savedSnapshot = savedReviewSchema.safeParse(snapshot);
   const [selectedRun, setSelectedRun] = useState<JobSchema | null>(null);
   const [stopping, setStopping] = useState(false);
   const [history, setHistory] = useState(false);
@@ -86,6 +100,7 @@ export const AgentPanel = ({
   const running = latest?.status === "running" || latest?.status === "queued";
   const status = latest ? formatJobStatusAppearance(latest.status) : null;
   const StatusIcon = status?.Icon;
+  const statusLabel = latest ? formatJobStatus(latest.status) : "New review";
   return (
     <aside
       aria-label="Agents"
@@ -94,7 +109,9 @@ export const AgentPanel = ({
       <Tabs
         value={tab}
         onValueChange={(value) =>
-          setTab(value === "review" ? "review" : "chat")
+          setTab(
+            value === "review" ? "review" : value === "work" ? "work" : "chat",
+          )
         }
         className="min-h-0 flex-1 gap-0 flex flex-col"
       >
@@ -106,6 +123,13 @@ export const AgentPanel = ({
               className="text-base"
             >
               Chat
+            </TabsTrigger>
+            <TabsTrigger
+              value="work"
+              className="text-base"
+              disabled={!snapshotId}
+            >
+              Work
             </TabsTrigger>
             <TabsTrigger
               value="review"
@@ -145,9 +169,17 @@ export const AgentPanel = ({
           </TabsContent>
           <TabsContent
             value="review"
-            className="min-h-0 overflow-auto text-base"
+            className="flex min-h-0 flex-1 flex-col overflow-hidden text-base"
           >
-            <header className="flex flex-col gap-3 border-b p-4">
+            <header className="flex shrink-0 flex-col gap-3 border-b p-4">
+              {workflow.state.data && (
+                <UsagePopover
+                  usage={workflow.state.data.usage}
+                  policy={workflow.state.data.policy}
+                  onAction={workflow.act}
+                  onOpenSettings={() => onOpenSettings?.("usage")}
+                />
+              )}
               <div className="flex gap-2">
                 <Button
                   className="min-w-0 flex-1 text-base"
@@ -231,16 +263,17 @@ export const AgentPanel = ({
                   role="status"
                   className={cn("flex items-center gap-2", status?.className)}
                 >
-                  {StatusIcon && latest.status !== "running" && (
+                  {StatusIcon && (
                     <StatusIcon
                       aria-hidden="true"
-                      className="size-4 shrink-0"
+                      className={cn(
+                        "size-4 shrink-0",
+                        status?.loading && "animate-spin",
+                      )}
                     />
                   )}
-                  {formatJobStatus(latest.status)}
-                  {running &&
-                  latest.progress &&
-                  latest.progress !== formatJobStatus(latest.status)
+                  {statusLabel}
+                  {running && latest.progress && latest.progress !== statusLabel
                     ? `: ${latest.progress}`
                     : ""}
                 </p>
@@ -251,30 +284,69 @@ export const AgentPanel = ({
                 </p>
               )}
             </header>
-            {displayed?.status === "completed" ? (
-              <>
-                <p className="px-4 pt-4 font-mono font-semibold text-muted-foreground">
-                  {formatReviewName(displayed)}
-                  <span className="block">{formatJobModel(displayed)}</span>
-                </p>
-                {olderResult && (
-                  <p role="status" className="px-4 pt-4 text-muted-foreground">
-                    Older round. Evidence navigation is unavailable for these
-                    previous contents.
+            <section
+              aria-label="Review findings"
+              className="min-h-0 flex-1 overflow-y-auto"
+            >
+              {displayed?.status === "completed" ? (
+                <>
+                  <p className="px-4 pt-4 font-mono font-semibold text-muted-foreground">
+                    {formatReviewName(displayed)}
+                    <span className="block">{formatJobModel(displayed)}</span>
                   </p>
-                )}
+                  {olderResult && (
+                    <p
+                      role="status"
+                      className="px-4 pt-4 text-muted-foreground"
+                    >
+                      Older round. Open original evidence from a finding to
+                      inspect its captured source.
+                    </p>
+                  )}
+                  <ReviewResults
+                    job={displayed}
+                    includeTracked={!selectedRun}
+                    snapshot={snapshot}
+                    onEvidence={olderResult ? undefined : onEvidence}
+                    trackedFindings={workflow.state.data?.findings}
+                    onAction={workflow.act}
+                    onFix={
+                      savedSnapshot.success
+                        ? (ids) => setFixIds(ids)
+                        : undefined
+                    }
+                    groups={agents.state.data?.jobs
+                      .flatMap((job) =>
+                        job.kind === "grouping" &&
+                        job.result &&
+                        "groups" in job.result
+                          ? job.result.groups
+                          : [],
+                      )
+                      .slice(0, 32)}
+                  />
+                </>
+              ) : workflow.state.data?.findings.length ? (
                 <ReviewResults
-                  job={displayed}
                   snapshot={snapshot}
-                  onEvidence={olderResult ? undefined : onEvidence}
+                  trackedFindings={workflow.state.data.findings}
+                  includeTracked
+                  onAction={workflow.act}
+                  onFix={(ids) => setFixIds(ids)}
                 />
-              </>
-            ) : (
-              <p className="p-5 text-muted-foreground">
-                Run a review to check the selected changes using codebase
-                context.
-              </p>
-            )}
+              ) : (
+                <p className="p-5 text-muted-foreground">
+                  Run a review to check the selected changes using codebase
+                  context.
+                </p>
+              )}
+            </section>
+          </TabsContent>
+          <TabsContent
+            value="work"
+            className="flex min-h-0 flex-1 flex-col overflow-hidden text-base"
+          >
+            <WorkPanel state={workflow.state.data} onAction={workflow.act} />
           </TabsContent>
         </div>
       </Tabs>
@@ -308,6 +380,18 @@ export const AgentPanel = ({
           )
         }
       />
+      {fixIds && savedSnapshot.success && (
+        <FixTaskForm
+          review={savedSnapshot.data}
+          findingIds={fixIds}
+          onAction={async (operation) => {
+            const result = await workflow.act(operation);
+            setTab("work");
+            return result;
+          }}
+          onClose={() => setFixIds(null)}
+        />
+      )}
     </aside>
   );
 };

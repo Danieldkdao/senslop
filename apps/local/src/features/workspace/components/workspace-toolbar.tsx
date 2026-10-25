@@ -17,6 +17,8 @@ import {
 import { ReviewHistory } from "./review-history";
 import { ResyncPopover } from "./resync-popover";
 import { NewReviewPopover } from "./new-review-popover";
+import { ContextInspector } from "../../workflow/components/context-inspector";
+import { RoundComparison } from "../../workflow/components/round-comparison";
 
 export const WorkspaceToolbar = ({
   preparing = false,
@@ -158,6 +160,16 @@ export const WorkspaceToolbar = ({
           )
         }
       />
+      {preview?.hash && preview.round && (
+        <ContextInspector
+          review={{ id: preview.id, hash: preview.hash, round: preview.round }}
+        />
+      )}
+      {preview?.hash && preview.round && (
+        <RoundComparison
+          review={{ id: preview.id, hash: preview.hash, round: preview.round }}
+        />
+      )}
       <TooltipWrapper
         content={shortcutsEnabled ? "Saved reviews (R)" : "Saved reviews"}
       >
