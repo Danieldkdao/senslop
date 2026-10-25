@@ -23,6 +23,8 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 - Every commit subject must use only `type: description`. Choose a lowercase prefix such as `feat`, `fix`, `refactor`, `style`, `docs`, `test`, `build`, `ci`, `perf`, or `chore`. Never add a scope or specifier to the prefix.
 - Never use parentheses anywhere in a commit message, including its subject and body. Check the entire message before committing.
 - Prefer lowercase descriptions. Capitals are allowed when useful for proper names, acronyms, or case-sensitive code identifiers.
+- Group commits by topic, feature, fix, or closely related changes. When a file contains changes for multiple topics, stage the relevant hunks separately across commits. Commit all changes in a file together only when every change belongs to that commit's topic.
+- Review the staged diff before each commit to confirm that it contains only the intended related changes, and account for all requested changes across the resulting commits.
 
 ## Working process
 

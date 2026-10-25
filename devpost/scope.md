@@ -1,60 +1,75 @@
 ---
 doc: scope
 status: approved
+last-reconciled: 2026-10-24
+implementation-baseline: 0860767
 ---
 
-# Senslop
+# Senslop — Current Scope
 
-A website and installable CLI that make reviewing AI-generated code easier to understand and more enjoyable.
+## Product direction
 
-## Architecture revision — October 8, 2026
+Senslop is a local code review platform for developers who want to understand changes and catch bugs before pushing them. The long-term vision is **the ultimate local code review platform**.
 
-The owner moved the existing review workspace into a Next.js application bundled with the CLI. Local inspection is account-free and runs in one terminal; hosted authentication stays in `apps/web`, whose dashboard now contains only “dashboard”. Source delivery is local, with no cloud preview relay. Current notes retain their in-memory behavior; persisted reviews, AI, managed inference, and subscriptions are not added by this pass. See `spec.md > Local architecture revision` for the implementation boundary. References below to account-connected uploads and cloud review storage describe the earlier direction and are superseded by this revision.
+The current product is an installable CLI that owns a local browser workspace and background job engine. Local review does not require a Senslop cloud account. Model inference uses the user's configured local or remote provider.
 
-## The Unique Kernel
+The intended loop is **make changes → review locally → investigate findings → fix → verify → commit and push when ready**. Today the application supports capturing, organizing, reading, discussing, and analyzing changes. Fix application, executable verification, and in-app Git mutation remain future work.
 
-Turn a large code change into connected, meaningful review chunks ordered so definitions and dependencies come before the code that uses them. Pair that guided path with contextual explanations and an encouraging buddy, helping developers understand what they review.
+## Distinctive value
 
-## Who It's For
+Organize a large change into behavior-based groups, order definitions and dependencies before their consumers, and place related tests after the implementation. Combine that reading path with contextual explanations, evidence-backed AI findings, durable notes, and optional buddy feedback.
 
-Developers who use AI coding agents and face large volumes of generated code. They need to understand the changes before moving forward, but reviewing long diffs is tedious and ordinary grouping does not provide a clear learning order.
+The current grouping unit is a whole changed file, assigned once to a group. Hunk-level grouping is proposed in the [roadmap](local-review-roadmap.md).
 
-## The Core Loop
+## Audience and motivation
 
-The developer connects the CLI to their website account and manually uploads a selected change from a local Git repository: one commit, uncommitted changes, or a range of commits. Background AI analyzes the relevant code and prepares connected chunks and a review order. The developer reviews those chunks in the website, opens contextual explanations, and records notes tied to sections. The buddy encourages them and celebrates progress. On completion, the website turns the notes into a detailed prompt they can copy for their coding agent. They return for their next set of changes.
+The primary audience is developers working with coding agents and reviewing large volumes of generated code. The owner wants to improve their own understanding of that code and reduce repeated push/review/fix cycles by finding issues locally.
 
-## Inspiration & Identity
+A coding agent can prepare a saved review through the CLI and hand it to a human. The human retains control over review decisions and changes to source.
 
-[Trigger.dev](https://trigger.dev/) inspires the relationship between local CLI setup and a cloud website showing progress and results. The review experience should feel cheerful and supportive, with a buddy, short movements, milestone celebrations, and potentially confetti. Specific visual design remains for the PRD.
+## Current core journey
 
-## Why This Matters to the Learner
+1. Start the local app in the intended repository with `senslop app start`.
+2. From the browser or another terminal, select working-tree changes, one commit, an endpoint range, or a local branch comparison.
+3. Save a frozen review. Optionally group and summarize it using configured AI task models.
+4. Read the diff in the browser, follow the suggested file order, search, inspect explanations, and add file or line notes.
+5. Mark files complete and optionally advance to the next file. Use snapshot chat or explicitly run AI correctness analysis.
+6. Inspect findings and their original source evidence; copy targeted or combined fix instructions for a coding agent.
+7. Reopen reviews later, or re-sync an eligible working-tree review using keep or new mode.
 
-“I just want to get better at the workflow of coding with AI and just making sure I understand all the code it generates.” The product addresses their frustration with tedious reviews and a lack of useful review order.
+CLI creation prepares in the background when another saved review exists; the first review opens automatically. Explicit CLI Open uses a dedicated browser tab, while browser Open changes only its own tab. Tabs keep independent review/file selection. Feature 1 includes caller-folder tracking, persisted history status, queue controls, recovery, and shared capacity. Completion notifications are deferred by the owner.
 
-## What "Working" Looks Like
+## Implemented product boundary
 
-Someone can install the CLI, connect to their website account, and manually submit each supported kind of local Git change. The website shows processing progress and then a usable AI-organized review. The developer follows the order, sees related sections and any collapsed context, asks for a simple explanation of selected code, and leaves section-linked notes. The buddy responds to review milestones. Finishing produces a copyable prompt containing the review notes.
+- Repository-bound Git inspection from browser and CLI, including small changes.
+- Immutable before/after source per captured round, validated paths, hashes, and original diff coordinates.
+- Durable local reviews, notes, completion, selected file, conversations, grouping, and correctness-run history.
+- History grouped by each review's recorded caller folder, with name/path search and legacy-folder fallback.
+- Optional AI grouping, source-aware chat, selected-code explanations, correctness findings, and copyable fix prompts.
+- Read-only frozen context tools, strongest semantically for JavaScript/TypeScript.
+- Persistent local background jobs, captured task settings, retries, cancellation, restart recovery, and stale-result protection.
+- Multiple short CLI clients attached to one owned app per resolved repository/data namespace.
+- Provider and subscription connections, model selection, capacity settings, and OS credential storage.
+- Searchable settings, saved editor/application preferences, keyboard navigation, and a configurable floating buddy.
+- A bundled agent skill and structured commands for the implemented review, note, run, provider, and settings operations.
 
-The demonstration should show definitions followed by their uses across a real change, with an inline explanation helping the reviewer understand a section and a note carried into the final prompt. No one-minute video limit is assumed.
+## Important current limits
 
-## The POC Boundary
+- The owning app terminal must remain running for background execution. A closed command client is different from stopping the app.
+- `current` remains shared; concurrent automation should retain explicit IDs and hash/round expectations.
+- Capacity and app ownership are scoped to the application-data namespace; separate data directories remain independent.
+- Static evidence and a valid source excerpt do not prove a finding's correctness.
+- AI requests may transmit captured context to the selected remote provider. Local storage does not imply local inference.
+- Fixes are instructions for the user's agent. Senslop does not currently edit source, run arbitrary project checks, stage, commit, pull, or push.
+- Findings do not yet have individual accept/dismiss/resolve states or automatic fix verification.
+- Historical hosted authentication and presence services remain separate. The hosted dashboard is a placeholder, not the local review workspace.
 
-- A working website with account sign-in and a way to connect an installable CLI.
-- Manual uploads from a local Git repository for a single commit, uncommitted changes, and a range of commits.
-- Background AI analysis to group relevant changes, break large files into meaningful chunks, and order the review by dependencies. Supporting context must be sufficient for useful explanations; the exact collection strategy belongs in the spec.
-- A connected review interface with access to collapsed sections, contextual explanations for selected code, section-linked notes, and review progress.
-- A supportive buddy with simple milestone celebrations.
-- A detailed, copyable follow-up prompt assembled from the user's notes.
+## Next-stage direction
 
-This is a functional first version with a deliberately broad scope. It may take longer than the curriculum's suggested 2–4 hours of active work; that is an estimate, not a delivery guarantee.
+The [20-feature roadmap](local-review-roadmap.md) records proposed behavior, acceptance criteria, dependencies, and implementation entry points. Its first milestone combines background preparation, finding decisions, round comparison, agent fix handoff, and local verification.
 
-## Later
+In-app Git conveniences, including push and pull, are accepted future direction. Hosted PR ingestion and team approval workflows are outside this roadmap. Full roadmap delivery is not required for a hackathon submission.
 
-- Automatic uploads or triggers when the developer pushes code.
-- Direct GitHub integration or importing pull requests. Local Git inputs are sufficient for this version; a dedicated local branch-comparison command has not been included among the three agreed inputs.
-- Sending the final prompt directly to a coding agent rather than copying it.
-- Automated AI code reviews or an agent that independently reviews for issues. In this version AI prepares the human review and explains code.
+## Document ownership
 
-## Explicitly Cut
-
-No ideas are permanently discarded at this stage. The integrations and automation above are deferred to keep the first version centered on manual local uploads and human understanding.
+Use this scope for the current product boundary, [prd.md](prd.md) for user-visible behavior, [spec.md](spec.md) for architecture and contracts, and [checklist.md](checklist.md) for verification status. The older hosted-upload design is available in Git history and dated research notes; it is not an alternate current implementation.

@@ -2,6 +2,8 @@
 
 Checked October 24, 2026 against current official documentation and the installed packages. The UI uses `@tanstack/react-hotkeys` 0.16.0, which depends on `@tanstack/hotkeys` 0.17.0. [Installed React adapter manifest](../packages/ui/node_modules/@tanstack/react-hotkeys/package.json).
 
+Implementation status at baseline 0860767: the shared hook already delegates input filtering to TanStack with `ignoreInputs: true`; the duplicate application input detector has been removed. The separate open-overlay policy remains. This note explains that decision; it is not an outstanding refactor task. Recheck installed versions before applying it after dependency upgrades.
+
 ## Native input protection
 
 TanStack provides `ignoreInputs`; a second application-level input detector is unnecessary for ordinary text fields. Its default, `"auto"`, skips text-producing shortcuts such as `K` while typing, but allows Control/Meta combinations and Escape. Explicit `true` applies input protection to those shortcuts too; `false` permits shortcuts in inputs. Sequences use their first step to choose the automatic behavior. [Sensible defaults](https://tanstack.com/hotkeys/latest/docs/guides/sensible-defaults#typing-in-inputs-does-not-trigger-shortcuts).
@@ -14,6 +16,6 @@ Installed-source limits: `role="separator"` and `role="textbox"` alone are not l
 
 ## Shared hook configuration
 
-Keep `ignoreInputs: true` as the shared hook's default to preserve its existing policy, including suppressing `Mod+B` in text fields. Remove `isKeyboardShortcutInput` and its callback check. Continue forwarding per-shortcut options so callers can deliberately opt into input handling. TanStack's `useHotkeys` supports common options and individual overrides. [React hotkey options](https://tanstack.com/hotkeys/latest/docs/framework/react/guides/hotkeys#hotkey-options), [shared options](https://tanstack.com/hotkeys/latest/docs/framework/react/guides/hotkeys#share-options).
+The shared hook uses `ignoreInputs: true` by default, including suppressing `Mod+B` in text fields. `isKeyboardShortcutInput` and its callback check were removed. Per-shortcut options remain available so callers can deliberately opt into input handling. TanStack's `useHotkeys` supports common options and individual overrides. [React hotkey options](https://tanstack.com/hotkeys/latest/docs/framework/react/guides/hotkeys#hotkey-options), [shared options](https://tanstack.com/hotkeys/latest/docs/framework/react/guides/hotkeys#share-options).
 
-Overlay suppression is a separate application rule: the current helper suspends background shortcuts whenever a matching overlay is open. `ignoreInputs` examines focus/event targets; it does not express that global open-overlay condition. Retain the overlay rule during this cleanup. [Current overlay helper](../packages/ui/src/lib/keyboard-shortcuts.ts), [installed manager filtering](../node_modules/.pnpm/@tanstack+hotkeys@0.17.0/node_modules/@tanstack/hotkeys/dist/hotkey-manager.js).
+Overlay suppression is a separate application rule: the current helper suspends background shortcuts whenever a matching overlay is open. `ignoreInputs` examines focus/event targets; it does not express that global open-overlay condition. The hook retains the overlay rule. [Current overlay helper](../packages/ui/src/lib/keyboard-shortcuts.ts), [installed manager filtering](../node_modules/.pnpm/@tanstack+hotkeys@0.17.0/node_modules/@tanstack/hotkeys/dist/hotkey-manager.js).

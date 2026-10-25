@@ -1,141 +1,122 @@
 ---
 doc: checklist
-status: approved
+status: current-baseline
+last-reconciled: 2026-10-24
+implementation-baseline: 0860767
 ---
 
-# Senslop Build Checklist
+# Senslop — Implementation and Verification Ledger
 
-Build mode: fast — verify each slice; pause at the planned hands-on checkpoints. Work on feature branches and make multiple focused commits only after the learner reviews and approves the changes. This explicit learner instruction overrides the skill’s automatic per-slice commit rule. Explain CLI execution and npm packaging using the actual code. Every change batch gets a review-change-flows guide covering the full relevant diff, including configuration, tests and generated files.
+## How to use this document
 
-Approved scope, PRD, and spec remain the source of truth. No completed planning interviews are repeated. Each slice delivers a runnable behavior; bootstrapping belongs inside slice one, and the unique guided-review kernel lands in slice two.
+This ledger replaces the historical hosted-upload build slices and append-only progress notes. [Scope](scope.md), [PRD](prd.md), and [spec](spec.md) describe current behavior. The [roadmap](local-review-roadmap.md) holds proposed work, not delivered functionality.
 
-## Slices
+“Present in code” below means the implementation was inspected. It does not mean every scenario passed a fresh test or human check in this documentation pass. Record the commands, revision, environment, and observed result when performing verification. Keep personal learning context in the private learner profile.
 
-- [ ] **1. Set up the styled monorepo, sign in, and connect the CLI**
-      Becomes usable: A configured Next.js app in the monorepo with shared styles, typography, theme variables and the shadcn primitives required by the approved UI. Create an account, approve a matching CLI device code, run a persistent connection, and watch the setup checklist become the connected empty state. CLI help/status and local snapshot inspection explain each supported Git input and eligibility before upload exists.
-      Why now: Proves the unfamiliar device-token and presence contracts before other CLI endpoints depend on them. Git inspection supplies runnable evidence for the source that the next slice will review; monorepo conversion happens within this usable path.
-      PRD ref: `prd.md > The Core Journey` (steps 1–3), `prd.md > Arrival and Setup`, `prd.md > Account Connection and Local Git Submission`, `prd.md > Submission Eligibility`, `prd.md > States and Boundaries`.
-      Spec ref: `spec.md > Stack`, `spec.md > Where It Runs and How Someone Tries It`, `spec.md > Look and Feel`, `spec.md > File Structure`, `spec.md > Shared Contracts`, `spec.md > CLI and Git Snapshot Collector`, `spec.md > Authentication and CLI Credentials`, `spec.md > WebSocket Presence Service`, `spec.md > Data Model`, `spec.md > CLI Packaging and Learning Checkpoints`, `spec.md > Checks Before the First Live Build`.
-      Build: Read installed Next.js guides before coding; convert the starter into pnpm/Turborepo apps and packages. Configure the basic Next.js app, Tailwind theme tokens, Fraunces/Outfit/JetBrains Mono font pipeline, light/dark/warm base styles and reduced-motion defaults. Install and configure the shadcn primitives required by the approved UI: resizable panels, collapsibles, buttons, dialogs, inputs and popovers, plus the setup/auth form primitives used in this slice. Establish reusable styled layouts for landing, auth and setup; review interactions remain in later slices. Check and pin compatible dependencies and runtime support. Add secret-free configuration names and actionable startup errors. Configure Better Auth email/password, Drizzle auth/device/ticket storage on an isolated Neon development branch, device approve/deny, bearer validation, restrictive local credential storage, logout/revocation, and account-scoped WebSocket presence with one-use tickets, heartbeat and reconnect. Build CLI argument parsing, help/status, login/connect/logout, and a local inspection option for frozen commit/range/working-tree snapshots, hashes, exact old/new coordinates, metadata-only binaries, and shared eligibility/bounds checks. Add labeled multilingual Git fixtures, including qualifying and smaller files. Explain the shebang, arguments, stdout/stderr, and exit codes using this code. Never ask for secrets in chat; surface missing local service configuration and consequential compatibility findings.
-      Verify (mechanical): Run build, typecheck, lint and relevant tests across changed packages. Start the basic Next.js app and inspect styled landing/auth/setup pages, font loading, theme variables, keyboard access and reduced-motion treatment; verify the configured shadcn primitives compile and render where used. Test root/merge commits, valid/invalid ranges, staged/unstaged/untracked changes, add/delete/rename, unusual paths, symlink escape prevention, secret exclusions, binaries, bounds, and additions-plus-deletions eligibility including smaller files. Against the isolated database, exercise device approval/denial/expiry and bearer getSession; show a second account cannot consume another account's ticket, and concurrent ticket consumption succeeds once. Start the website and connection service, verify checklist transition and reconnect, then logout and verify revoked HTTP access and socket closure within the heartbeat bound. Check credential file permissions and that no secrets are tracked or staged. Do not mark this slice verified without the live auth/presence proof.
-      Learner check: Open localhost:3000 for the name-only placeholder, open localhost:3000/signup or /login directly, inspect the styled auth/setup pages, create an account, run CLI help and login, compare and approve the displayed device code, and run connect in another terminal. Watch setup change automatically; inspect each Git source in the fixture and compare its eligibility report. Try logout and reconnect. Report confusing setup or CLI behavior.
-      Commit: `feat: connect accounts and inspect frozen Git changes`
+## Implemented foundations
 
-- [ ] **2. Submit a real change and follow its AI-guided review order**
-      Becomes usable: An eligible local change uploads, shows preparation progress, and becomes an exact-source review with meaningful sections, linked relationships, and definitions before consumers where possible. Navigate freely through searchable groups/files in split or full-file mode.
-      Why now: Delivers the unique kernel immediately after connection, testing real context-agent, provider, background-task, and coverage assumptions before adding annotations or sync.
-      PRD ref: `prd.md > The Core Journey` (steps 3–5), `prd.md > Submission Eligibility`, `prd.md > AI Preparation and Recommended Review Order`, `prd.md > Review Workspace`, `prd.md > Code Navigation and Diff Views`, `prd.md > States and Boundaries`.
-      Spec ref: `spec.md > Shared Contracts`, `spec.md > CLI and Git Snapshot Collector`, `spec.md > Local Context Agents and Cloud Inference Proxy`, `spec.md > Upload API and Job Dispatch`, `spec.md > Review Preparation Task`, `spec.md > Review Workspace and Diff Renderer`, `spec.md > HTTP and WebSocket Contracts`, `spec.md > Data Model`, `spec.md > Verification Approach`, `spec.md > Important Failure Modes`.
-      Build: Implement the three review inputs and authenticated bounded inference sessions/proxy with allowlisted roles and server-held OpenRouter credentials. Validate live model tool/schema capability and operator budgets before paid requests. Implement read-only frozen-snapshot context tools and AI SDK parent/subagents within approved limits. Upload complete immutable manifests with protocol, hashes, source identity and idempotent request IDs. Persist before Trigger.dev dispatch, record dispatch failures/attempts, and implement deliberate retry. Prepare token-bounded resumable windows, validate source coverage and relationship graphs, order deterministically, expose cycles and imperfect file-order projections, and publish atomically only for the current generation/attempt. Render a shadcn three-panel workspace with exact old/new lines, sections, collapsed context, linked references, search, Previous/Next and split/full-file views. Show actionable loading/error/retry states.
-      Verify (mechanical): Run build, typecheck, lint and relevant tests. Test 422 eligibility, 413 bounds, protocol/hash rejection, duplicate upload IDs, dispatch failure, distinct intentional retry attempts, resumable batches, provider errors, missing/overlapping/hallucinated sections, cycles, full changed-line coverage, and stale task rejection. Test account and inference-session isolation and quota enforcement. Run a real eligible TypeScript/Python/compiled-language fixture through local agent tools, the authenticated proxy, OpenRouter and Trigger.dev; inspect explanation/order quality and all files, including a smaller file and deleted content. Walk the browser through preparation/retry, search, context expansion, free navigation and both diff modes. Mocked results may test failure cases but do not satisfy the live core proof.
-      Learner check: Submit the eligible fixture, follow the suggested definition-to-use path, open related sections and collapsed context, search for a smaller file, and switch diff views. Report whether the order and chunk sizes help you understand the change and what should change before annotations are added.
-      Commit: `feat: prepare and navigate dependency-guided reviews`
+| Area                | Present in code                                                                                                                           | Relevant evidence location                                        |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| Local runtime       | CLI-owned Next app, local engine, private sessions, one owner per root/data namespace, alternate port when unowned saved port is occupied | packages/cli/src/features/workspace and its tests                 |
+| Command clients     | Authenticated discovery, structured reads/mutations, explicit IDs, lifecycle commands, help catalog                                       | packages/cli/src/features/commands; workspace-client tests        |
+| Git sources         | Browser/CLI working-tree, commit, endpoint-range, and branch inspection; bounds/exclusions/binary metadata                                | packages/review-core/src/features/git; local-workspace tests      |
+| Persistence/history | Local reviews, notes, selection/completion, folder search/grouping, legacy metadata, reopen/rename/delete                                 | LocalStore history tests; workspace history UI tests              |
+| Reading UI          | Diffs, search/navigation, file completion, notes/line comments, responsive panels                                                         | apps/local/src/features/review/tests                              |
+| AI preparation      | Grouping, summaries, related-file order, captured context, preparation/retry/fallback UI                                                  | agents UI tests; services/ai and services/inngest tests           |
+| AI interaction      | Source-aware chat, selection explanations, correctness findings/evidence, saved runs/conversations, fix prompts                           | agents and AI service tests                                       |
+| Re-sync             | Keep/new modes, round identity, unchanged completion, notes/original references, stale-result rejection                                   | local-workspace, history, resync-workspace, and agent-store tests |
+| Providers           | Metadata checks, persistent feedback, model discovery/pickers, compatible configuration, subscription flows                               | providers and subscriptions tests                                 |
+| Settings/appearance | Saved editor/application/buddy preferences, live diff preview, header actions, autosave, native input-aware hotkeys                       | settings/provider/buddy tests; root shared-hook tests             |
+| Agent operations    | CLI review/run/note/settings/provider parity and bundled skill installer                                                                  | packages/cli/tests/agent-workflow.test.ts and installer tests     |
+| Hosted foundation   | Separate auth/OTP/device routes and presence code; placeholder dashboard                                                                  | apps/web and apps/connection-server tests                         |
 
-- [ ] **3. Explain code, save feedback, and finish with a copyable prompt**
-      Becomes usable: Select exact code for a streamed explanation, save file/selection notes, complete files and celebrate groups, reload to resume, and copy a deterministic follow-up prompt once review is complete.
-      Why now: Completes the primary human-review loop on the proven review model; saved notes/progress establish the state that later sync must preserve.
-      PRD ref: `prd.md > The Core Journey` (steps 6–7), `prd.md > Inline Explanations`, `prd.md > Notes and Follow-up Prompt`, `prd.md > Completion and Buddy Feedback`, `prd.md > Saved Reviews and Sync Modes`, `prd.md > Look and Feel`.
-      Spec ref: `spec.md > Review Workspace and Diff Renderer`, `spec.md > Inline Explanation Service`, `spec.md > Notes and Prompt Formatter`, `spec.md > Preferences, Buddy, and Loading/Error States`, `spec.md > HTTP and WebSocket Contracts`, `spec.md > Data Model`, `spec.md > Verification Approach`.
-      Build: Implement generation-checked progress and note APIs with ownership enforcement, exact validated side/line selection, original snapshot references, optimistic rollback and visible failed-save drafts. Add animated selection menu/bubble with bounded relevant context, streaming, retry, cancellation and stale-response suppression. Derive file/group completion from sections without forced navigation; celebrate completion transitions only. Build deterministic notes-to-prompt formatting, neutral no-notes completion, clipboard copy and selectable fallback. Persist account appearance and review layout/selection preferences; expose light/dark/warm themes, approved font choices, resizable panels, reduced motion and buddy states.
-      Verify (mechanical): Run build, typecheck, lint and relevant tests. Test old/new selection coordinates including deletions, stale generation and unauthorized writes, note persistence failures/draft retention, progress rollback, reload persistence, incomplete-prompt rejection, deterministic all-note output and no-notes behavior. Browser walkthrough selects code, streams a real explanation, cancels/switches selection, saves selected and file-level notes, completes a group without forced navigation, reloads without replaying celebrations, changes themes/fonts/panel widths, and copies the final prompt with clipboard fallback. Verify account data remains available after disconnect.
-      Learner check: Explain one definition and one use, add a selected-code note and a file-level note, complete a group, reload, personalize the workspace, and finish/copy the prompt. Confirm your exact feedback survives and the celebration, explanation and code density feel useful.
-      Commit: `feat: explain code and persist review feedback`
+## Known gaps, recorded without implying implementation
 
-- [ ] **4. Sync new code while preserving or explicitly resetting review state**
-      Becomes usable: Continue sync retains notes and confidently unchanged progress while reopening changed sections. Confirmed full sync replaces the review and clears notes/progress only after successful preparation; failed or canceled preparation keeps the existing review intact.
-      Why now: Sync can be meaningfully tested only after real saved annotations and completion exist; generation and atomic-publication guards already established protect this transition.
-      PRD ref: `prd.md > The Core Journey` (step 8), `prd.md > Saved Reviews and Sync Modes`, `prd.md > States and Boundaries`.
-      Spec ref: `spec.md > Continue Sync and Full Reset`, `spec.md > CLI and Git Snapshot Collector`, `spec.md > Upload API and Job Dispatch`, `spec.md > Review Preparation Task`, `spec.md > Notes and Prompt Formatter`, `spec.md > HTTP and WebSocket Contracts`, `spec.md > Data Model`, `spec.md > Important Failure Modes`.
-      Build: Add CLI continue/full sync commands for complete replacement snapshots of the selected source. Reject ineligible candidates before changing active state; allow one pending sync, expected-generation checks and current-attempt publication only. Conservatively match normalized identities, exact hashes and unique surrounding context; ambiguous or changed sections reopen. Retain every continue note and original source reference even when orphaned. Require typed full-reset confirmation plus generation/reset acknowledgment; show the previous workspace read-only while full preparation is pending. Publish changes and reset atomically after success; release locks on failure/cancellation and prevent canceled jobs from publishing. Remove transient snapshots only when no task or note requires them.
-      Verify (mechanical): Run build, typecheck, lint and relevant tests. Test unchanged/changed/ambiguous/renamed/deleted section matching, preserved orphan notes and prompt references, ineligible sync rejection, simultaneous sync/mutation races, stale attempts/generations, full-reset refusal, pending edit rejection, successful atomic clearing, and failure/cancellation retention/unlock. Live fixture walkthrough completes sections and notes, modifies code, continues with changed sections reopened, then tries a declined reset, failed reset, and confirmed successful reset.
-      Learner check: Annotate and complete part of a review, edit the fixture, and continue sync. Inspect retained notes and reopened changes. Decline a full reset, then confirm it on this disposable fixture; verify the warning and read-only preparation state match the consequences.
-      Commit: `feat: sync reviews with conservative progress matching`
+- Completion notifications and notification preferences are explicitly deferred.
+- Concurrent clients share the convenience `current`; explicit IDs and expected hash/round are the reliable automation target.
+- Machine/provider capacity is coordinated within the shared application-data namespace; outside clients and separate data directories remain independent.
+- Findings have no full individual decision/fix-verification lifecycle.
+- Grouping/completion is file-based rather than hunk-based.
+- No in-app source fixes, arbitrary project check execution, stage/commit/fetch/pull/push, or consolidated human/AI review report.
+- Strong compiler-backed analysis centers on JavaScript/TypeScript.
+- CLI publishing, supported-platform readiness, real subscription/provider compatibility, and model accuracy require evidence beyond source fixtures.
 
-- [ ] **5. Install the CLI archive independently and run the complete journey**
-      Becomes usable: Install a self-contained CLI package outside the monorepo and use it with separately deployable website, connection service and Trigger.dev worker. The same core journey works without workspace symlinks.
-      Why now: Distribution must prove every finished command, especially sync, works outside the development workspace. Hosted configuration and failure recovery are verified on the completed product before final learner review.
-      PRD ref: `prd.md > The Core Journey`, `prd.md > Account Connection and Local Git Submission`, `prd.md > What We're Building`, `prd.md > States and Boundaries`.
-      Spec ref: `spec.md > Where It Runs and How Someone Tries It`, `spec.md > File Structure`, `spec.md > External Services and Dependencies`, `spec.md > CLI Packaging and Learning Checkpoints`, `spec.md > Verification Approach`, `spec.md > Important Failure Modes`, `spec.md > Decisions and Open Issues`.
-      Build: Bundle only required CLI/shared code into executable JavaScript with shebang, bin mapping, engine requirement, explicit files allowlist, README and a license selected/confirmed with the owner. Add pack:check and inspect npm pack --dry-run before creating the archive. Install into a clean temporary environment outside the monorepo. Explain compilation versus installation versus public publishing using the actual archive. Supply Railway service-specific build/start/health configuration, HTTPS/WSS/auth-origin setup, one-replica presence constraint and separate Trigger.dev deployment instructions/configuration. Verify provider runtime and build compatibility rather than assuming it. Finish startup/configuration guidance and service failure recovery. Validate an available/owned public package name before release-facing instructions; public npm publication remains a separate release action. Keep credentials out of archives and logs.
-      Verify (mechanical): Run pnpm build, pnpm test, workspace typecheck/lint, pnpm --filter @senslop/cli build and pnpm --filter @senslop/cli pack:check. Inspect npm pack --dry-run and the actual archive for allowlisted contents, shebang/bin, bundled shared modules, and absence of credentials/database/server code. Install the archive in a clean temporary directory, then run help, bad arguments/exit codes, browser login, connect, all three Git selections, upload, continue/full sync and logout against configured services. Verify independent production builds/start commands and health endpoints; exercise connection-service restart/reconnect, persisted state, task/provider failure and retry. If hosted services are configured, repeat the real core journey against them; otherwise record the unverified hosted portion explicitly and do not claim deployment success. Audit representative language quality and source coverage again after packaging.
-      Learner check: Install the generated archive in a separate test directory, run help/login/connect and a review, and inspect npm's file list together. Use this CLI to explain code, leave a note, complete/copy the prompt and sync. Explore the finished app freely, including awkward inputs, and report what is broken, confusing or worth refining before readiness is confirmed.
-      Commit: `build: verify standalone CLI distribution and service deployment`
+See [roadmap features 1–20](local-review-roadmap.md#feature-overview) for detailed targets and acceptance criteria.
 
-## Hands-on Checkpoints
+## Feature 1 implementation — October 24, 2026
 
-- [ ] Early usable behavior explored — after slice 2, learner tries live AI grouping, dependency order and exact-source navigation; feedback resolved before annotations/sync. Learn mode also checks slice 1.
-- [ ] Integrated core journey explored — after slice 4, learner confirms explanation, original note references, persistence and both sync modes together; distinct value is judging state preservation/reset consequences.
-- [ ] Final kick-the-tires exploration and feedback completed — after slice 5, learner uses the clean-installed CLI and finished website; record findings under Final Review.
+The owner approved background creation with automatic opening for the first review, explicit --open thereafter, and independent browser tabs. Implemented caller-folder capture, revision checks, persisted history status, queue cancellation/retry/priority, shared model admission, restart guards, and transactional owner/session cleanup. Completion notifications are deferred. Implementation commits separate durable jobs/shared capacity, concurrent review workflows, and compact history UI; the roadmap records their IDs. The new packaged background-workspace fixture passed against the real local engine without paid inference. Final regression counts and limitations are recorded in the roadmap progress record.
+
+## Historical verification evidence
+
+The following results were observed during the preceding work at baseline 0860767. They are not new executions in this documentation pass and should not be presented as current certification after code changes.
+
+| Evidence                                                                | Recorded result                                                                         | Limits                                                                          |
+| ----------------------------------------------------------------------- | --------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| Targeted review/history/settings/provider/hotkey/CLI environment suites | 154 tests passed                                                                        | Deterministic/fixture coverage, not a live model-quality or every-platform test |
+| Local/UI/web/test TypeScript checks                                     | Passed                                                                                  | Typechecks do not prove runtime behavior                                        |
+| Local/UI lint                                                           | Zero errors; two existing generated-component effect warnings in UI                     | Existing carousel/use-mobile warnings were not introduced by this work          |
+| Worker ports/session discovery/agent store                              | 22 tests passed                                                                         | Loopback tests needed permitted socket access after sandbox EPERM               |
+| File-preserving split commits                                           | 50 original changed files committed with identical content across seven feature commits | Verified the staged split, not a new package installation                       |
+
+Earlier auth, transport, packaging, and browser experiments are recorded in previous revisions of this file in Git history. Preserve that provenance; do not copy old counts into a claim that the current full suite or production journey just passed.
+
+## Verification tasks for the next code change or release
+
+Check items only after recording real evidence at the intended revision.
+
+- [ ] Run focused behavior tests for the selected changes, including failures/concurrency/restart when applicable.
+- [ ] Run applicable package and test typechecks, lint, formatting, and production build checks.
+- [ ] Exercise clean archive installation outside the monorepo and the intended Git sources, assets, persistence, and shutdown behavior.
+- [ ] Exercise independent CLI processes against the built app/engine with deterministic providers.
+- [ ] Validate intended live model/provider/subscription paths with legitimate configured accounts; record unsupported/unverified combinations.
+- [ ] Validate OS credential behavior on each claimed supported platform; preserve no-plaintext-fallback behavior.
+- [ ] Perform human browser exploration of grouping, diffs, notes, chat/explanation, correctness evidence, saved history, and eligible re-sync.
+- [ ] Check narrow layouts, keyboard use, focus, settings header actions, preference persistence, buddy controls, and reduced motion.
+- [ ] Inspect any intended publication for private data, credentials, licensing, and included history. Publishing requires the appropriate user authorization.
+- [ ] Confirm the exact release/submission materials separately; the roadmap is not the submission checklist.
+
+## Useful existing verification commands
+
+Choose checks appropriate to the change and consult current package scripts first.
+
+```sh
+pnpm exec vitest run packages/cli/src/features/workspace/tests/local-jobs.test.ts packages/cli/src/features/workspace/tests/workspace-client.test.ts apps/local/src/features/agents/tests/agent-store.test.ts
+pnpm exec vitest run tests/use-keyboard-shortcuts.test.tsx apps/local/src/features/workspace/tests/review-history.test.tsx apps/local/src/features/settings/tests/settings-dialog.test.tsx
+pnpm --filter @senslop/local exec tsc --noEmit
+pnpm --filter @senslop/ui typecheck
+pnpm --filter @senslop/web exec tsc --noEmit
+pnpm exec tsc --project tsconfig.tests.json --noEmit
+pnpm --filter @senslop/local lint
+pnpm --filter @senslop/ui lint
+```
+
+Source behavior checks and opt-in process/package checks serve different purposes:
+
+```sh
+SENSLOP_AGENT_TEST=1 pnpm exec vitest run packages/cli/tests/agent-workflow.test.ts
+SENSLOP_PACK_TEST=1 pnpm exec vitest run packages/cli/tests/packaged-workspace.test.ts
+RUN_LOCAL_DEV_TESTS=1 pnpm exec vitest run packages/cli/src/features/workspace/tests/local-app.test.ts
+RUN_OS_CREDENTIAL_TESTS=1 pnpm exec vitest run apps/local/src/services/credentials/tests/os-credentials.test.ts
+```
+
+Inspect each test's prerequisites first. The agent/process test uses a built bundle, isolated data/repositories, and a deterministic loopback provider; it does not measure real model quality. Socket restrictions are an environment issue to resolve through permitted execution, not by weakening application behavior.
 
 ## Final Review
 
-Record agreed refinements here as unchecked tasks, with actual verification and retry evidence. No changes needed is a valid explicit finding. Do not mark ready until the learner has reported feedback, agreed fixes are verified and committed, and the learner confirms readiness.
+A fresh release-level human review has not been completed as part of this documentation refresh. Record user findings and resolved refinements here when performed.
 
-- [ ] Final review complete — feedback resolved and learner confirms ready to ship
+- [ ] Human exploration and agreed feedback recorded at the release revision.
+- [ ] Required refinements implemented and verified.
+- [ ] Owner confirms the intended build is ready for its next release/submission.
 
 ## Code Tour and App Map
 
-Use one focused learning wrap-up suitable for an experienced plan-first agent user: trace a packaged CLI command through shared validation and its generation-checked cloud operation, connecting the archive/install proof to understanding generated code. Allow a redirect; do not require a redundant full tour. Generate the app map only from finished code.
+The historical guided-learning wrap-up was not established by this documentation task. `devpost/app-map.html` is not currently present. A focused architecture trace or other owner-chosen learning activity can be recorded when actually performed; no completion is inferred from documentation alone.
 
-- [ ] Learning activity complete — guided route, focused alternative, prior practice connected, or brief recap
-- [ ] Optional edit and transfer reflection addressed — offered/declined/already covered/not applicable as appropriate
-- [ ] `devpost/app-map.html` generated from finished code, checked, and shown, including a project-grounded practice to reuse
+- [ ] Record the selected learning activity or an explicit owner decision about it.
+- [ ] If an app map is requested, generate it from current paths and verify it.
 
-Activity and evidence: pending actual implementation and learner practice.
-Route and stops: pending actual code paths/symbols; planned CLI → contracts → cloud mutation.
-Edit outcome: pending optional safe edit offer; no edit required.
-Reflection: pending optional transfer reflection; any personal answer belongs only in the ignored learner profile.
-Activity mode: pending focused alternative or previously completed practice connected to the takeaway.
+## Documentation reconciliation — October 24, 2026
 
-## Revisions
-
-- On checklist approval, made slice one’s setup emphasis explicit: database, auth, CLI basics, pnpm/Turborepo, configured Next.js styles/fonts/themes and required shadcn components. The account-connection verification and slice-two kernel remain in place.
-
-- Learner requested feature branches, multiple focused commits and review before any commit; no automatic commit occurs until their review approval.
-
-- Slice one implementation is awaiting local Neon development-branch URLs and live verification; database migrations were generated offline but not applied. Local installed-plugin tests are not a substitute for live auth/presence proof. No commits made; learner review is pending.
-- Browser visual verification is pending: computer-use tooling could not verify its admin-enforced browser policy, so it did not open localhost. Production build and automated checks proceed independently.
-
-- Owner-requested simplification: one shared `db` export, direct Better Auth setup under `src/lib/auth`, standard auth route handlers, T3 Env Core configuration, kebab-case resource folders and convention-aligned typography. Root local configuration is `.env`.
-- Behavioral verification now uses Vitest 5 with matchers, spies and fake timers; dedicated schema tests were removed under the updated conventions. Table shape verification uses code review and typechecking.
-- AGENTS now explicitly references the approved Senslop devpost PRD and spec for application work.
-
-- Owner clarified the web auth folder belongs in `src/lib/auth`, including `auth.ts`, `auth-client.ts` and auth-only UI/helpers; auth is not placed under `features`.
-
-- Refactor verification: Vitest behavioral suite, application/test typechecking, lint, production build and CLI smoke checks. Live Neon/auth/presence and browser visual verification remain pending; no schema tests run and no changes committed.
-
-- Owner-requested tooling refactor: Express/ws custom service, Clack CLI, standard dotenv/Next commands, generated single Better Auth schema, Google/GitHub sign-in buttons, one shared layout header, and documented spacing/generator conventions. The owner's Base UI shadcn components and theme are preserved.
-- Better Auth 1.7.7 CLI regenerated the auth schema; Drizzle generated an incremental migration and both migrations applied to the configured development database. Vitest live integration verified persisted device approval, account isolation, concurrent one-use tickets, and bearer logout revocation, with disposable records cleaned afterward.
-- Production build, workspace/test typechecking, 42 default behavioral tests and lint pass. Two effect warnings remain visible in CLI-generated shadcn carousel/mobile-hook code; application lint rules remain strict. Completed provider OAuth, browser appearance and real browser-to-CLI checklist behavior remain hands-on verification checkpoints. No changes committed.
-
-- Live transport verification passed against running production Next.js, Express/ws and Neon: actual device login, browser one-use ticket replay rejection, two-account presence isolation, disconnect/reconnect transitions, and logout closing the CLI socket with code 4001 within five seconds. Login/signup/device pages returned 200 with one header. Disposable accounts, sockets and test pools were cleaned up. Browser appearance, completed OAuth consent/callback and learner exploration remain pending; slice one is not marked complete.
-- The CLI tarball was installed outside the monorepo and its installed help, invalid-command stderr/exit code and pure JSON inspection passed. The archive includes only built CLI files, manifest and README; no credentials or server sources. Public publishing and the full later-slice distribution journey remain separate checkpoints.
-
-- Owner-requested form validation: sign-in, sign-up and device-code forms now use React Hook Form with shared Zod schemas and existing shadcn Field components. Native constraint validation is replaced by accessible field feedback and first-invalid-field focus. Social sign-in remains independent of password-form validation; device approval stays explicit and editing the code requires re-verification. Behavioral validation tests were added first and demonstrated eight failures before implementation. Review and verification remain required before committing this batch.
-
-- Form refactor verification passed: 53 default Vitest tests across the workspace, including 17 auth/device UI tests; two opt-in live tests remain skipped in the default suite. Application/test typechecking, production build and lint pass with the two previously recorded generated shadcn warnings. Every current application form uses React Hook Form/Zod. No app was started for this batch; no staging or commits.
-
-- Owner’s auth reference applied: centered single-card sign-in/sign-up with the buddy and text inside, GitHub before Google, divider, existing password visibility/strength components, Continue and account-switch footer. No header on login/signup/device; the dashboard retains its shared header. The landing page shows only “Senslop”. Password recovery is omitted by explicit owner instruction. The user’s theme and generated shadcn primitives are preserved.
-- UI verification: tests were updated first; nine auth assertions failed before implementation. All 56 default behavioral tests now pass, with two opt-in live tests skipped. Three pre-existing device tests were updated to the owner’s current “Approve” label. Workspace/test typechecking and production build pass; lint retains only the two previously recorded generated-component warnings. Browser checks covered light/dark sign-in, a narrow sign-up layout without horizontal overflow, and the name-only landing page. A temporary theme-picker route was removed after testing. The existing user-started server was used and left running; no staging or commits.
-
-- Owner-requested session routing and verification: Next.js Proxy protects dashboard/device pages, leaves the landing page public, sends verified users away from login/signup, and preserves the CLI return route through sign-in and OTP verification. Server-side session reads use the owner’s `getCurrentUser` helper; API authentication and origin checks remain enforced independently. Browser-only device UI uses the Better Auth client hook.
-- Email/password accounts now require email verification. The existing Mailjet OTP sender and VerifyAccount component are wired into signup/unverified sign-in, with 15-minute codes, inline field/code errors, and shared toasts for submission/service feedback. Mailjet runtime env mappings and Turbo pass-through were fixed; existing populated `.env` values are preserved. Mailjet sender verification and actual email delivery remain a hands-on checkpoint.
-- Verification for this batch: 94 default Vitest tests pass, with two opt-in integration tests skipped by default. Workspace/test typechecking and production build pass; lint retains the two existing generated-component warnings. The real development-database integration also passed separately, covering device approval, account isolation, single-use tickets and logout revocation with disposable accounts cleaned up. The full HTTP/WebSocket transport integration was updated for required verification but was not rerun in this batch. OTP backend tests use the installed Better Auth implementation and capture delivery locally without sending emails.
-- Browser checks confirmed public landing access, protected dashboard/device redirects with exact CLI continuation, an invalid-sign-in toast, and accessible inline OTP validation in the owner’s themed verification card. The temporary production preview and test tab were stopped/closed; the owner’s development server was left running. Review is pending, no staging or commits occurred, and slice one remains incomplete until its hands-on checkpoints are finished.
-
-- Owner-requested dashboard draft: the dashboard layout now owns the three-panel review shell with an empty file sidebar, a minimal “No file selected” center header, and the buddy/empty notes/appearance/sign-out sidebar. The separate site header is removed. The existing authenticated page supplies real connection setup, retrying, or connected-with-no-review content in the center. File review, persisted uploads, and transition animation remain later slices.
-- Appearance now offers Light, Dark, and System using the existing Base UI shadcn radio dropdown and Lucide sun/moon/monitor icons. System detection is enabled; choices persist in the browser, with account-synced preferences and additional palettes deferred. The selected control is hydration-safe and supports keyboard navigation.
-- Verification for this batch: 110 default behavioral tests passed, including 16 new theme/workspace/connection UI checks, with two opt-in integration tests skipped. The affected 16 tests passed again after the final compact-card/menu-close adjustments. Workspace/test typechecking and production build pass; lint retains only the two existing generated-component warnings. Browser checks used a temporary signed-out visual fixture, covered light/dark/system selection, keyboard sidebar resizing, and vertically stacked narrow-screen panels without horizontal overflow. The fixture route and test tab were removed, the viewport/appearance restored, and the owner’s existing dev server left running. No staging or commits; review remains pending.
-
-- Owner-requested profile/responsive refinement: the right panel now uses a reusable image/initials avatar and account menu with name/email, read-only Settings, nested Light/Dark/System selection, and destructive Sign out. Removed the bottom sign-out control. The server layout supplies only display-profile fields from the verified session. Mobile Files/Notes drawers replace stacked sidebars; desktop grips remain visible with widths halved to 3px grips and 4px dividers, matching horizontal workspace separators. Command text is vertically centered with its copy button.
-- Verification for this refinement: 121 default Vitest tests pass, with two opt-in integrations skipped. Workspace/test typechecking and production build pass; lint reports zero errors and the two existing generated-component warnings. Browser checks covered actual desktop and mobile menu clicks, dark/light selection, both drawers, Settings inside the Notes drawer, focus restoration, visible grips, measured divider/grip widths, and command alignment. The temporary visual fixture and browser tab were removed; viewport and appearance restored. The owner’s existing dev server remains running. No staging or commits; review is pending.
-
-- Border follow-up: replaced 4px workspace dividers/header separators with 1px lines, keeping centered 4px overlay grips and the native resize hit area. Hover, active drag, and focus use the library’s `data-separator` states for accent feedback. Seven existing workspace tests pass; web lint has zero errors and the two existing warnings. Browser inspection confirmed approximately 1px dividers, 4px grips, and keyboard resizing with focus accent. Removed the temporary preview and closed its tab. No staging or commits.
-
-- Native handle follow-up: confirmed official shadcn documents `ResizableHandle withHandle`. Removed all application grip size, color, and ring overrides and kept the installed generated primitive unchanged. Retained 1px workspace lines, native focus styling, and divider hover/drag accents. Browser measurements at 20%, 25%, 30%, and 32% showed stable grip/divider centers within 0.01px, with native 4px-by-24px grips and no extra ring. Seven workspace tests pass; web lint has zero errors and the two existing warnings. The reported visual drift was not reproduced as DOM position drift; native styling replaces the custom visual treatment. Temporary preview removed, browser tab closed, no staging or commits.
-
-- Owner approved the foundation branch for review, focused commits, and GitHub push. Publish audit confirmed real environment files, private learner notes, credentials/keys, dependency folders, build output, reports, and caches are ignored and untracked; the only environment template contains blank secret values. Reviewed standards and foundation behavior, fixed the auth regeneration path, routed device-service failures through toasts, preserved retryable presence failures, and confirmed server revocation before deleting CLI credentials.
-- Final device refinement: the browser code field starts empty, ignores URL codes, accepts normalized manual terminal input, and still requires explicit approval/denial. CLI login opens the plain verification URL through `open`, with a printed URL fallback. Final verification: 147 default behavioral tests passed with two opt-in integrations skipped; the development-database integration separately passed with disposable records cleaned up. Application/test typechecking, builds, and CLI package-content check pass; lint retains two existing generated-component warnings. The owner’s current 1024px workspace breakpoint is preserved. Completed provider OAuth and actual Mailjet delivery remain separate hands-on checks; later review/upload functionality remains deferred.
-
-- Owner-directed local architecture refactor: review UI moves to a CLI-bundled Next.js app; hosted auth remains and its dashboard is emptied. One-terminal launch/inspection replaces cloud code relay. Existing preview and note behavior is preserved; AI and durable persistence remain deferred. Verification and review are recorded after implementation.
-- Local refactor verification passed: 212 default behavioral tests, workspace and test typechecking, production builds, and lint with zero errors and the two existing generated-component warnings. Separate clean-archive installation exercised all four Git inputs, pure JSON, account-free connect, local session isolation, static/icon assets, conditional snapshots, graceful shutdown, and parent death. The development-database auth regression also passed with disposable accounts cleaned up. Browser checks covered diffs, file search/navigation, notes, same-terminal repeated inspection, refresh, and the account-free appearance menu. Temporary servers, repositories, and browser tabs were stopped or removed. The obsolete cloud source relay is removed; no staging, commits, public publication, AI, subscriptions, or durable notes were added.
+The current-state refresh audits repository code, CLI command definitions, manifests, and document references. It replaces obsolete cloud-review instructions and distinguishes current implementation, historical test evidence, and proposed roadmap work. It changes documentation only. Record link/format verification for this pass in the final task response; do not mark runtime/release checks complete because prose was updated.
