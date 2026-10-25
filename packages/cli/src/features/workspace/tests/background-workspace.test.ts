@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
-import type { SavedReviewSchema } from "@senslop/contracts";
+import type { SavedReviewSchema, OrganizationSchema } from "@senslop/contracts";
 import { startLocalApp } from "../local-app";
 import { connectWorkspace } from "../workspace-client";
 import { executeReviewCommand } from "../../reviews/commands";
@@ -29,6 +29,19 @@ test.skipIf(process.env.RUN_LOCAL_AI_TESTS !== "1")(
     await git("config", "user.name", "Fixture");
     await git("config", "user.email", "fixture@example.com");
     await writeFile(join(repository, "a.ts"), "export const a = 1;\n");
+    await mkdir(join(repository, ".senslop"));
+    await writeFile(
+      join(repository, ".senslop/review.json"),
+      JSON.stringify({ profiles: ["correctness", "security"] }),
+    );
+    await writeFile(
+      join(repository, "support.py"),
+      "def helper():\n    return 1\n",
+    );
+    await writeFile(
+      join(repository, "requirements.md"),
+      "Add a distinct requested behavior.\n",
+    );
     await git("add", ".");
     await git("commit", "-qm", "baseline");
     await writeFile(join(repository, "a.ts"), "export const a = 2;\n");
@@ -86,6 +99,96 @@ test.skipIf(process.env.RUN_LOCAL_AI_TESTS !== "1")(
         join(repository, "two"),
         dataDirectory,
       );
+      const identity = {
+        id: first.review.id,
+        hash: first.review.hash,
+        round: first.review.round,
+      };
+      const params = new URLSearchParams({
+        reviewId: identity.id,
+        hash: identity.hash,
+        round: String(identity.round),
+      });
+      const organization = await firstClient.request<OrganizationSchema>(
+        `/api/precision?${params}`,
+      );
+      expect(organization.units).toHaveLength(1);
+      const completed = await firstClient.request<OrganizationSchema>(
+        "/api/precision",
+        {
+          review: identity,
+          version: organization.version,
+          operation: {
+            action: "complete-unit",
+            unitId: organization.units[0]!.id,
+            reviewed: true,
+          },
+        },
+      );
+      expect(
+        (
+          await firstClient.request<SavedReviewSchema>(
+            `/api/workspace?id=${identity.id}`,
+          )
+        ).completedPaths,
+      ).toContain("a.ts");
+      await firstClient.request("/api/precision", {
+        review: identity,
+        version: completed.version,
+        operation: {
+          action: "complete-unit",
+          unitId: organization.units[0]!.id,
+          reviewed: false,
+        },
+      });
+      const index = await firstClient.request<{
+        capabilities: Record<string, { level: string }>;
+        symbols: { name: string; path: string }[];
+      }>(`/api/source-explorer?${params}`);
+      expect(index.capabilities["support.py"]?.level).toBe("parsing");
+      expect(index.symbols).toContainEqual(
+        expect.objectContaining({ name: "helper", path: "support.py" }),
+      );
+      const intent = await firstClient.request<{
+        instructions: { profiles: string[] };
+        documents: string[];
+      }>(`/api/review-intent?reviewId=${identity.id}`);
+      expect(intent.instructions.profiles).toContain("security");
+      expect(intent.documents).toContain("requirements.md");
+      await firstClient.request("/api/review-intent", {
+        review: identity,
+        operation: {
+          action: "save-brief",
+          version: 0,
+          brief: {
+            request: "Add requested behavior",
+            documents: [
+              { path: "requirements.md", contents: "ignored client copy" },
+            ],
+            links: [],
+            criteria: [
+              {
+                id: "precision-request",
+                text: "Requested behavior exists",
+                sourceQuote: "Add requested behavior",
+                checkIds: [],
+              },
+            ],
+          },
+        },
+      });
+      const assessed = (await executeReviewCommand(
+        firstClient,
+        parseCliCommand([
+          "reviews",
+          "run",
+          identity.id,
+          "--wait",
+          "--timeout",
+          "45",
+        ]),
+      )) as { result: { requirements?: { criteria: { status: string }[] } } };
+      expect(assessed.result.requirements?.criteria[0]?.status).toBe("missing");
       provider.pause();
       const create = async (client: typeof one, runReview = false) =>
         executeReviewCommand(

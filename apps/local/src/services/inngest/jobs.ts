@@ -210,6 +210,7 @@ export const executeJob = async (
           snapshot,
           context,
           settings: job.settings,
+          reviewIntent: job.reviewIntent,
           selection,
           signal: abort.signal,
           onProgress: (progress) => store.updateJob(id, { progress }),
@@ -221,9 +222,26 @@ export const executeJob = async (
             },
           },
         });
-        const analysis = await (job.kind === "grouping"
+        let analysis = await (job.kind === "grouping"
           ? agent.grouping()
           : agent.review());
+        if (
+          job.kind === "grouping" &&
+          "groups" in analysis &&
+          agent.groupRegions
+        ) {
+          try {
+            analysis = await agent.groupRegions(analysis);
+          } catch (error) {
+            if (abort.signal.aborted) throw error;
+            analysis = {
+              ...analysis,
+              organizationLimitations: [
+                `Precise grouping unavailable: ${(error as Error).message}. File-based organization retained.`,
+              ],
+            };
+          }
+        }
         store.updateJob(id, { result: analysis });
         console.info("[senslop:analysis-job]", {
           ...diagnosticContext,

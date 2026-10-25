@@ -3,6 +3,7 @@ import {
   protectLocalRoute,
   readLocalBody,
 } from "../../../features/workspace/lib/server-workspace";
+import { loadContext } from "../../../services/analysis/frozen-context";
 import { AgentStore } from "../../../features/agents/lib/agent-store";
 import { agentActionSchema } from "../../../features/agents/schemas";
 import { assignedModel } from "../../../services/ai/repository-agent";
@@ -194,6 +195,7 @@ export const POST = async (request: Request) => {
           throw new Error("Choose task models in Settings → AI first.");
         if (input.kind === "grouping")
           workspace.store.enableGrouping(agents.repository, input.snapshotId);
+        await loadContext(workspace.store, agents.repository, snapshot);
         const job = agents.createJob(input.snapshotId, input.kind, {
           hash: input.expectedHash,
           round: input.expectedRound,

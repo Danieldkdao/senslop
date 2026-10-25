@@ -29,7 +29,40 @@ export const createAnalysisFixtureResult = (
     related: [],
   };
   let result: unknown;
-  if (properties.outcome)
+  if (properties.flows) {
+    const prompts = ((body.messages ?? []) as { content?: unknown }[])
+      .map((message) =>
+        typeof message.content === "string" ? message.content : "",
+      )
+      .join("\n");
+    const unitIds = [
+      ...prompts.matchAll(/"id"\s*:\s*"([a-f0-9]{24})"\s*,\s*"path"/g),
+    ].map((match) => match[1]!);
+    result = {
+      flows: [
+        {
+          title: "Value change",
+          rationale: "Deterministic region grouping",
+          unitIds: [...new Set(unitIds)],
+        },
+      ],
+    };
+  } else if (properties.criteria)
+    result = {
+      criteria: [
+        {
+          criterionId: "precision-request",
+          status: "missing",
+          explanation: "Requested behavior is absent in the fixture",
+          evidence: [],
+          questions: [],
+          checkIds: [],
+        },
+      ],
+      unexpectedChanges: [],
+      limitations: [],
+    };
+  else if (properties.outcome)
     result = {
       outcome: "apparently-fixed",
       explanation:

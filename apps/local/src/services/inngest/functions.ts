@@ -1,3 +1,4 @@
+import { loadContext } from "../analysis/frozen-context";
 import { inngest } from "./client";
 import { executeJob } from "./jobs";
 import { analysisRetryDelaysMs } from "../../features/agents/constants";
@@ -316,7 +317,9 @@ export const scheduleGrouping = async (
       agents.settings(),
       "grouping",
     )
-  )
+  ) {
+    await loadContext(agents.local, agents.repository, snapshot);
     agents.createJob(snapshotId, "grouping", { priority });
+  }
   await dispatchJobs(snapshotId);
 };
