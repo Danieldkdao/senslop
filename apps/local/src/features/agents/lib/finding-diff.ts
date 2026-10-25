@@ -1,13 +1,17 @@
 import type { ChangeContent, ContextContent, Hunk } from "@pierre/diffs";
 import type { PreviewFileSchema } from "@senslop/contracts";
 import { parsePreviewFile } from "../../review/lib/parse-preview-file";
+import type { WhitespaceMode } from "../../review/constants";
 import type { FindingSchema } from "../schemas";
 
 export const findingDiff = (
   file: PreviewFileSchema,
   finding: Pick<FindingSchema, "side" | "start" | "end">,
+  regions?: readonly Pick<FindingSchema, "side" | "start" | "end">[],
+  whitespace?: WhitespaceMode,
+  contextLines = 0,
 ) => {
-  const diff = parsePreviewFile(file);
+  const diff = parsePreviewFile(file, whitespace);
   if (!diff) return null;
   const hunks: Hunk[] = [];
   const deletionLines: string[] = [];
@@ -15,6 +19,35 @@ export const findingDiff = (
   let unifiedLineCount = 0;
   let splitLineCount = 0;
   const append = (content: ContextContent | ChangeContent) => {
+    let contextFrom = 0;
+    let contextTo = 0;
+    if (regions && content.type === "context") {
+      if (contextLines <= 0) return;
+      const windows = regions.flatMap((range) => {
+        const index =
+          range.side === "before"
+            ? content.deletionLineIndex
+            : content.additionLineIndex;
+        const from = Math.max(0, range.start - contextLines - 1 - index);
+        const to = Math.min(content.lines, range.end + contextLines - index);
+        return from < to ? [{ from, to }] : [];
+      });
+      if (!windows.length) return;
+      contextFrom = Math.min(...windows.map((window) => window.from));
+      contextTo = Math.max(...windows.map((window) => window.to));
+    }
+    if (regions && content.type === "change") {
+      const overlaps = regions.some((range) => {
+        const start =
+          (range.side === "before"
+            ? content.deletionLineIndex
+            : content.additionLineIndex) + 1;
+        const count =
+          range.side === "before" ? content.deletions : content.additions;
+        return count > 0 && range.start < start + count && range.end >= start;
+      });
+      if (!overlaps) return;
+    }
     const selectedIndex =
       finding.side === "before"
         ? content.deletionLineIndex
@@ -25,8 +58,16 @@ export const findingDiff = (
         : finding.side === "before"
           ? content.deletions
           : content.additions;
-    const from = Math.max(0, finding.start - 1 - selectedIndex);
-    const to = Math.min(selectedCount, finding.end - selectedIndex);
+    const from = regions
+      ? content.type === "context"
+        ? contextFrom
+        : 0
+      : Math.max(0, finding.start - 1 - selectedIndex);
+    const to = regions
+      ? content.type === "change"
+        ? Math.max(content.deletions, content.additions)
+        : contextTo
+      : Math.min(selectedCount, finding.end - selectedIndex);
     if (from >= to) return;
     const deletions =
       content.type === "context"

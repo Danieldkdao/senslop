@@ -95,3 +95,23 @@ test("opposite-side insertions outside the selected source never shift context l
   expect(renderedLines(diff, "before")).toEqual([1, 2]);
   expect(renderedLines(diff, "after")).toEqual([1, 3]);
 });
+
+test("focused regions expand unchanged frozen context without exposing another changed region", () => {
+  const source = Array.from(
+    { length: 30 },
+    (_, index) => `line ${index + 1}\n`,
+  ).join("");
+  const changed = source
+    .replace("line 10\n", "updated 10\n")
+    .replace("line 25\n", "updated 25\n");
+  const regions = [{ side: "after" as const, start: 10, end: 10 }];
+  const diff = findingDiff(
+    file(source, changed),
+    regions[0]!,
+    regions,
+    "all",
+    3,
+  )!;
+  expect(renderedLines(diff, "after")).toEqual([7, 8, 9, 10, 11, 12, 13]);
+  expect(diff.additionLines.join("")).not.toContain("updated 25");
+});

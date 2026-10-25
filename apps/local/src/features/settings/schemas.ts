@@ -8,6 +8,7 @@ import {
   defaultBuddyCharacter,
 } from "../buddy/constants";
 import {
+  whitespaceModes,
   defaultDiffSettings,
   diffFonts,
   diffIndicators,
@@ -18,6 +19,7 @@ import {
 
 export const editorPreferencesSchema = z
   .object({
+    whitespace: z.enum(whitespaceModes).optional(),
     theme: z.enum(diffThemeValues),
     font: z.enum(diffFonts),
     fontSize: z.number().int().min(12).max(32),

@@ -10,8 +10,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { diffIndicators, inlineChangeStyles } from "../constants";
 import {
+  diffIndicators,
+  inlineChangeStyles,
+  whitespaceModes,
+} from "../constants";
+import {
+  formatWhitespaceMode,
   formatDiffIndicator,
   formatInlineChangeStyle,
 } from "../lib/formatters";
@@ -84,6 +89,35 @@ export const DiffSettings = ({
             ))}
           </SelectContent>
         </Select>
+      </div>
+      <div className="flex flex-col gap-2">
+        <label htmlFor={`${id}-whitespace`} className="font-medium">
+          Whitespace
+        </label>
+        <Select
+          value={settings.whitespace ?? "all"}
+          onValueChange={(value) => {
+            const mode = whitespaceModes.find((mode) => mode === value);
+            if (mode) onChange({ ...settings, whitespace: mode });
+          }}
+        >
+          <SelectTrigger id={`${id}-whitespace`} className="w-full text-base">
+            <SelectValue>
+              {formatWhitespaceMode(settings.whitespace ?? "all")}
+            </SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            {whitespaceModes.map((mode) => (
+              <SelectItem key={mode} value={mode}>
+                {formatWhitespaceMode(mode)}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <p className="text-muted-foreground">
+          Display filters preserve frozen evidence and completion. Whitespace
+          may affect behavior.
+        </p>
       </div>
       <div className="flex items-center justify-between gap-4">
         <label htmlFor={`${id}-backgrounds`}>Backgrounds</label>

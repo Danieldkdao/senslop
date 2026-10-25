@@ -6,6 +6,7 @@ import type {
 } from "@senslop/contracts";
 import type { ReviewLineSide } from "./schemas";
 import type {
+  whitespaceModes,
   diffThemeValues,
   diffViews,
   diffIndicators,
@@ -35,6 +36,7 @@ export type DiffIndicator = (typeof diffIndicators)[number];
 export type InlineChangeStyle = (typeof inlineChangeStyles)[number];
 
 export type DiffSettingsState = {
+  whitespace?: (typeof whitespaceModes)[number];
   theme: DiffTheme;
   font: DiffFont;
   fontSize: number;

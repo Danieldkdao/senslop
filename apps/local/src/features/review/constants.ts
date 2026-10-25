@@ -34,6 +34,12 @@ export const diffThemeValues = [
   ...lightDiffThemes,
   ...darkDiffThemes,
 ] as const;
+export const whitespaceModes = [
+  "all",
+  "ignore-trailing",
+  "ignore-all",
+] as const;
+export type WhitespaceMode = (typeof whitespaceModes)[number];
 export const diffViews = ["split", "unified"] as const;
 export const diffFonts = [
   "jetbrains-mono",
