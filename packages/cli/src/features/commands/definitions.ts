@@ -4,6 +4,61 @@ export const optionDefinitions: Record<
   string,
   { type: "string" | "boolean"; description: string; short?: string }
 > = {
+  status: {
+    type: "string",
+    description: "Finding decision: open, accepted, dismissed, or resolved.",
+  },
+  reason: {
+    type: "string",
+    description: "Optional decision reason or failure details.",
+  },
+  findings: {
+    type: "string",
+    description: "Comma-separated persistent finding IDs.",
+  },
+  notes: {
+    type: "string",
+    description: "Comma-separated human note IDs to include.",
+  },
+  constraints: {
+    type: "string",
+    description: "Constraints for the selected fix task.",
+  },
+  "suggested-checks": {
+    type: "string",
+    description: "Comma-separated suggested commands; these are not executed.",
+  },
+  workspace: {
+    type: "string",
+    description: "Fix target: managed or current; default managed.",
+  },
+  "agent-name": {
+    type: "string",
+    description: "Name recorded when claiming a fix task.",
+  },
+  paths: {
+    type: "string",
+    description: "Comma-separated returned task paths to apply.",
+  },
+  command: {
+    type: "string",
+    description: "Exact local check command to execute.",
+  },
+  cwd: {
+    type: "string",
+    description: "Command directory relative to the managed source root.",
+  },
+  "reuse-check": {
+    type: "string",
+    description:
+      "Reuse an exact-round check workspace and prepared dependencies.",
+  },
+  round: { type: "string", description: "Captured review round to inspect." },
+  target: {
+    type: "string",
+    description:
+      "Primary finding ID for duplicate linkage; omit to keep separate.",
+  },
   help: {
     type: "boolean",
     short: "h",
@@ -154,6 +209,14 @@ export const optionDefinitions: Record<
     description:
       "Read a replacement API key from stdin; keys never appear in output.",
   },
+  "compare-base": {
+    type: "boolean",
+    description: "Also run this command against the captured base.",
+  },
+  outcome: {
+    type: "string",
+    description: "present, apparently-fixed, not-applicable, or unverified.",
+  },
   "remove-key": { type: "boolean", description: "Remove the saved API key." },
   finding: {
     type: "string",
@@ -216,6 +279,166 @@ const skillInstallationOptions = [
 ];
 
 export const commandDefinitions: CommandDefinition[] = [
+  ...[
+    {
+      name: "findings verify",
+      description:
+        "Assess selected findings against this exact source revision.",
+      arguments: "REVIEW",
+      minArgs: 1,
+      maxArgs: 1,
+      options: ["findings", "expected-hash", "expected-round"],
+    },
+    {
+      name: "findings assess",
+      description: "Record a manual assessment; --reason is optional.",
+      arguments: "REVIEW FINDING",
+      minArgs: 2,
+      maxArgs: 2,
+      options: ["outcome", "reason", "expected-hash", "expected-round"],
+    },
+    {
+      name: "verifications list",
+      description: "List persisted verification runs.",
+      arguments: "REVIEW",
+      minArgs: 1,
+      maxArgs: 1,
+      options: [],
+    },
+    {
+      name: "verifications cancel",
+      description: "Cancel a verification run.",
+      arguments: "REVIEW VERIFICATION",
+      minArgs: 2,
+      maxArgs: 2,
+      options: ["expected-hash", "expected-round"],
+    },
+    {
+      name: "findings list",
+      description:
+        "List durable finding identities, observations and decisions.",
+      arguments: "REVIEW",
+      minArgs: 1,
+      maxArgs: 1,
+      options: ["status"],
+    },
+    {
+      name: "findings decide",
+      description: "Save a finding decision; --reason is optional.",
+      arguments: "REVIEW FINDING",
+      minArgs: 2,
+      maxArgs: 2,
+      options: ["status", "reason", "expected-hash", "expected-round"],
+    },
+    {
+      name: "findings link",
+      description:
+        "Link a duplicate to --target, or keep an ambiguous issue separate.",
+      arguments: "REVIEW FINDING",
+      minArgs: 2,
+      maxArgs: 2,
+      options: ["target", "expected-hash", "expected-round"],
+    },
+    {
+      name: "tasks list",
+      description: "List tracked fix tasks for a review.",
+      arguments: "REVIEW",
+      minArgs: 1,
+      maxArgs: 1,
+      options: [],
+    },
+    {
+      name: "tasks create",
+      description: "Create a persistent selected-finding agent handoff.",
+      arguments: "REVIEW",
+      minArgs: 1,
+      maxArgs: 1,
+      options: [
+        "findings",
+        "notes",
+        "title",
+        "constraints",
+        "suggested-checks",
+        "workspace",
+        "expected-hash",
+        "expected-round",
+      ],
+    },
+    ...[
+      "show",
+      "export",
+      "claim",
+      "return",
+      "cancel",
+      "fail",
+      "reviewed",
+      "apply",
+    ].map((operation) => ({
+      name: `tasks ${operation}`,
+      description: `${operation} a tracked fix task using its captured source identity.`,
+      arguments: "TASK",
+      minArgs: 1,
+      maxArgs: 1,
+      options: [
+        "agent-name",
+        "reason",
+        "paths",
+        "yes",
+        "expected-hash",
+        "expected-round",
+      ],
+    })),
+    {
+      name: "checks list",
+      description: "List revision-bound project checks.",
+      arguments: "REVIEW",
+      minArgs: 1,
+      maxArgs: 1,
+      options: [],
+    },
+    {
+      name: "checks run",
+      description:
+        "Run an explicitly selected command in a managed source workspace.",
+      arguments: "REVIEW",
+      minArgs: 1,
+      maxArgs: 1,
+      options: [
+        "command",
+        "cwd",
+        "findings",
+        "timeout",
+        "reuse-check",
+        "compare-base",
+        "expected-hash",
+        "expected-round",
+      ],
+    },
+    ...["show", "watch", "cancel"].map((operation) => ({
+      name: `checks ${operation}`,
+      description: `${operation} a saved check run.`,
+      arguments: "CHECK",
+      minArgs: 1,
+      maxArgs: 1,
+      options: ["timeout", "expected-hash", "expected-round"],
+    })),
+    ...["list", "show"].map((operation) => ({
+      name: `rounds ${operation}`,
+      description: `${operation} immutable captured review rounds.`,
+      arguments: "REVIEW",
+      minArgs: 1,
+      maxArgs: 1,
+      options: ["round"],
+    })),
+    {
+      name: "usage show",
+      description: "Read measured usage and unknown cost records for a review.",
+      arguments: "REVIEW",
+      minArgs: 1,
+      maxArgs: 1,
+      options: [],
+    },
+  ],
   {
     name: "app start",
     description:

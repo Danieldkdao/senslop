@@ -13,11 +13,9 @@ import { sourceFromOptions } from "../commands/source.js";
 import type { WorkspaceClient } from "../workspace/workspace-client.js";
 import { readAllJobs, startJob, waitForJob } from "./jobs.js";
 import type { ReviewJob } from "./types.js";
-
-export const readReview = (client: WorkspaceClient, id = "current") =>
-  client.request<SavedReviewSchema>(
-    `/api/workspace?id=${encodeURIComponent(id)}`,
-  );
+import { readReview } from "./requests.js";
+import { executeWorkflowCommand } from "../workflow/commands.js";
+export { readReview } from "./requests.js";
 
 const changeReview = (
   client: WorkspaceClient,
@@ -90,6 +88,17 @@ export const executeReviewCommand = async (
   openBrowser: (url: string) => Promise<unknown> = open,
 ): Promise<unknown> => {
   const { name, args, values } = command;
+  if (
+    [
+      "findings ",
+      "verifications ",
+      "tasks ",
+      "checks ",
+      "rounds ",
+      "usage ",
+    ].some((prefix) => name.startsWith(prefix))
+  )
+    return executeWorkflowCommand(client, command);
   const id = args[0] ?? "current";
   const timeout = integerOption(values, "timeout", 600, 1, 3600);
   const grouping = values.group ? true : values["no-group"] ? false : undefined;
