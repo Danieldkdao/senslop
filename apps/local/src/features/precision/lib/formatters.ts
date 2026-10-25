@@ -1,4 +1,7 @@
 import {
+  Plus,
+  Minus,
+  Pencil,
   Braces,
   FileText,
   Network,
@@ -25,6 +28,7 @@ import {
   FileQuestion,
   MoveRight,
 } from "lucide-react";
+import type { StructuredChangeKind } from "./structured-diff";
 import type {
   LanguageLevel,
   RelationshipKind,
@@ -141,5 +145,16 @@ export const formatRelationshipKind = (kind: RelationshipKind) => {
       return { label: "Related tests", Icon: TestTube };
     case "definition":
       return { label: "Definition", Icon: BookOpen };
+  }
+};
+
+export const formatStructuredChange = (kind: StructuredChangeKind) => {
+  switch (kind) {
+    case "added":
+      return { label: "Added", Icon: Plus };
+    case "removed":
+      return { label: "Removed", Icon: Minus };
+    case "changed":
+      return { label: "Changed", Icon: Pencil };
   }
 };
