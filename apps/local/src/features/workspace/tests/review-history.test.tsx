@@ -296,7 +296,12 @@ test("rename and delete icon actions do not reopen; rename is inline and deletio
   await user.click(screen.getByRole("button", { name: "Delete Fix API" }));
   await user.click(screen.getByRole("button", { name: "Confirm" }));
   await waitFor(() =>
-    expect(action).toHaveBeenCalledWith({ action: "delete", id: review.id }),
+    expect(action).toHaveBeenCalledWith({
+      action: "delete",
+      id: review.id,
+      expectedHash: review.hash,
+      expectedRound: 1,
+    }),
   );
 });
 

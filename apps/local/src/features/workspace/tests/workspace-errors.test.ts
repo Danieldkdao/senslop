@@ -9,6 +9,11 @@ import {
 vi.mock("../../../services/inngest/functions", () => ({
   scheduleGrouping: vi.fn(async () => {}),
 }));
+vi.mock("../../agents/lib/agent-store", () => ({
+  AgentStore: class {
+    reviewWork = () => [];
+  },
+}));
 const state = vi.hoisted(() => ({
   current: vi.fn(),
   resync: vi.fn(),
@@ -156,13 +161,23 @@ test("re-sync validates its repository-bound action and returns useful no-change
     new Request("http://localhost/api/workspace", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "resync", id }),
+      body: JSON.stringify({
+        action: "resync",
+        id,
+        expectedHash: "a".repeat(64),
+        expectedRound: 1,
+      }),
     });
   state.resync.mockResolvedValueOnce({ id: "next-round" });
   const response = await postWorkspace(request());
   expect(response.status).toBe(200);
   expect(await response.json()).toEqual({ id: "next-round" });
-  expect(state.resync).toHaveBeenCalledWith(id, undefined, undefined);
+  expect(state.resync).toHaveBeenCalledWith(
+    id,
+    undefined,
+    undefined,
+    expect.objectContaining({ hash: "a".repeat(64), round: 1 }),
+  );
   state.resync.mockRejectedValueOnce(
     new Error(
       "No new changes since this review round. Make more edits before re-syncing.",
@@ -207,10 +222,22 @@ test("re-sync forwards its mode and per-run grouping choice and rejects unsuppor
     new Request("http://localhost/api/workspace", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "resync", id, mode, grouping: false }),
+      body: JSON.stringify({
+        action: "resync",
+        id,
+        mode,
+        grouping: false,
+        expectedHash: "a".repeat(64),
+        expectedRound: 1,
+      }),
     });
   expect((await postWorkspace(request("keep"))).status).toBe(200);
-  expect(state.resync).toHaveBeenCalledWith(id, "keep", false);
+  expect(state.resync).toHaveBeenCalledWith(
+    id,
+    "keep",
+    false,
+    expect.objectContaining({ hash: "a".repeat(64), round: 1 }),
+  );
   expect((await postWorkspace(request("unsupported"))).status).toBe(400);
   expect(state.resync).toHaveBeenCalledTimes(1);
 });
@@ -271,4 +298,32 @@ test("review changes require the expected contents and round", async () => {
   );
   expect(response.status).toBe(400);
   expect(state.changeReview).not.toHaveBeenCalled();
+});
+
+test("a pinned preview reads only its requested review and revision conflicts return reload feedback", async () => {
+  const id = crypto.randomUUID();
+  state.getReview.mockReturnValueOnce({ id, revision: 1 });
+  const preview = await GET(
+    new Request(`http://localhost/api/preview?id=${id}`),
+  );
+  expect(preview.status).toBe(200);
+  expect((await preview.json()).id).toBe(id);
+  expect(state.current).not.toHaveBeenCalled();
+  state.resync.mockRejectedValueOnce(
+    new Error("Review contents changed. Reload and retry re-sync."),
+  );
+  const conflict = await postWorkspace(
+    new Request("http://localhost/api/workspace", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "resync",
+        id,
+        expectedHash: "a".repeat(64),
+        expectedRound: 1,
+      }),
+    }),
+  );
+  expect(conflict.status).toBe(409);
+  expect((await conflict.json()).message).toMatch(/Reload/);
 });

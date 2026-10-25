@@ -2,7 +2,8 @@ import { assignedModel } from "../../agents/lib/model-selection";
 import { AgentStore } from "../../agents/lib/agent-store";
 import { freezeContext } from "../../../services/analysis/frozen-context";
 import { randomUUID } from "node:crypto";
-import { readFile, rename, stat, unlink } from "node:fs/promises";
+import { isAbsolute, resolve } from "node:path";
+import { readFile, rename, stat, unlink, realpath } from "node:fs/promises";
 import {
   type ResyncMode,
   MAX_SNAPSHOT_BYTES,
@@ -31,6 +32,7 @@ export class LocalWorkspace {
   readonly store: LocalStore;
   private handoff: Promise<void> = Promise.resolve();
   private contexts = new Set<Promise<void>>();
+  private operations: Promise<unknown> = Promise.resolve();
   constructor(private readonly options: LocalWorkspaceOptions) {
     this.store = new LocalStore(options.databasePath);
   }
@@ -47,6 +49,29 @@ export class LocalWorkspace {
   repository = async () => readRepository(await this.root());
 
   directory = () => this.options.directory ?? this.options.repository;
+
+  private coordinate = <T>(operation: () => Promise<T>) => {
+    const result = this.operations.catch(() => {}).then(operation);
+    this.operations = result;
+    return result;
+  };
+
+  private callerDirectory = async (root: string, directory?: string) => {
+    if (!directory) return this.directory();
+    if (!isAbsolute(directory))
+      throw new Error(
+        "Choose an absolute caller folder inside this workspace repository.",
+      );
+    const folder = await realpath(directory);
+    if (
+      (await resolveRepository(folder)) !== root ||
+      !(await stat(folder)).isDirectory()
+    )
+      throw new Error(
+        "The caller folder does not belong to this workspace repository.",
+      );
+    return resolve(directory);
+  };
 
   private groupingEnabled = (root: string, selected?: boolean) => {
     const settings = new AgentStore(this.store, root).settings();
@@ -73,105 +98,132 @@ export class LocalWorkspace {
     void capture.finally(() => this.contexts.delete(capture)).catch(() => {});
   };
 
-  inspect = async (input: unknown, group?: boolean) => {
-    const selection = sourceSelectionSchema.options
-      .find(
-        (schema) =>
-          schema.shape.kind.value === (input as { kind?: string })?.kind,
-      )
-      ?.strict()
-      .parse(input);
-    if (!selection) throw new Error("Choose a supported Git selection.");
-    const root = await this.root();
-    const groupingEnabled = this.groupingEnabled(root, group);
-    const inspection = await inspectRepository(root, selection);
-    const savedReview = this.store.saveReview(
-      root,
-      {
-        ...inspection.snapshot,
-        id: randomUUID(),
-        protocolVersion: PROTOCOL_VERSION,
-      },
-      inspection.fingerprint,
-      groupingEnabled,
-      { directory: this.directory(), repositoryState: inspection.repository },
-    );
-    this.captureContext(root, savedReview);
-    return savedReview;
-  };
-
-  resync = async (id: string, mode: ResyncMode = "new", group?: boolean) => {
-    const root = await this.root();
-    const previousReview = this.store.currentReview(root);
-    if (previousReview?.id !== id)
-      throw new Error(
-        "Re-sync requires the current active review. Reload and retry.",
+  inspect = (
+    input: unknown,
+    group?: boolean,
+    options: { directory?: string; activate?: boolean } = {},
+  ) =>
+    this.coordinate(async () => {
+      const selection = sourceSelectionSchema.options
+        .find(
+          (schema) =>
+            schema.shape.kind.value === (input as { kind?: string })?.kind,
+        )
+        ?.strict()
+        .parse(input);
+      if (!selection) throw new Error("Choose a supported Git selection.");
+      const root = await this.root();
+      const directory = await this.callerDirectory(root, options.directory);
+      const groupingEnabled = this.groupingEnabled(root, group);
+      const inspection = await inspectRepository(root, selection);
+      const savedReview = this.store.saveReview(
+        root,
+        {
+          ...inspection.snapshot,
+          id: randomUUID(),
+          protocolVersion: PROTOCOL_VERSION,
+        },
+        inspection.fingerprint,
+        groupingEnabled,
+        {
+          directory,
+          repositoryState: inspection.repository,
+          activate: options.activate ?? false,
+        },
       );
-    if (
-      previousReview.source.kind !== "working-tree" ||
-      !previousReview.repositoryState
-    )
-      throw new Error(
-        "Re-sync requires a fresh uncommitted-changes review with captured repository identity.",
-      );
-    const before = await this.repository();
-    if (
-      before.branch !== previousReview.repositoryState.branch ||
-      before.head !== previousReview.repositoryState.head ||
-      before.head !== previousReview.source.base
-    )
-      throw new Error(
-        "Re-sync requires the same Git branch and HEAD. Create a new review for this repository state.",
-      );
-    const current = await collectSnapshot({
-      cwd: root,
-      source: { kind: "working-tree" },
+      this.captureContext(root, savedReview);
+      return savedReview;
     });
-    const newer = await resyncSnapshot(
-      root,
-      previousReview.syncBaseline ?? previousReview.files,
-      current,
-    );
-    const snapshot =
-      mode === "keep"
-        ? await resyncSnapshot(
-            root,
-            previousReview.syncBaseline ?? previousReview.files,
-            current,
-            previousReview.files,
-          )
-        : newer;
-    const after = await this.repository();
-    if (
-      before.head !== after.head ||
-      before.branch !== after.branch ||
-      before.fingerprint !== after.fingerprint
-    )
-      throw new Error(
-        "Repository changed during re-sync. Retry to freeze a consistent snapshot.",
+
+  resync = (
+    id: string,
+    mode: ResyncMode = "new",
+    group?: boolean,
+    expected?: {
+      hash: string;
+      round: number;
+      activate?: boolean;
+      directory?: string;
+    },
+  ) =>
+    this.coordinate(async () => {
+      const root = await this.root();
+      const previousReview = this.store.getReview(root, id);
+      if (
+        !previousReview ||
+        (expected &&
+          (previousReview.hash !== expected.hash ||
+            previousReview.round !== expected.round))
+      )
+        throw new Error(
+          "Review contents changed or were deleted. Reload and retry re-sync.",
+        );
+      if (
+        previousReview.source.kind !== "working-tree" ||
+        !previousReview.repositoryState
+      )
+        throw new Error(
+          "Re-sync requires a fresh uncommitted-changes review with captured repository identity.",
+        );
+      const before = await this.repository();
+      if (
+        before.branch !== previousReview.repositoryState.branch ||
+        before.head !== previousReview.repositoryState.head ||
+        before.head !== previousReview.source.base
+      )
+        throw new Error(
+          "Re-sync requires the same Git branch and HEAD. Create a new review for this repository state.",
+        );
+      const current = await collectSnapshot({
+        cwd: root,
+        source: { kind: "working-tree" },
+      });
+      const newer = await resyncSnapshot(
+        root,
+        previousReview.syncBaseline ?? previousReview.files,
+        current,
       );
-    const savedReview = this.store.saveReview(
-      root,
-      {
-        ...snapshot,
-        id: mode === "keep" ? id : randomUUID(),
-        protocolVersion: PROTOCOL_VERSION,
-      },
-      after.fingerprint,
-      snapshot.files.length > 0 && this.groupingEnabled(root, group),
-      {
-        directory: this.directory(),
-        repositoryState: after,
-        previousReviewId: id,
-        expectedHash: previousReview.hash,
-        expectedRound: previousReview.round,
-        resyncMode: mode,
-        syncBaseline: current.files,
-      },
-    );
-    this.captureContext(root, savedReview);
-    return savedReview;
-  };
+      const snapshot =
+        mode === "keep"
+          ? await resyncSnapshot(
+              root,
+              previousReview.syncBaseline ?? previousReview.files,
+              current,
+              previousReview.files,
+            )
+          : newer;
+      const after = await this.repository();
+      if (
+        before.head !== after.head ||
+        before.branch !== after.branch ||
+        before.fingerprint !== after.fingerprint
+      )
+        throw new Error(
+          "Repository changed during re-sync. Retry to freeze a consistent snapshot.",
+        );
+      const savedReview = this.store.saveReview(
+        root,
+        {
+          ...snapshot,
+          id: mode === "keep" ? id : randomUUID(),
+          protocolVersion: PROTOCOL_VERSION,
+        },
+        after.fingerprint,
+        snapshot.files.length > 0 && this.groupingEnabled(root, group),
+        {
+          directory: await this.callerDirectory(root, expected?.directory),
+          activate: expected?.activate ?? false,
+          repositoryState: after,
+          previousReviewId: id,
+          expectedHash: previousReview.hash,
+          expectedRound: previousReview.round,
+          resyncMode: mode,
+          syncBaseline: current.files,
+        },
+      );
+      this.captureContext(root, savedReview);
+      return savedReview;
+    });
 
   current = async () => {
     const root = await this.root();
@@ -223,6 +275,7 @@ export class LocalWorkspace {
   };
 
   close = async () => {
+    await this.operations.catch(() => {});
     await this.handoff.catch(() => {});
     await Promise.allSettled(this.contexts);
     this.store.close();

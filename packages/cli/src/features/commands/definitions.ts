@@ -19,6 +19,20 @@ export const optionDefinitions: Record<
     type: "string",
     description: "Repository path; defaults to the current directory.",
   },
+  "expected-hash": {
+    type: "string",
+    description:
+      "Require the captured review content hash; use with --expected-round.",
+  },
+  "expected-round": {
+    type: "string",
+    description: "Require the captured review round; use with --expected-hash.",
+  },
+  priority: {
+    type: "string",
+    description:
+      "Queue priority: normal or high; high gives a bounded preference without interrupting running work.",
+  },
   timeout: {
     type: "string",
     description: "Maximum wait in seconds, 1–3600; default 600.",
@@ -188,6 +202,7 @@ export const preparationOptions = [
   "wait",
   "open",
   "run-review",
+  "priority",
   "timeout",
 ];
 export const globalOptions = ["repo", "json", "help", "version"];
@@ -235,7 +250,7 @@ export const commandDefinitions: CommandDefinition[] = [
     arguments: "ID",
     minArgs: 1,
     maxArgs: 1,
-    options: [],
+    options: ["expected-hash", "expected-round"],
   },
   {
     name: "reviews files",
@@ -257,13 +272,13 @@ export const commandDefinitions: CommandDefinition[] = [
   {
     name: "reviews create",
     description:
-      "Capture and activate a saved review. Choose exactly one Git source. Use --group --open --wait for an agent-to-human handoff.",
+      "Capture and prepare in the background. The first review opens automatically; --open explicitly opens another review. Choose exactly one Git source.",
     options: [...sourceOptions, ...preparationOptions, "title"],
   },
   {
     name: "reviews open",
     description:
-      "Activate a saved review in all open browser tabs; --open also launches the browser.",
+      "Open a saved review in a dedicated browser tab without navigating other readers.",
     arguments: "ID",
     minArgs: 1,
     maxArgs: 1,
@@ -275,7 +290,7 @@ export const commandDefinitions: CommandDefinition[] = [
     arguments: "ID TITLE",
     minArgs: 2,
     maxArgs: 2,
-    options: [],
+    options: ["expected-hash", "expected-round"],
   },
   {
     name: "reviews delete",
@@ -284,24 +299,25 @@ export const commandDefinitions: CommandDefinition[] = [
     arguments: "ID",
     minArgs: 1,
     maxArgs: 1,
-    options: ["yes"],
+    options: ["yes", "expected-hash", "expected-round"],
   },
   {
     name: "reviews sync",
     description:
-      "Sync the current working-tree review on the same branch and HEAD. keep retains notes/history and unchanged-file completion; new creates a newer-edits review.",
+      "Sync the specified working-tree review on the same branch and HEAD without changing other readers. keep retains notes/history; new creates a newer-edits review.",
     arguments: "ID",
     minArgs: 1,
     maxArgs: 1,
-    options: ["mode", ...preparationOptions],
+    options: ["mode", ...preparationOptions, "expected-hash", "expected-round"],
   },
   {
     name: "reviews select",
-    description: "Activate this saved review and select a file in the browser.",
+    description:
+      "Save a file selection for this review; --open opens a dedicated browser tab.",
     arguments: "ID PATH",
     minArgs: 2,
     maxArgs: 2,
-    options: [],
+    options: ["expected-hash", "expected-round", "open"],
   },
   {
     name: "reviews complete",
@@ -309,7 +325,7 @@ export const commandDefinitions: CommandDefinition[] = [
     arguments: "ID PATH",
     minArgs: 2,
     maxArgs: 2,
-    options: [],
+    options: ["expected-hash", "expected-round"],
   },
   {
     name: "reviews incomplete",
@@ -317,7 +333,7 @@ export const commandDefinitions: CommandDefinition[] = [
     arguments: "ID PATH",
     minArgs: 2,
     maxArgs: 2,
-    options: [],
+    options: ["expected-hash", "expected-round"],
   },
   {
     name: "reviews export",
@@ -326,7 +342,7 @@ export const commandDefinitions: CommandDefinition[] = [
     arguments: "ID",
     minArgs: 1,
     maxArgs: 1,
-    options: [],
+    options: ["expected-hash", "expected-round"],
   },
   {
     name: "reviews run",
@@ -335,7 +351,7 @@ export const commandDefinitions: CommandDefinition[] = [
     arguments: "ID",
     minArgs: 1,
     maxArgs: 1,
-    options: ["wait", "timeout"],
+    options: ["wait", "timeout", "expected-hash", "expected-round", "priority"],
   },
   {
     name: "groups show",
@@ -344,7 +360,7 @@ export const commandDefinitions: CommandDefinition[] = [
     arguments: "ID",
     minArgs: 1,
     maxArgs: 1,
-    options: [],
+    options: ["expected-hash", "expected-round"],
   },
   {
     name: "groups run",
@@ -353,13 +369,13 @@ export const commandDefinitions: CommandDefinition[] = [
     arguments: "ID",
     minArgs: 1,
     maxArgs: 1,
-    options: ["wait", "timeout"],
+    options: ["wait", "timeout", "expected-hash", "expected-round", "priority"],
   },
   {
     name: "runs list",
     description:
       "List grouping and correctness runs for --review ID, including older sync rounds.",
-    options: ["review", "search", "offset", "limit"],
+    options: ["review", "search", "offset", "limit", "all"],
   },
   {
     name: "runs show",
@@ -390,11 +406,19 @@ export const commandDefinitions: CommandDefinition[] = [
   {
     name: "runs retry",
     description:
-      "Start another run of the same task against the saved snapshot's current round.",
+      "Retry a failed or canceled job against its original revision and captured settings.",
     arguments: "RUN_ID",
     minArgs: 1,
     maxArgs: 1,
     options: ["wait", "timeout"],
+  },
+  {
+    name: "runs prioritize",
+    description: "Change a queued job to normal or high priority.",
+    arguments: "RUN_ID",
+    minArgs: 1,
+    maxArgs: 1,
+    options: ["priority"],
   },
   {
     name: "runs rename",
@@ -428,7 +452,7 @@ export const commandDefinitions: CommandDefinition[] = [
     arguments: "ID",
     minArgs: 1,
     maxArgs: 1,
-    options: ["file", "search"],
+    options: ["file", "search", "expected-hash", "expected-round"],
   },
   {
     name: "notes add",
@@ -437,7 +461,15 @@ export const commandDefinitions: CommandDefinition[] = [
     arguments: "ID PATH",
     minArgs: 2,
     maxArgs: 2,
-    options: ["body", "body-file", "side", "start", "end"],
+    options: [
+      "body",
+      "body-file",
+      "side",
+      "start",
+      "end",
+      "expected-hash",
+      "expected-round",
+    ],
   },
   {
     name: "notes edit",
@@ -445,7 +477,7 @@ export const commandDefinitions: CommandDefinition[] = [
     arguments: "ID NOTE_ID",
     minArgs: 2,
     maxArgs: 2,
-    options: ["body", "body-file"],
+    options: ["body", "body-file", "expected-hash", "expected-round"],
   },
   {
     name: "notes delete",
@@ -453,7 +485,7 @@ export const commandDefinitions: CommandDefinition[] = [
     arguments: "ID NOTE_ID",
     minArgs: 2,
     maxArgs: 2,
-    options: ["yes"],
+    options: ["yes", "expected-hash", "expected-round"],
   },
   {
     name: "settings show",

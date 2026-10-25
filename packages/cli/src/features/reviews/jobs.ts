@@ -43,8 +43,17 @@ export const startJob = (
   client: WorkspaceClient,
   snapshotId: string,
   kind: ReviewJob["kind"],
+  expected?: { hash: string; round: number; priority?: "normal" | "high" },
 ) =>
-  client.request<ReviewJob>("/api/agents", { action: "job", snapshotId, kind });
+  client.request<ReviewJob>("/api/agents", {
+    ...(expected?.priority ? { priority: expected.priority } : {}),
+    action: "job",
+    snapshotId,
+    kind,
+    ...(expected
+      ? { expectedHash: expected.hash, expectedRound: expected.round }
+      : {}),
+  });
 
 export const readAllJobs = async (
   client: WorkspaceClient,

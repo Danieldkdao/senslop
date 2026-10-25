@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { AgentStore } from "../../../features/agents/lib/agent-store";
+import { jobPriorities } from "../../../features/agents/schemas";
 import { SnapshotLimitError } from "@senslop/review-core/git";
 import { scheduleGrouping } from "../../../services/inngest/functions";
 import {
@@ -19,6 +21,9 @@ const workspaceActionSchema = z.discriminatedUnion("action", [
       action: z.literal("inspect"),
       source: z.unknown(),
       grouping: z.boolean().optional(),
+      directory: z.string().min(1).max(4096).optional(),
+      activate: z.boolean().optional(),
+      priority: z.enum(jobPriorities).optional(),
     })
     .strict(),
   z
@@ -27,10 +32,22 @@ const workspaceActionSchema = z.discriminatedUnion("action", [
       id: z.uuid(),
       mode: z.enum(resyncModes).optional(),
       grouping: z.boolean().optional(),
+      directory: z.string().min(1).max(4096).optional(),
+      activate: z.boolean().optional(),
+      expectedHash: reviewStateSchema.shape.hash,
+      expectedRound: reviewStateSchema.shape.round.unwrap(),
+      priority: z.enum(jobPriorities).optional(),
     })
     .strict(),
   z.object({ action: z.literal("open"), id: z.uuid() }).strict(),
-  z.object({ action: z.literal("delete"), id: z.uuid() }).strict(),
+  z
+    .object({
+      action: z.literal("delete"),
+      id: z.uuid(),
+      expectedHash: reviewStateSchema.shape.hash.optional(),
+      expectedRound: reviewStateSchema.shape.round,
+    })
+    .strict(),
   z
     .object({
       action: z.literal("change"),
@@ -105,7 +122,13 @@ export const GET = async (request: Request) => {
         repository,
         root,
         directory: workspace.directory(),
-        history: paginated ? existingReviews.slice(0, limit) : existingReviews,
+        history: (paginated
+          ? existingReviews.slice(0, limit)
+          : existingReviews
+        ).map((review) => ({
+          ...review,
+          work: new AgentStore(workspace.store, root).reviewWork(review),
+        })),
         next:
           paginated && existingReviews.length > limit ? offset + limit : null,
       },
@@ -150,17 +173,28 @@ export const POST = async (request: Request) => {
         const insertedReview = await workspace.inspect(
           action.source,
           action.grouping,
+          { directory: action.directory, activate: action.activate },
         );
-        await scheduleGrouping(insertedReview.id);
-        return Response.json(insertedReview);
+        await scheduleGrouping(insertedReview.id, action.priority);
+        return Response.json({
+          ...insertedReview,
+          activated:
+            workspace.store.currentReview(root)?.id === insertedReview.id,
+        });
       }
       case "resync": {
         const updatedReview = await workspace.resync(
           action.id,
           action.mode,
           action.grouping,
+          {
+            hash: action.expectedHash,
+            round: action.expectedRound,
+            activate: action.activate,
+            directory: action.directory,
+          },
         );
-        await scheduleGrouping(updatedReview.id);
+        await scheduleGrouping(updatedReview.id, action.priority);
         return Response.json(updatedReview);
       }
       case "open":
@@ -184,7 +218,13 @@ export const POST = async (request: Request) => {
         );
       }
       case "delete":
-        workspace.store.deleteReview(root, action.id);
+        workspace.store.deleteReview(
+          root,
+          action.id,
+          action.expectedHash && action.expectedRound
+            ? { hash: action.expectedHash, round: action.expectedRound }
+            : undefined,
+        );
         return Response.json(null);
     }
   } catch (error) {
@@ -206,7 +246,13 @@ export const POST = async (request: Request) => {
             : "Local save failed. Your saved reviews are retained. Check application-data directory permissions and retry.",
         ),
       },
-      { status: 422 },
+      {
+        status: /Review contents changed|changed during|no longer matches/.test(
+          message,
+        )
+          ? 409
+          : 422,
+      },
     );
   }
 };

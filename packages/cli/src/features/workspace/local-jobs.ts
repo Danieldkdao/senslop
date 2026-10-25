@@ -2,7 +2,13 @@ import { fork } from "node:child_process";
 import { createRequire } from "node:module";
 import { randomBytes } from "node:crypto";
 import { workspaceStateDirectory } from "./runtime-paths.js";
-import { mkdir, readFile, writeFile, unlink } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import {
+  claimWorkspaceOwner,
+  processIsAlive,
+  WorkspaceOwnedError,
+  type WorkspaceOwner,
+} from "./workspace-owner.js";
 import { createServer } from "node:net";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -26,32 +32,32 @@ export const availablePort = (port = 0) =>
 export const workspacePort = async (
   dataDirectory: string,
   repository: string,
+  owner?: WorkspaceOwner,
 ): Promise<number> => {
   const state = workspaceStateDirectory(dataDirectory, repository);
   await mkdir(state, { recursive: true, mode: 0o700 });
   const path = join(state, "worker-port.json");
-  try {
-    const pid = Number(await readFile(join(state, "owner.lock"), "utf8"));
-    process.kill(pid, 0);
-    throw new Error(
-      "A workspace for this repository is already running. Use its terminal or stop it first.",
-    );
-  } catch (error) {
-    if (
-      !["ENOENT", "ESRCH"].includes((error as NodeJS.ErrnoException).code ?? "")
-    )
-      throw error;
+  if (!owner?.isCurrent()) {
+    try {
+      const pid = Number(await readFile(join(state, "owner.lock"), "utf8"));
+      if (processIsAlive(pid)) throw new WorkspaceOwnedError();
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
   }
   let savedPort: number | undefined;
+  let savedRecord = false;
   try {
-    savedPort = z
-      .number()
-      .int()
-      .min(1024)
-      .max(65535)
-      .parse(JSON.parse(await readFile(path, "utf8")));
+    const saved = await readFile(path, "utf8");
+    savedRecord = true;
+    savedPort = z.number().int().min(1024).max(65535).parse(JSON.parse(saved));
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    if (
+      (error as NodeJS.ErrnoException).code !== "ENOENT" &&
+      !(error instanceof SyntaxError) &&
+      !(error instanceof z.ZodError)
+    )
+      throw error;
   }
   if (savedPort !== undefined) {
     try {
@@ -63,12 +69,12 @@ export const workspacePort = async (
   const port = await availablePort();
   try {
     await writeFile(path, JSON.stringify(port), {
-      flag: savedPort === undefined ? "wx" : "w",
+      flag: savedRecord ? "w" : "wx",
       mode: 0o600,
     });
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-    return workspacePort(dataDirectory, repository);
+    return workspacePort(dataDirectory, repository, owner);
   }
   return port;
 };
@@ -89,6 +95,7 @@ type LocalJobsOptions = {
   sdkUrl: string;
   enginePath?: string;
   signal?: AbortSignal;
+  owner?: WorkspaceOwner;
 };
 
 export const startLocalJobs = async ({
@@ -101,59 +108,48 @@ export const startLocalJobs = async ({
     process.platform === "win32" ? "inngest.exe" : "inngest",
   ),
   signal,
+  owner,
 }: LocalJobsOptions) => {
   const state = workspaceStateDirectory(dataDirectory, repository);
   const appId = basename(state);
   await mkdir(state, { recursive: true, mode: 0o700 });
-  const lock = join(state, "owner.lock");
+  const ownership = owner ?? claimWorkspaceOwner(dataDirectory, repository);
+  const releaseOwner = () => {
+    if (!owner) ownership.release();
+  };
+  let keys: EngineKeysSchema;
+  let ports: number[];
+  let workerUrl: URL;
   try {
-    const pid = Number(await readFile(lock, "utf8"));
     try {
-      process.kill(pid, 0);
-      throw new Error(
-        "A workspace for this repository is already running. Use its terminal or stop it first.",
+      keys = engineKeysSchema.parse(
+        JSON.parse(await readFile(join(state, "keys.json"), "utf8")),
       );
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+        throw error;
+      }
+      keys = {
+        workerToken: randomBytes(32).toString("hex"),
+        eventKey: randomBytes(32).toString("hex"),
+        signingKey: randomBytes(32).toString("hex"),
+      };
+      await writeFile(join(state, "keys.json"), JSON.stringify(keys), {
+        flag: "wx",
+        mode: 0o600,
+      });
     }
-    await unlink(lock);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-  }
-  await writeFile(lock, String(process.pid), { flag: "wx", mode: 0o600 });
-  let keys: EngineKeysSchema;
-  try {
-    keys = engineKeysSchema.parse(
-      JSON.parse(await readFile(join(state, "keys.json"), "utf8")),
-    );
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
-      await unlink(lock);
-      throw error;
+    if (!keys.workerToken) {
+      keys.workerToken = randomBytes(32).toString("hex");
+      await writeFile(join(state, "keys.json"), JSON.stringify(keys), {
+        mode: 0o600,
+      });
     }
-    keys = {
-      workerToken: randomBytes(32).toString("hex"),
-      eventKey: randomBytes(32).toString("hex"),
-      signingKey: randomBytes(32).toString("hex"),
-    };
-    await writeFile(join(state, "keys.json"), JSON.stringify(keys), {
-      flag: "wx",
-      mode: 0o600,
-    });
-  }
-  if (!keys.workerToken) {
-    keys.workerToken = randomBytes(32).toString("hex");
-    await writeFile(join(state, "keys.json"), JSON.stringify(keys), {
-      mode: 0o600,
-    });
-  }
-  const workerUrl = new URL(sdkUrl);
-  workerUrl.searchParams.set("token", keys.workerToken);
-  let ports: number[];
-  try {
+    workerUrl = new URL(sdkUrl);
+    workerUrl.searchParams.set("token", keys.workerToken);
     ports = await Promise.all(Array.from({ length: 4 }, availablePort));
   } catch (error) {
-    await unlink(lock);
+    releaseOwner();
     throw error;
   }
   const baseUrl = `http://127.0.0.1:${ports[0]}`;
@@ -204,7 +200,8 @@ export const startLocalJobs = async ({
   const closed = new Promise<void>((resolve, reject) => {
     child.once("error", reject);
     child.once("exit", (code) => {
-      void unlink(lock)
+      Promise.resolve()
+        .then(releaseOwner)
         .catch(() => {})
         .finally(() =>
           stopping

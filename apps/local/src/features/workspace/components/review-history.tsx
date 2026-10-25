@@ -188,7 +188,12 @@ const ReviewHistoryItem = ({
             onClick={() =>
               void (async () => {
                 if (await confirm())
-                  await act({ action: "delete", id: review.id });
+                  await act({
+                    action: "delete",
+                    id: review.id,
+                    expectedHash: review.hash,
+                    expectedRound: review.round ?? 1,
+                  });
               })()
             }
           >
@@ -228,8 +233,7 @@ export const ReviewHistory = ({
     if (right === null) return -1;
     return left.localeCompare(right);
   });
-  const loading =
-    history.isPending || history.isFetching || history.isDebouncing;
+  const loading = history.isPending || history.isDebouncing;
   const selectedReview =
     selection ??
     (!search.trim() && reviews.some((review) => review.id === currentReviewId)
@@ -307,7 +311,7 @@ export const ReviewHistory = ({
               >
                 {reviews.map((review) => (
                   <ReviewHistoryItem
-                    key={`${review.id}:${review.updatedAt}`}
+                    key={review.id}
                     review={review}
                     onAction={onAction}
                     onChanged={() => {

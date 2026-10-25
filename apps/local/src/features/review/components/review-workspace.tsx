@@ -570,11 +570,19 @@ export const ReviewWorkspace = ({ children }: ReviewWorkspaceProps) => {
             }
             configured={groupingConfigured}
             onRetry={() =>
-              agents.act({
-                action: "job",
-                snapshotId: preview!.id,
-                kind: "grouping",
-              })
+              agents.act(
+                groupingJobs[0] &&
+                  (groupingJobs[0].status === "failed" ||
+                    groupingJobs[0].status === "canceled")
+                  ? { action: "retry", id: groupingJobs[0].id }
+                  : {
+                      action: "job",
+                      snapshotId: preview!.id,
+                      kind: "grouping",
+                      expectedHash: preview!.hash,
+                      expectedRound: preview!.round,
+                    },
+              )
             }
             onConfigure={() => {
               setInitialSettingsSection("ai");

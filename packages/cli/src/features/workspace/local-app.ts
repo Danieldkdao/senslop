@@ -23,6 +23,7 @@ import {
 
 import { resolveRepository } from "@senslop/review-core/git";
 import { applicationDataDirectory } from "./runtime-paths.js";
+import { claimWorkspaceOwner } from "./workspace-owner.js";
 import {
   publishWorkspaceSession,
   removeWorkspaceSession,
@@ -78,18 +79,25 @@ export const startLocalApp = async ({
     );
   }
   signal?.throwIfAborted();
-  const directory = await mkdtemp(join(tmpdir(), "senslop-workspace-"));
+  const owner = claimWorkspaceOwner(userData, repositoryRoot);
+  const directory = await mkdtemp(join(tmpdir(), "senslop-workspace-")).catch(
+    (error) => {
+      owner.release();
+      throw error;
+    },
+  );
   await chmod(directory, 0o700);
   const snapshotPath = join(directory, "preview.json");
   const token = randomBytes(32).toString("hex");
   let port: number;
   try {
     port = jobs
-      ? await workspacePort(userData, repositoryRoot)
+      ? await workspacePort(userData, repositoryRoot, owner)
       : await availablePort();
     if (jobs) await availablePort(port);
   } catch (error) {
     await rm(directory, { recursive: true, force: true });
+    owner.release();
     throw error;
   }
   const origin = `http://127.0.0.1:${port}`;
@@ -154,9 +162,11 @@ export const startLocalApp = async ({
         repository: repositoryRoot,
         sdkUrl: `${origin}/api/inngest?token=${token}`,
         signal,
+        owner,
       });
   } catch (error) {
     await rm(directory, { recursive: true, force: true });
+    owner.release();
     throw error;
   }
   const child = fork(entry, args, {
@@ -204,6 +214,7 @@ export const startLocalApp = async ({
     await write.catch(() => {});
     await removeWorkspaceSession(userData, session);
     await rm(directory, { recursive: true, force: true });
+    owner.release();
     if (error) fail(error);
     else finish();
   };

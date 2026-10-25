@@ -15,6 +15,7 @@ import {
   savedReviewSchema,
   reviewStateSchema,
   type ReviewChangeSchema,
+  type SavedReviewSchema,
 } from "@senslop/contracts";
 import type { LivePreview, ReviewOperation } from "../types";
 import { toast } from "@/components/ui/toast";
@@ -30,6 +31,7 @@ type PreviewContext = {
   trackReviewOperation: (operation: ReviewOperation | null) => void;
   error: string | null;
   refresh: () => Promise<void>;
+  openReview: (review: SavedReviewSchema) => void;
   discardReview: () => Promise<void>;
   changeReview: (change: ReviewChangeSchema) => Promise<void>;
 };
@@ -45,6 +47,9 @@ export const LivePreviewProvider = ({ children }: { children: ReactNode }) => {
   const etag = useRef<string | null>(null);
   const epoch = useRef(0);
   const stateRef = useRef(state);
+  const selectedReview = useRef<string | null>(null);
+  const initialized = useRef(false);
+  const selectedPaths = useRef(new Map<string, string>());
   useEffect(() => {
     stateRef.current = state;
   }, [state]);
@@ -57,6 +62,26 @@ export const LivePreviewProvider = ({ children }: { children: ReactNode }) => {
     const preview = durable.success
       ? durable.data
       : localPreviewSchema.parse(data);
+    selectedReview.current = preview.id;
+    const url = new URL(window.location.href);
+    url.searchParams.set("review", preview.id);
+    const storedPath = [
+      selectedPaths.current.get(preview.id),
+      url.searchParams.get("file"),
+      sessionStorage.getItem(`senslop:selected:${preview.id}`),
+      durable.success ? durable.data.selectedPath : null,
+    ].find((path) => path && preview.files.some((file) => file.path === path));
+    if (
+      durable.success &&
+      storedPath &&
+      preview.files.some((file) => file.path === storedPath)
+    ) {
+      durable.data.selectedPath = storedPath;
+      selectedPaths.current.set(preview.id, storedPath);
+      sessionStorage.setItem(`senslop:selected:${preview.id}`, storedPath);
+    }
+    url.searchParams.delete("file");
+    window.history.replaceState(null, "", url);
     setState((current) => {
       if (
         current.preview?.id === preview.id &&
@@ -83,15 +108,26 @@ export const LivePreviewProvider = ({ children }: { children: ReactNode }) => {
   const poll = useCallback(
     async (signal?: AbortSignal, force = false) => {
       const started = epoch.current;
-      const response = await fetch("/api/preview", {
-        cache: "no-store",
-        signal: AbortSignal.any([
-          ...(signal ? [signal] : []),
-          AbortSignal.timeout(localRequestTimeoutMs),
-        ]),
-        headers:
-          !force && etag.current ? { "If-None-Match": etag.current } : {},
-      });
+      if (!initialized.current) {
+        selectedReview.current = new URL(window.location.href).searchParams.get(
+          "review",
+        );
+        initialized.current = true;
+      }
+      const response = await fetch(
+        selectedReview.current
+          ? `/api/preview?id=${encodeURIComponent(selectedReview.current)}`
+          : "/api/preview",
+        {
+          cache: "no-store",
+          signal: AbortSignal.any([
+            ...(signal ? [signal] : []),
+            AbortSignal.timeout(localRequestTimeoutMs),
+          ]),
+          headers:
+            !force && etag.current ? { "If-None-Match": etag.current } : {},
+        },
+      );
       if (signal?.aborted || started !== epoch.current) {
         await response.body?.cancel().catch(() => {});
         return;
@@ -123,6 +159,27 @@ export const LivePreviewProvider = ({ children }: { children: ReactNode }) => {
     etag.current = null;
     await poll(undefined, true);
   }, [poll]);
+  const openReview = useCallback(
+    (review: SavedReviewSchema) => {
+      epoch.current++;
+      etag.current = null;
+      const url = new URL(window.location.href);
+      url.searchParams.delete("file");
+      window.history.replaceState(null, "", url);
+      apply(review);
+    },
+    [apply],
+  );
+  useEffect(() => {
+    const navigate = () => {
+      selectedReview.current = new URL(window.location.href).searchParams.get(
+        "review",
+      );
+      void refresh().catch(() => {});
+    };
+    window.addEventListener("popstate", navigate);
+    return () => window.removeEventListener("popstate", navigate);
+  }, [refresh]);
   const requestReview = useCallback(
     async (body: object, signal?: AbortSignal) => {
       epoch.current++;
@@ -195,7 +252,12 @@ export const LivePreviewProvider = ({ children }: { children: ReactNode }) => {
             return current;
           return {
             ...current,
-            preview: { ...current.preview, ...metadata.data },
+            preview: {
+              ...current.preview,
+              ...metadata.data,
+              selectedPath:
+                selectedPaths.current.get(id) ?? current.preview.selectedPath,
+            },
           };
         });
         return;
@@ -219,6 +281,18 @@ export const LivePreviewProvider = ({ children }: { children: ReactNode }) => {
       if (!preview)
         return Promise.reject(new Error("Select a saved review first."));
       const expected = { hash: preview.hash, round: preview.round };
+      if (change.action === "select") {
+        selectedPaths.current.set(preview.id, change.path);
+        sessionStorage.setItem(`senslop:selected:${preview.id}`, change.path);
+        setState((current) =>
+          current.preview?.id === preview.id
+            ? {
+                ...current,
+                preview: { ...current.preview, selectedPath: change.path },
+              }
+            : current,
+        );
+      }
       return changes.enqueue(preview.id, change, (id, queuedChange, signal) =>
         saveChange(id, queuedChange, signal, expected),
       );
@@ -228,9 +302,18 @@ export const LivePreviewProvider = ({ children }: { children: ReactNode }) => {
   const discardReview = useCallback(async () => {
     const id = stateRef.current.preview?.id;
     if (!id) return;
-    await requestReview({ action: "delete", id });
+    await requestReview({
+      action: "delete",
+      id,
+      expectedHash: stateRef.current.preview?.hash,
+      expectedRound: stateRef.current.preview?.round,
+    });
     if (stateRef.current.preview?.id === id) {
       trackReviewOperation(null);
+      selectedReview.current = null;
+      const url = new URL(window.location.href);
+      url.searchParams.delete("review");
+      window.history.replaceState(null, "", url);
       apply(null);
     }
     await refresh();
@@ -269,6 +352,7 @@ export const LivePreviewProvider = ({ children }: { children: ReactNode }) => {
         reviewOperation,
         trackReviewOperation,
         refresh,
+        openReview,
         changeReview,
         discardReview,
       }}

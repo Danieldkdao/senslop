@@ -758,11 +758,7 @@ test("grouping failure keeps files hidden and offers retry and settings", async 
   await userEvent
     .setup()
     .click(screen.getByRole("button", { name: "Retry grouping" }));
-  expect(state.act).toHaveBeenCalledWith({
-    action: "job",
-    kind: "grouping",
-    snapshotId: state.preview!.id,
-  });
+  expect(state.act).toHaveBeenCalledWith({ action: "retry", id: "failed" });
   expect(screen.getByRole("button", { name: "Configure AI" })).toBeTruthy();
 });
 
@@ -1021,6 +1017,10 @@ test.each([
     state.jobs = [
       {
         id: "old-grouping",
+        priority: "normal",
+        retryOf: null,
+        dispatchKey: null,
+        dispatchGeneration: 0,
         retryAt: null,
         fallbackAt: null,
         snapshotId: state.preview.id,

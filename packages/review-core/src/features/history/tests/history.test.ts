@@ -428,3 +428,21 @@ test("cumulative snapshots retain file notes and re-anchor exact unique line ran
     store.close();
   }
 });
+
+test("background captures activate only the first saved review and keep explicit opening available", async () => {
+  const store = new LocalStore(await fixture());
+  try {
+    const first = store.saveReview("/repo", preview(), null, false, {
+      activate: false,
+    });
+    const second = store.saveReview("/repo", preview(), null, false, {
+      activate: false,
+    });
+    expect(store.currentReview("/repo")?.id).toBe(first.id);
+    expect(store.listReviews("/repo")).toHaveLength(2);
+    expect(store.openReview("/repo", second.id).id).toBe(second.id);
+    expect(store.currentReview("/repo")?.id).toBe(second.id);
+  } finally {
+    store.close();
+  }
+});

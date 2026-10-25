@@ -43,6 +43,8 @@ const Consumer = () => {
 
 afterEach(() => {
   cleanup();
+  window.history.replaceState(null, "", "/");
+  sessionStorage.clear();
   vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.clearAllMocks();
@@ -634,4 +636,79 @@ test("queued writes carry the identity shown when enqueued even before a re-sync
       expectedHash: snapshot.hash,
       expectedRound: snapshot.round,
     });
+});
+
+test("background changes to the workspace selection cannot navigate a pinned reader or replace its unsaved draft", async () => {
+  vi.useFakeTimers();
+  const first = savedSnapshot();
+  const second = {
+    ...first,
+    id: "00000000-0000-4000-8000-000000000002",
+    files: [{ ...first.files[0]!, path: "other.ts" }],
+  };
+  let shared = first;
+  const fetcher = vi.fn(async (url: string) =>
+    Response.json(url.includes(`id=${first.id}`) ? first : shared),
+  );
+  vi.stubGlobal("fetch", fetcher);
+  render(
+    <LivePreviewProvider>
+      <Consumer />
+      <textarea aria-label="Draft" defaultValue="unfinished" />
+    </LivePreviewProvider>,
+  );
+  await act(async () => {});
+  const draft = screen.getByLabelText("Draft") as HTMLTextAreaElement;
+  draft.focus();
+  shared = second;
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(2000);
+  });
+  expect(screen.getByText("file.ts")).toBeTruthy();
+  expect(screen.queryByText("other.ts")).toBeNull();
+  expect(document.activeElement).toBe(draft);
+  expect(draft.value).toBe("unfinished");
+  expect(fetcher.mock.calls.at(-1)?.[0]).toBe(`/api/preview?id=${first.id}`);
+});
+
+test("review-specific links open the intended snapshot and local selection survives another tab's writes", async () => {
+  const snapshot = savedSnapshot();
+  snapshot.files.push({ ...snapshot.files[0]!, path: "second.ts" });
+  window.history.replaceState(
+    null,
+    "",
+    `/?review=${snapshot.id}&file=second.ts`,
+  );
+  const fetcher = vi.fn(async (_url, options) =>
+    Response.json(
+      options?.method === "POST"
+        ? { ...snapshot, revision: 1, selectedPath: "second.ts" }
+        : snapshot,
+    ),
+  );
+  vi.stubGlobal("fetch", fetcher);
+  let current!: ReturnType<typeof useLivePreview>;
+  const Observe = () => {
+    const value = useLivePreview();
+    useEffect(() => {
+      current = value;
+    }, [value]);
+    return null;
+  };
+  render(
+    <LivePreviewProvider>
+      <Observe />
+    </LivePreviewProvider>,
+  );
+  await act(async () => {});
+  expect(fetcher.mock.calls[0]?.[0]).toBe(`/api/preview?id=${snapshot.id}`);
+  expect(current.preview?.selectedPath).toBe("second.ts");
+  expect(new URL(window.location.href).searchParams.has("file")).toBe(false);
+  await act(async () => {
+    await current.changeReview({ action: "select", path: "file.ts" });
+  });
+  await act(async () => {
+    await current.refresh();
+  });
+  expect(current.preview?.selectedPath).toBe("file.ts");
 });

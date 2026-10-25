@@ -15,6 +15,13 @@ const parseCommandInput = (args: string[]): ParsedCliCommand => {
     options: optionDefinitions,
   });
   const values = parsed.values;
+  if (
+    values.priority !== undefined &&
+    !["normal", "high"].includes(String(values.priority))
+  )
+    throw new Error("--priority must be normal or high.");
+  if (!!values["expected-hash"] !== !!values["expected-round"])
+    throw new Error("Use --expected-hash and --expected-round together.");
   if (values.version) return { name: "version", args: [], values, help: false };
   const words = parsed.positionals;
   const definition = [...commandDefinitions]
