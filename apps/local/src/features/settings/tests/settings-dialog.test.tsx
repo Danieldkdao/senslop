@@ -267,7 +267,7 @@ test("theme and font hover preview is temporary, selection commits, and applicat
       undefined
     >;
   await user.click(screen.getByRole("combobox", { name: "Editor theme" }));
-  expect(screen.getAllByRole("option")).toHaveLength(21);
+  expect(await screen.findAllByRole("option")).toHaveLength(21);
   expect(screen.getAllByRole("option")[0].textContent).toContain("Default");
   expect(
     within(screen.getByRole("group", { name: "Light themes" })).getAllByRole(
