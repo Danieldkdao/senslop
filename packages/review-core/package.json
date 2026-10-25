@@ -10,7 +10,9 @@
     "./workflow": "./src/features/workflow/workflow-store.ts",
     "./policy": "./src/features/workflow/project-policy.ts",
     "./execution": "./src/features/workflow/execution-manifest.ts",
+    "./fix-tasks": "./src/features/workflow/fix-tasks.ts",
     "./usage": "./src/features/workflow/usage-store.ts",
+    "./fix-changes": "./src/features/workflow/fix-changes.ts",
     "./verification": "./src/features/workflow/verification-store.ts"
   },
   "scripts": {

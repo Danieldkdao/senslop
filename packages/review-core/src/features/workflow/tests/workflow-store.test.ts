@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { LocalStore } from "../../../db/local-store";
 import { WorkflowStore } from "../workflow-store";
+import { FixTasks } from "../fix-tasks";
 import { VerificationStore } from "../verification-store";
 
 const directories: string[] = [];
@@ -131,6 +132,34 @@ test("ambiguous same-code issues stay separate and are proposed as possible matc
         (item) => item.observations[0]?.evidence.title === "Different failure",
       )?.possibleMatches,
     ).toHaveLength(1);
+  } finally {
+    store.close();
+  }
+});
+
+test("fix tasks retain selected findings and enforce claims and stale revisions", async () => {
+  const { store, review, workflow } = await fixture();
+  try {
+    const issue = workflow.observe(review, randomUUID(), [finding])[0]!;
+    const tasks = new FixTasks(store, "/repo");
+    const task = tasks.create(review, {
+      title: "Fix value",
+      findingIds: [issue.id],
+      workspaceKind: "current",
+    });
+    expect(task.findingIds).toEqual([issue.id]);
+    expect(task.status).toBe("ready");
+    expect(() =>
+      tasks.claim(task.id, "Agent", { ...review, hash: "f".repeat(64) }),
+    ).toThrow(/changed/);
+    const claimed = tasks.claim(task.id, "Agent", review);
+    expect(claimed.agent).toBe("Agent");
+    expect(() => tasks.claim(task.id, "Other agent", review)).toThrow(
+      /claimed/,
+    );
+    tasks.transition(task.id, "canceled", review, "Canceled by user");
+    expect(tasks.get(task.id)?.activity).toHaveLength(3);
+    expect(workflow.findings(review.id)[0]?.decision).toBe("open");
   } finally {
     store.close();
   }
