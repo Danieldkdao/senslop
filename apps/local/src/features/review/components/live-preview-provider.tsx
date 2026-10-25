@@ -63,6 +63,7 @@ export const LivePreviewProvider = ({ children }: { children: ReactNode }) => {
       ? durable.data
       : localPreviewSchema.parse(data);
     selectedReview.current = preview.id;
+    sessionStorage.setItem("senslop:last-review", preview.id);
     const url = new URL(window.location.href);
     url.searchParams.set("review", preview.id);
     const storedPath = [
@@ -109,9 +110,9 @@ export const LivePreviewProvider = ({ children }: { children: ReactNode }) => {
     async (signal?: AbortSignal, force = false) => {
       const started = epoch.current;
       if (!initialized.current) {
-        selectedReview.current = new URL(window.location.href).searchParams.get(
-          "review",
-        );
+        selectedReview.current =
+          new URL(window.location.href).searchParams.get("review") ??
+          sessionStorage.getItem("senslop:last-review");
         initialized.current = true;
       }
       const response = await fetch(

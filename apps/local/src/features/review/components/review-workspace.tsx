@@ -59,6 +59,7 @@ import {
   SheetDescription,
 } from "@/components/ui/sheet";
 import { WorkspaceToolbar } from "../../workspace/components/workspace-toolbar";
+import { ProjectSwitcher } from "../../workspace/components/project-switcher";
 import { useWorkspaceBuddy } from "../../buddy/hooks/use-workspace-buddy";
 
 type ReviewWorkspaceProps = { children: ReactNode };
@@ -298,36 +299,39 @@ export const ReviewWorkspace = ({ children }: ReviewWorkspaceProps) => {
     />
   );
   const filesPanel = (
-    <ResizablePanelGroup orientation="vertical" className="min-h-0">
-      <ResizablePanel defaultSize="50%" minSize="20%">
-        <PreviewFiles
-          preview={preview}
-          grouping={grouping}
-          preparing={preparing}
-          selectedPath={selectedFile?.path}
-          onSelect={selectFile}
-        />
-      </ResizablePanel>
-      <ResizableHandle withHandle aria-label="Resize files and notes" />
-      <ResizablePanel defaultSize="50%" minSize="20%">
-        <ReviewNotes
-          key={preview?.id ?? "empty"}
-          notes={reviewNotes}
-          onDeleteNote={deleteNote}
-          onEditNote={editNote}
-          onSelectNote={(note) => {
-            selectFile(note.path);
-            if (note.line)
-              setEvidence({
-                path: note.path,
-                side: note.line.side === "additions" ? "after" : "before",
-                start: note.line.lineNumber,
-                end: note.line.endLineNumber ?? note.line.lineNumber,
-              });
-          }}
-        />
-      </ResizablePanel>
-    </ResizablePanelGroup>
+    <div className="flex h-full min-h-0 flex-col">
+      <ProjectSwitcher />
+      <ResizablePanelGroup orientation="vertical" className="min-h-0">
+        <ResizablePanel defaultSize="50%" minSize="20%">
+          <PreviewFiles
+            preview={preview}
+            grouping={grouping}
+            preparing={preparing}
+            selectedPath={selectedFile?.path}
+            onSelect={selectFile}
+          />
+        </ResizablePanel>
+        <ResizableHandle withHandle aria-label="Resize files and notes" />
+        <ResizablePanel defaultSize="50%" minSize="20%">
+          <ReviewNotes
+            key={preview?.id ?? "empty"}
+            notes={reviewNotes}
+            onDeleteNote={deleteNote}
+            onEditNote={editNote}
+            onSelectNote={(note) => {
+              selectFile(note.path);
+              if (note.line)
+                setEvidence({
+                  path: note.path,
+                  side: note.line.side === "additions" ? "after" : "before",
+                  start: note.line.lineNumber,
+                  end: note.line.endLineNumber ?? note.line.lineNumber,
+                });
+            }}
+          />
+        </ResizablePanel>
+      </ResizablePanelGroup>
+    </div>
   );
 
   const canvas = (
@@ -557,6 +561,19 @@ export const ReviewWorkspace = ({ children }: ReviewWorkspaceProps) => {
       )}
       <div
         data-review-scroll
+        data-reading-key={
+          preview && selectedFile
+            ? `${preview.id}:${selectedFile.path}`
+            : undefined
+        }
+        onScroll={(event) => {
+          const element = event.currentTarget;
+          if (element.dataset.readingKey)
+            sessionStorage.setItem(
+              `senslop:scroll:${element.dataset.readingKey}`,
+              String(element.scrollTop),
+            );
+        }}
         className="min-h-0 flex-1 overflow-auto overscroll-contain"
       >
         {preparing ? (

@@ -1017,6 +1017,7 @@ test.each([
     state.jobs = [
       {
         id: "old-grouping",
+        analysisMode: "thorough",
         priority: "normal",
         retryOf: null,
         dispatchKey: null,
@@ -1071,7 +1072,7 @@ test("retained notes for removed files stay readable without trying to select a 
   render(<ReviewWorkspace>Setup</ReviewWorkspace>);
   await userEvent
     .setup()
-    .click(screen.getByRole("button", { name: "removed.ts" }));
+    .click(screen.getByRole("button", { name: /removed.ts/ }));
   expect(screen.getByText("Keep this context")).toBeTruthy();
   expect(state.change).not.toHaveBeenCalled();
 });
