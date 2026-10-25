@@ -82,6 +82,15 @@ const agent = (
   groupingSeed?: Parameters<typeof createRepositoryAgent>[0]["groupingSeed"],
 ) =>
   createRepositoryAgent({
+    reviewIntent: {
+      brief: null,
+      instructions: {
+        profiles: ["correctness"],
+        rules: [],
+        sources: [],
+        limitations: [],
+      },
+    },
     local: {
       database: {
         prepare: (query: string) => ({
