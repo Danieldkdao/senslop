@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./components/expanding-tabs": "./src/components/expanding-tabs.tsx",
     "./hooks/use-keyboard-shortcuts": "./src/hooks/use-keyboard-shortcuts.ts",
     "./lib/keyboard-shortcuts": "./src/lib/keyboard-shortcuts.ts",
     "./hooks/use-highlighted-code": "./src/hooks/use-highlighted-code.ts",
