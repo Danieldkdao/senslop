@@ -10,6 +10,16 @@ import type {
   SavedReviewSchema,
 } from "@senslop/contracts";
 import type { SourceMap } from "./types";
+import {
+  readProjectPolicy,
+  allowsSourcePath,
+  sourcePolicyHash,
+  WorkflowPolicyError,
+} from "@senslop/review-core/policy";
+import {
+  projectPolicySchema,
+  type ProjectPolicySchema,
+} from "@senslop/contracts";
 import { analyzeSources, snapshotAnalysisVersion } from "./snapshot-analysis";
 
 type CapturableSnapshot = {
@@ -21,6 +31,7 @@ type CapturableSnapshot = {
 export const captureSources = async (
   root: string,
   snapshot: CapturableSnapshot,
+  policy: ProjectPolicySchema = projectPolicySchema.parse({}),
 ) => {
   const check = async () => {
     if (
@@ -38,7 +49,9 @@ export const captureSources = async (
   const limitations: string[] = [];
   let bytes = 0;
   const capture = async (ref: string | null, map: SourceMap) => {
-    const paths = await listSourcePaths(root, ref);
+    const paths = (await listSourcePaths(root, ref)).filter((path) =>
+      allowsSourcePath(policy, path),
+    );
     const captured = await readSourceTexts(
       root,
       paths.slice(0, 2000),
@@ -67,6 +80,13 @@ export const captureSources = async (
   await capture(snapshot.source.head, sources);
   await capture(snapshot.source.base, before);
   for (const file of snapshot.files) {
+    if (
+      !allowsSourcePath(policy, file.path) ||
+      (file.oldPath && !allowsSourcePath(policy, file.oldPath))
+    )
+      throw new WorkflowPolicyError(
+        "Source policy changed. Capture a new review before requesting analysis.",
+      );
     if (file.before !== null) {
       before[file.oldPath ?? file.path] = file.before;
       before[file.path] = file.before;
@@ -109,13 +129,19 @@ const captureContext = async (
       : null);
   let body: object;
   try {
-    const captured = await captureSources(root, snapshot);
+    const policy = readProjectPolicy(store, root);
+    const captured = await captureSources(root, snapshot, policy);
     const selected = new Set(
       snapshot.files.flatMap((file) => [file.path, file.oldPath]),
     );
     for (const file of previousReview?.syncBaseline ??
       previousReview?.files ??
       []) {
+      if (
+        !allowsSourcePath(policy, file.path) ||
+        (file.oldPath && !allowsSourcePath(policy, file.oldPath))
+      )
+        continue;
       if (snapshot.resyncMode === "keep" && selected.has(file.path)) continue;
       if (
         file.status.startsWith("R") &&
@@ -128,10 +154,19 @@ const captureContext = async (
     }
     body = {
       ...captured,
+      policyHash: sourcePolicyHash(policy),
       hash: snapshot.hash,
       round: snapshot.round,
       previousReview:
-        snapshot.resyncMode === "keep" ? previousReview : undefined,
+        snapshot.resyncMode === "keep" &&
+        previousReview &&
+        [...previousReview.files, ...(previousReview.syncBaseline ?? [])].every(
+          (file) =>
+            allowsSourcePath(policy, file.path) &&
+            (!file.oldPath || allowsSourcePath(policy, file.oldPath)),
+        )
+          ? previousReview
+          : undefined,
     };
   } catch (error) {
     body = {
@@ -152,6 +187,11 @@ const captureContext = async (
       "INSERT INTO ai_context VALUES (?, ?) ON CONFLICT(snapshot_id) DO UPDATE SET body = excluded.body",
     )
     .run(snapshot.id, JSON.stringify(body));
+  store.database
+    .prepare(
+      "UPDATE review_rounds SET context = ? WHERE review_id = ? AND round = ?",
+    )
+    .run(JSON.stringify(body), snapshot.id, snapshot.round);
 };
 
 const captures = new WeakMap<LocalStore, Map<string, Promise<void>>>();
@@ -187,6 +227,7 @@ export const loadContext = async (
     .get(snapshot.id);
   if (!existingContext) throw new Error("Snapshot context is unavailable.");
   const captured = JSON.parse(String(existingContext.body)) as {
+    policyHash?: string;
     sources: SourceMap;
     before: SourceMap;
     limitations: string[];
@@ -204,6 +245,15 @@ export const loadContext = async (
       "Snapshot changed during context loading. Reload and retry.",
     );
   if (captured.error) throw new Error(captured.error);
+  const policy = readProjectPolicy(store, root);
+  const hasPolicy = policy.include.length > 0 || policy.exclude.length > 0;
+  if (
+    (captured.policyHash && captured.policyHash !== sourcePolicyHash(policy)) ||
+    (!captured.policyHash && hasPolicy)
+  )
+    throw new WorkflowPolicyError(
+      "Source policy changed. Capture a new review before requesting analysis.",
+    );
   const currentAnalysis =
     captured.analysis?.version === snapshotAnalysisVersion;
   const analysis = currentAnalysis

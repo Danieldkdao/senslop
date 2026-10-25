@@ -4,6 +4,8 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { LocalStore } from "@senslop/review-core/storage";
+import { saveProjectPolicy } from "@senslop/review-core/policy";
+import { projectPolicySchema } from "@senslop/contracts";
 import { AgentStore } from "../lib/agent-store";
 import { defaultConnectionCapacity } from "../../ai-capacity/lib/capacity";
 
@@ -690,6 +692,28 @@ test("intentional re-analysis does not inherit a completed run's cached batches"
     expect(next.id).not.toBe(previous.id);
     expect(next.retryOf).toBeNull();
     expect(agents.readCheckpoint(next.id, "batch")).toBeNull();
+  } finally {
+    local.close();
+  }
+});
+
+test("source policy changes preserve conversation history but require a new conversation for further inference", async () => {
+  const { local, review, agents } = await fixture();
+  try {
+    const conversation = agents.createConversation(review.id);
+    saveProjectPolicy(
+      local,
+      "/repo",
+      projectPolicySchema.parse({ exclude: ["private/**"] }),
+    );
+    expect(() =>
+      agents.beginTurn(conversation.id, "continue", {
+        connectionId: randomUUID(),
+        modelId: "fixture",
+        name: "Fixture",
+      }),
+    ).toThrow(/policy/i);
+    expect(agents.conversation(conversation.id)).not.toBeNull();
   } finally {
     local.close();
   }

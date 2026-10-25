@@ -3,7 +3,12 @@ import { randomUUID } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import { storedConnectionSchema } from "@senslop/contracts";
 import type { LocalStore } from "@senslop/review-core/storage";
-import { projectPreferenceKey } from "@senslop/review-core/policy";
+import {
+  projectPreferenceKey,
+  readProjectPolicy,
+  sourcePolicyHash,
+  WorkflowPolicyError,
+} from "@senslop/review-core/policy";
 import {
   aiSettingsSchema,
   aiSettingsPatchSchema,
@@ -566,6 +571,9 @@ export class AgentStore {
       id: randomUUID(),
       snapshotId,
       title: "New conversation",
+      sourcePolicyHash: sourcePolicyHash(
+        readProjectPolicy(this.local, this.repository),
+      ),
       updatedAt: new Date().toISOString(),
       model: null,
       messages: [],
@@ -612,6 +620,16 @@ export class AgentStore {
     messageId: string = randomUUID(),
   ) =>
     this.changeConversation(id, (conversation) => {
+      const policy = readProjectPolicy(this.local, this.repository);
+      if (
+        (conversation.sourcePolicyHash &&
+          conversation.sourcePolicyHash !== sourcePolicyHash(policy)) ||
+        (!conversation.sourcePolicyHash &&
+          (policy.include.length || policy.exclude.length))
+      )
+        throw new WorkflowPolicyError(
+          "Source policy changed. Start a new conversation so older excluded context is not sent again.",
+        );
       const last = conversation.messages.at(-1);
       if (last?.status === "streaming")
         throw new Error("A response is already running.");
