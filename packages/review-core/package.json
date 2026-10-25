@@ -4,6 +4,8 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./precision": "./src/features/precision/precision-store.ts",
+    "./review-units": "./src/features/precision/review-units.ts",
     ".": "./src/index.ts",
     "./git": "./src/features/git/repository.ts",
     "./storage": "./src/db/local-store.ts",

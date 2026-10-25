@@ -7,6 +7,7 @@ import {
   localPreviewSchema,
   savedReviewSchema,
   reviewChangeSchema,
+  organizationSchema,
   type LocalPreviewSchema,
   type SavedReviewSchema,
   type ReviewChangeSchema,
@@ -28,7 +29,7 @@ export class LocalStore {
         const version = Number(
           this.database.prepare("PRAGMA user_version").get()?.user_version,
         );
-        if (version > 6)
+        if (version > 7)
           throw new Error(
             "Local data was created by a newer Senslop. Upgrade the CLI to open it.",
           );
@@ -79,6 +80,10 @@ export class LocalStore {
         if (version < 6)
           this.database.exec(
             "CREATE TABLE finding_verifications (id TEXT PRIMARY KEY, review_id TEXT NOT NULL REFERENCES reviews(id) ON DELETE CASCADE, body TEXT NOT NULL) STRICT; PRAGMA user_version=6;",
+          );
+        if (version < 7)
+          this.database.exec(
+            "CREATE TABLE review_precision (review_id TEXT NOT NULL REFERENCES reviews(id) ON DELETE CASCADE, round INTEGER NOT NULL, body TEXT NOT NULL, PRIMARY KEY (review_id, round)) STRICT; CREATE TABLE review_briefs (review_id TEXT NOT NULL REFERENCES reviews(id) ON DELETE CASCADE, version INTEGER NOT NULL, body TEXT NOT NULL, PRIMARY KEY (review_id, version)) STRICT; PRAGMA user_version=7;",
           );
       });
     } catch (error) {
@@ -368,6 +373,7 @@ export class LocalStore {
     id: string,
     input: ReviewChangeSchema,
     expected?: Pick<SavedReviewSchema, "hash" | "round">,
+    options?: { preserveUnitCompletion?: boolean },
   ) =>
     this.transaction(() => {
       const change = reviewChangeSchema.parse(input);
@@ -398,6 +404,29 @@ export class LocalStore {
             (path) => path !== change.path,
           );
           if (change.complete) existingReview.completedPaths.push(change.path);
+          if (!options?.preserveUnitCompletion) {
+            const row = this.database
+              .prepare(
+                "SELECT body FROM review_precision WHERE review_id=? AND round=?",
+              )
+              .get(id, existingReview.round);
+            if (row) {
+              const organization = organizationSchema.parse(
+                JSON.parse(String(row.body)),
+              );
+              for (const unit of organization.units)
+                if (unit.path === change.path) {
+                  unit.reviewed = change.complete;
+                  unit.needsReview = false;
+                }
+              organization.version++;
+              this.database
+                .prepare(
+                  "UPDATE review_precision SET body=? WHERE review_id=? AND round=?",
+                )
+                .run(JSON.stringify(organization), id, existingReview.round);
+            }
+          }
           break;
         case "add-note": {
           requirePath(change.note.path);
@@ -481,6 +510,9 @@ export class LocalStore {
         .run(repository, id);
       if (!deletedReview.changes)
         throw new Error("Saved review not found in this repository.");
+      this.database
+        .prepare("DELETE FROM preferences WHERE name=?")
+        .run(`review_rules:${id}`);
     });
     this.database.exec("PRAGMA wal_checkpoint(TRUNCATE)");
   };
