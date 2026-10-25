@@ -19,3 +19,10 @@ export type SettingsNavigation = {
   navigate: (screen: SettingsScreen) => void;
   back: () => void;
 };
+
+export type SettingsSaveStatus =
+  (typeof import("./constants").settingsSaveStatuses)[number];
+export type SettingsSaveSnapshot = {
+  status: SettingsSaveStatus;
+  message?: string;
+};
