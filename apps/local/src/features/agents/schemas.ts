@@ -1,4 +1,9 @@
 import { z } from "zod";
+import {
+  analysisModes,
+  workflowSeverities,
+  findingCategories,
+} from "@senslop/contracts";
 import { modelSelectionSchema } from "../providers/model-schemas";
 import { aiCapacitySchema } from "../ai-capacity/schemas";
 export {
@@ -205,19 +210,19 @@ export const groupOutlineSchema = z.object({
     ),
 });
 export type GroupOutlineSchema = z.infer<typeof groupOutlineSchema>;
-export const findingSeverities = [
-  "critical",
-  "high",
-  "medium",
-  "low",
-  "informational",
-] as const;
+export const findingSeverities = workflowSeverities;
 export type FindingSeverity = (typeof findingSeverities)[number];
 export const evidenceSides = ["before", "after"] as const;
 export type EvidenceSide = (typeof evidenceSides)[number];
 export const messageRoles = ["user", "assistant"] as const;
 export type MessageRole = (typeof messageRoles)[number];
 export const findingSchema = z.object({
+  category: z
+    .enum(findingCategories)
+    .optional()
+    .describe(
+      "Issue category; use uncategorized when no narrower category is justified.",
+    ),
   severity: z
     .enum(findingSeverities)
     .describe(
@@ -336,6 +341,7 @@ export type JobStatus = (typeof jobStatuses)[number];
 export const jobPriorities = ["normal", "high"] as const;
 export type JobPriority = (typeof jobPriorities)[number];
 export const jobSchema = z.object({
+  analysisMode: z.enum(analysisModes).default("thorough"),
   priority: z.enum(jobPriorities).default("normal"),
   retryOf: z.uuid().nullable().default(null),
   dispatchKey: z.string().nullable().default(null),
@@ -432,6 +438,7 @@ export const messageStatuses = [
 ] as const;
 export type MessageStatus = (typeof messageStatuses)[number];
 export const conversationSchema = z.object({
+  sourcePolicyHash: z.string().nullable().default(null),
   id: z
     .uuid()
     .describe("Application-assigned identifier of the saved conversation."),
