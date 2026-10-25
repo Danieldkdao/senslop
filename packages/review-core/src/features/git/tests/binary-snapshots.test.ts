@@ -30,6 +30,29 @@ afterEach(async () => {
   );
 });
 
+test("supported image previews retain exact frozen bytes while arbitrary binaries stay metadata-only", async () => {
+  const { cwd } = await fixture();
+  const image = Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jXioAAAAASUVORK5CYII=",
+    "base64",
+  );
+  await writeFile(join(cwd, "preview.png"), image);
+  const snapshot = await collectSnapshot({
+    cwd,
+    source: { kind: "working-tree" },
+  });
+  const file = snapshot.files.find((item) => item.path === "preview.png")!;
+  expect(file.imagePreview?.after?.mime).toBe("image/png");
+  expect(Buffer.from(file.imagePreview!.after!.base64, "base64")).toEqual(
+    image,
+  );
+  expect(file.after).toBeNull();
+  await writeFile(join(cwd, "preview.png"), "changed later");
+  expect(Buffer.from(file.imagePreview!.after!.base64, "base64")).toEqual(
+    image,
+  );
+});
+
 test.each(["untracked", "staged", "commit", "range"] as const)(
   "%s inspection retains large binary metadata alongside exact text changes",
   async (selection) => {
