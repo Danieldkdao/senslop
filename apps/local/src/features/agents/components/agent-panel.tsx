@@ -1,13 +1,18 @@
 "use client";
 
 import { useState } from "react";
-import { History } from "lucide-react";
+import { ChevronDown, History, Plus } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { matchesJobSnapshot } from "../lib/job-snapshots";
 import { assignedModel } from "../lib/model-selection";
 import { useAiSettings } from "../hooks/use-ai-settings";
 import { LoadingSwap } from "@/components/ui/loading-swap";
 import { Button } from "@/components/ui/button";
+import {
+  Collapsible,
+  CollapsibleTrigger,
+  CollapsibleContent,
+} from "@/components/ui/collapsible";
 import { TooltipWrapper } from "@/components/ui/tooltip-wrapper";
 import { cn } from "@/lib/utils";
 import { useAgentState } from "../hooks/use-agent-state";
@@ -83,6 +88,7 @@ export const AgentPanel = ({
   const [selectedRun, setSelectedRun] = useState<JobSchema | null>(null);
   const [stopping, setStopping] = useState(false);
   const [history, setHistory] = useState(false);
+  const [reviewControlsOpen, setReviewControlsOpen] = useState(true);
   const reviews =
     agents.state.data?.jobs.filter((job) => job.kind === "review") ?? [];
   const currentReviews = reviews.filter((job) =>
@@ -171,119 +177,165 @@ export const AgentPanel = ({
             value="review"
             className="flex min-h-0 flex-1 flex-col overflow-hidden text-base"
           >
-            <header className="flex shrink-0 flex-col gap-3 border-b p-4">
-              {workflow.state.data && (
-                <UsagePopover
-                  usage={workflow.state.data.usage}
-                  policy={workflow.state.data.policy}
-                  onAction={workflow.act}
-                  onOpenSettings={() => onOpenSettings?.("usage")}
-                />
-              )}
-              <div className="flex gap-2">
-                <Button
-                  className="min-w-0 flex-1 text-base"
-                  aria-label="Run review"
-                  aria-busy={running}
-                  disabled={
-                    preparing ||
-                    !snapshotId ||
-                    running ||
-                    !configured ||
-                    stale ||
-                    freshnessUnknown ||
-                    !hasChanges
-                  }
-                  onClick={() =>
-                    void agents
-                      .act({
-                        action: "job",
-                        snapshotId: snapshotId!,
-                        kind: "review",
-                      })
-                      .catch(() => {})
-                  }
-                >
-                  <LoadingSwap isLoading={running}>Run review</LoadingSwap>
-                </Button>
-                {running && (
-                  <Button
-                    className="text-base"
-                    variant="ghost"
-                    aria-label="Stop review"
-                    aria-busy={stopping}
-                    disabled={stopping}
-                    onClick={async () => {
-                      if (stopping) return;
-                      setStopping(true);
-                      try {
-                        await agents.act({
-                          action: "cancel",
-                          id: latest!.id,
-                        });
-                      } catch {
-                        /* The action reports errors through the shared toast system. */
-                      } finally {
-                        setStopping(false);
-                      }
-                    }}
-                  >
-                    <LoadingSwap isLoading={stopping}>Stop review</LoadingSwap>
-                  </Button>
-                )}
-                <TooltipWrapper content="Saved reviews">
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    aria-label="Saved reviews"
-                    onClick={() => setHistory(true)}
-                  >
-                    <History aria-hidden="true" className="size-4" />
-                  </Button>
-                </TooltipWrapper>
-              </div>
-              {(stale || freshnessUnknown) && (
-                <p role="status" className="text-muted-foreground">
-                  {stale
-                    ? resyncUnavailableReason
-                      ? "This snapshot is outdated and cannot be re-synced. Start a new review to capture the current changes before running a review."
-                      : "Re-sync your changes before running a review. The repository has changed since this snapshot."
-                    : !snapshotFingerprint
-                      ? "Start a new review to capture repository freshness before running a review."
-                      : "Checking repository freshness. Refresh the repository if this persists."}
-                </p>
-              )}
-              {!configured && (
-                <p className="text-muted-foreground">
-                  Choose a Review model in AI settings to run code reviews.
-                </p>
-              )}
-              {latest && (
-                <p
-                  role="status"
-                  className={cn("flex items-center gap-2", status?.className)}
-                >
-                  {StatusIcon && (
-                    <StatusIcon
-                      aria-hidden="true"
-                      className={cn(
-                        "size-4 shrink-0",
-                        status?.loading && "animate-spin",
-                      )}
+            <Collapsible
+              open={reviewControlsOpen}
+              onOpenChange={setReviewControlsOpen}
+              className="flex shrink-0 flex-col border-b"
+            >
+              <CollapsibleContent className="h-(--collapsible-panel-height) overflow-hidden transition-[height,opacity] duration-200 data-starting-style:h-0 data-starting-style:opacity-0 data-ending-style:h-0 data-ending-style:opacity-0 motion-reduce:transition-none">
+                <header className="flex flex-col gap-3 p-4 pb-0">
+                  {workflow.state.data && (
+                    <UsagePopover
+                      usage={workflow.state.data.usage}
+                      policy={workflow.state.data.policy}
+                      onAction={workflow.act}
+                      onOpenSettings={() => onOpenSettings?.("usage")}
                     />
                   )}
-                  {statusLabel}
-                  {running && latest.progress && latest.progress !== statusLabel
-                    ? `: ${latest.progress}`
-                    : ""}
-                </p>
-              )}
-              {latest?.error && (
-                <p role="alert" className="text-destructive">
-                  {latest.error}
-                </p>
-              )}
-            </header>
+                  <div className="flex gap-2">
+                    <Button
+                      className="min-w-0 flex-1 text-base"
+                      aria-label="Run review"
+                      aria-busy={running}
+                      disabled={
+                        preparing ||
+                        !snapshotId ||
+                        running ||
+                        !configured ||
+                        stale ||
+                        freshnessUnknown ||
+                        !hasChanges
+                      }
+                      onClick={() =>
+                        void agents
+                          .act({
+                            action: "job",
+                            snapshotId: snapshotId!,
+                            kind: "review",
+                          })
+                          .catch(() => {})
+                      }
+                    >
+                      <LoadingSwap isLoading={running}>Run review</LoadingSwap>
+                    </Button>
+                    {running && (
+                      <Button
+                        className="text-base"
+                        variant="ghost"
+                        aria-label="Stop review"
+                        aria-busy={stopping}
+                        disabled={stopping}
+                        onClick={async () => {
+                          if (stopping) return;
+                          setStopping(true);
+                          try {
+                            await agents.act({
+                              action: "cancel",
+                              id: latest!.id,
+                            });
+                          } catch {
+                            /* The action reports errors through the shared toast system. */
+                          } finally {
+                            setStopping(false);
+                          }
+                        }}
+                      >
+                        <LoadingSwap isLoading={stopping}>
+                          Stop review
+                        </LoadingSwap>
+                      </Button>
+                    )}
+                    <TooltipWrapper content="Saved reviews">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        aria-label="Saved reviews"
+                        onClick={() => setHistory(true)}
+                      >
+                        <History aria-hidden="true" className="size-4" />
+                      </Button>
+                    </TooltipWrapper>
+                  </div>
+                  {(stale || freshnessUnknown) && (
+                    <p role="status" className="text-muted-foreground">
+                      {stale
+                        ? resyncUnavailableReason
+                          ? "This snapshot is outdated and cannot be re-synced. Start a new review to capture the current changes before running a review."
+                          : "Re-sync your changes before running a review. The repository has changed since this snapshot."
+                        : !snapshotFingerprint
+                          ? "Start a new review to capture repository freshness before running a review."
+                          : "Checking repository freshness. Refresh the repository if this persists."}
+                    </p>
+                  )}
+                  {!configured && (
+                    <p className="text-muted-foreground">
+                      Choose a Review model in AI settings to run code reviews.
+                    </p>
+                  )}
+                  {latest?.error && (
+                    <p role="alert" className="text-destructive">
+                      {latest.error}
+                    </p>
+                  )}
+                </header>
+              </CollapsibleContent>
+              <div className="flex w-full px-4 py-2">
+                <TooltipWrapper
+                  className="w-full"
+                  content={`${reviewControlsOpen ? "Hide" : "Show"} review controls: ${statusLabel}`}
+                >
+                  <CollapsibleTrigger
+                    render={
+                      <Button
+                        variant="ghost"
+                        className="group/review flex h-auto min-h-9 w-full items-center justify-between gap-2 py-2 whitespace-normal pl-0! hover:bg-transparent! dark:hover:bg-transparent!"
+                        aria-label={`Review controls: ${statusLabel}`}
+                      >
+                        {latest ? (
+                          <span
+                            role="status"
+                            className={cn(
+                              "flex min-w-0 items-center gap-2 text-left text-base!",
+                              status?.className,
+                            )}
+                          >
+                            {StatusIcon && (
+                              <StatusIcon
+                                aria-hidden="true"
+                                className={cn(
+                                  "size-4.5 shrink-0",
+                                  status?.loading && "animate-spin",
+                                )}
+                              />
+                            )}
+                            <span className="min-w-0 wrap-break-word">
+                              {statusLabel}
+                              {running &&
+                              latest.progress &&
+                              latest.progress !== statusLabel
+                                ? `: ${latest.progress}`
+                                : ""}
+                            </span>
+                          </span>
+                        ) : (
+                          <span className="flex items-center gap-2">
+                            <Plus
+                              aria-hidden="true"
+                              className="size-4.5 shrink-0"
+                            />
+                            {statusLabel}
+                          </span>
+                        )}
+                        <ChevronDown
+                          aria-hidden="true"
+                          className="size-4 shrink-0 transition-transform group-data-panel-open/review:rotate-180 motion-reduce:transition-none"
+                        />
+                      </Button>
+                    }
+                  />
+                </TooltipWrapper>
+              </div>
+            </Collapsible>
             <section
               aria-label="Review findings"
               className="min-h-0 flex-1 overflow-y-auto"

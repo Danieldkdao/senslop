@@ -79,6 +79,96 @@ test("header keeps the add-note action and removes the notes browser", () => {
   expect(screen.queryByRole("button", { name: "Browse notes" })).toBeNull();
 });
 
+test.each([
+  [undefined, "plus", false],
+  ["queued", "clock", false],
+  ["running", "loader-circle", true],
+  ["completed", "circle-check", false],
+  ["failed", "circle-x", false],
+  ["canceled", "circle-minus", false],
+] as const)(
+  "review controls expose the %s state and collapse independently",
+  async (status, icon, loading) => {
+    const act = vi.fn();
+    const job = {
+      id: "review",
+      snapshotId: "snapshot",
+      kind: "review",
+      status,
+      createdAt: "2026-10-16T20:00:00Z",
+      settings: { separate: false, shared: { name: "Fixture model" } },
+      progress: status === "running" ? "Checking startup callers" : null,
+      result:
+        status === "completed"
+          ? {
+              summary: "Findings stay available when controls collapse.",
+              findings: [
+                {
+                  title: "Missing guard",
+                  severity: "high",
+                  problem: "Guard the input before reading it.",
+                  path: "a.ts",
+                  side: "after",
+                  start: 1,
+                  end: 1,
+                  code: "input.value",
+                  fixPrompt: "Add the guard.",
+                },
+              ],
+              limitations: [],
+              fixAllPrompt: "",
+            }
+          : null,
+    };
+    render(
+      <AgentPanel
+        snapshotId="snapshot"
+        agents={
+          { state: { data: { jobs: status ? [job] : [] } }, act } as never
+        }
+        onEvidence={vi.fn()}
+      />,
+    );
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("tab", { name: "Review" }));
+    const toggle = screen.getByRole("button", { name: /Review controls/ });
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    const statusIcon = toggle.querySelector("svg")!;
+    expect(statusIcon.classList.contains(`lucide-${icon}`)).toBe(true);
+    expect(statusIcon.classList.contains("animate-spin")).toBe(loading);
+    if (!status) expect(within(toggle).getByText("New review")).toBeTruthy();
+    else {
+      const statusText = within(toggle).getByRole("status");
+      expect(screen.getAllByText(statusText.textContent!)).toHaveLength(1);
+      if (status === "running")
+        expect(statusText.textContent).toContain(
+          "Analyzing changes: Checking startup callers",
+        );
+    }
+    expect(screen.getByRole("button", { name: "Run review" })).toBeTruthy();
+    const results = screen.getByRole("region", { name: "Review findings" });
+    expect(results.classList.contains("flex-1")).toBe(true);
+    expect(results.classList.contains("overflow-y-auto")).toBe(true);
+    await user.click(toggle);
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: "Run review" })).toBeNull(),
+    );
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.getByRole("region", { name: "Review findings" })).toBe(
+      results,
+    );
+    if (status === "completed")
+      expect(
+        screen.getByText("Findings stay available when controls collapse."),
+      ).toBeTruthy();
+    await user.click(toggle);
+    expect(
+      await screen.findByRole("button", { name: "Run review" }),
+    ).toBeTruthy();
+    expect(act).not.toHaveBeenCalled();
+  },
+);
+
 test("completed review summaries appear between review metadata and the combined fix prompt", async () => {
   const summary = "Fix the startup crash before merging.";
   const job = {
