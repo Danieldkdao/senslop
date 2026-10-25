@@ -135,6 +135,7 @@ export const useSourceSearch = (
 export const useLanguageSettings = (review?: ReviewIdentitySchema | null) => {
   const client = useQueryClient();
   return useMutation({
+    scope: { id: "language-settings" },
     mutationFn: async (settings: LanguageSettingsSchema) => {
       if (!review) throw new Error("Open a review first.");
       const response = await fetch("/api/source-explorer", {

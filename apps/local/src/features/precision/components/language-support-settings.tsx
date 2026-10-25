@@ -14,10 +14,9 @@ import {
   languageSettingsSchema,
   type ReviewIdentitySchema,
 } from "@senslop/contracts";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
-import { LoadingSwap } from "@/components/ui/loading-swap";
+import { useSettingsAutosave } from "../../settings/hooks/use-settings-autosave";
 import {
   useLanguageSettings,
   useSourceExplorer,
@@ -33,19 +32,26 @@ export const LanguageSupportSettings = ({
 }) => {
   const explorer = useSourceExplorer(review);
   const save = useLanguageSettings(review);
-  const {
-    register,
-    control,
-    handleSubmit,
-    formState: { errors, isSubmitting },
-  } = useForm<
+  const form = useForm<
     z.input<typeof languageSettingsSchema>,
     unknown,
     LanguageSupportFormSchema
   >({
     resolver: zodResolver(languageSettingsSchema),
+    mode: "onChange",
     values: explorer.data?.languageSettings ?? languageSettingsSchema.parse({}),
     resetOptions: { keepDirtyValues: true },
+  });
+  const {
+    register,
+    control,
+    formState: { errors },
+  } = form;
+  const autosave = useSettingsAutosave({
+    form,
+    schema: languageSettingsSchema,
+    enabled: !!review && !!explorer.data && !explorer.isPending,
+    save: save.mutateAsync,
   });
   if (!review)
     return (
@@ -57,11 +63,14 @@ export const LanguageSupportSettings = ({
     <form
       noValidate
       className="flex flex-col gap-5 text-base"
-      onSubmit={handleSubmit(async (settings) => {
-        try {
-          await save.mutateAsync(settings);
-        } catch {}
-      })}
+      onSubmit={(event) => {
+        event.preventDefault();
+        void autosave.flush();
+      }}
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget))
+          void autosave.flush();
+      }}
     >
       <p className="text-muted-foreground">
         TypeScript and JavaScript use captured compiler context, while Python
@@ -116,11 +125,6 @@ export const LanguageSupportSettings = ({
           </p>
         </fieldset>
       ))}
-      <Button type="submit" disabled={isSubmitting || explorer.isPending}>
-        <LoadingSwap isLoading={isSubmitting}>
-          Save language settings
-        </LoadingSwap>
-      </Button>
       <Collapsible>
         <CollapsibleTrigger className="group relative w-full min-w-0 pr-7 text-left cursor-pointer font-medium">
           Captured capability coverage

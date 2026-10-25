@@ -6,7 +6,7 @@ import {
   CollapsibleContent,
 } from "@/components/ui/collapsible";
 import { ChevronDown } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { Controller, useFieldArray, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Plus, Trash2 } from "lucide-react";
@@ -20,7 +20,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
-import { LoadingSwap } from "@/components/ui/loading-swap";
+import { useSettingsAutosave } from "../../settings/hooks/use-settings-autosave";
 import { TooltipWrapper } from "@/components/ui/tooltip-wrapper";
 import {
   Select,
@@ -40,8 +40,44 @@ export const RulesProfiles = ({
 }: {
   review?: ReviewIdentitySchema | null;
 }) => {
-  const intent = useReviewIntent(review);
   const [scope, setScope] = useState<"project" | "review">("project");
+  return (
+    <div className="flex flex-col gap-4 text-base">
+      <Select
+        value={scope}
+        onValueChange={(value) => {
+          if (value === "project" || value === "review") setScope(value);
+        }}
+      >
+        <SelectTrigger aria-label="Rules scope" className="w-full text-base">
+          <SelectValue>
+            {scope === "project"
+              ? "Local project overrides"
+              : "This review only"}
+          </SelectValue>
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="project">Local project overrides</SelectItem>
+          <SelectItem value="review">This review only</SelectItem>
+        </SelectContent>
+      </Select>
+      <RulesProfilesForm
+        key={`${review?.id}:${review?.hash}:${review?.round}:${scope}`}
+        review={review}
+        scope={scope}
+      />
+    </div>
+  );
+};
+
+const RulesProfilesForm = ({
+  review,
+  scope,
+}: {
+  review?: ReviewIdentitySchema | null;
+  scope: "project" | "review";
+}) => {
+  const intent = useReviewIntent(review);
   const overrides =
     scope === "project"
       ? intent.state.data?.projectOverrides
@@ -54,33 +90,30 @@ export const RulesProfiles = ({
     ...overrides,
     profiles: overrides?.profiles ?? defaults ?? ["correctness"],
   });
-  const {
-    control,
-    register,
-    handleSubmit,
-    reset,
-    formState: { errors, isSubmitting },
-  } = useForm<
+  const form = useForm<
     z.input<typeof reviewRulesSchema>,
     unknown,
     ReviewRulesFormSchema
   >({
     resolver: zodResolver(reviewRulesSchema),
+    mode: "onChange",
     values: formValues,
     resetOptions: { keepDirtyValues: true },
   });
-  const lastScope = useRef(scope);
-  useEffect(() => {
-    if (lastScope.current !== scope) {
-      lastScope.current = scope;
-      reset(
-        reviewRulesSchema.parse({
-          ...overrides,
-          profiles: overrides?.profiles ?? defaults ?? ["correctness"],
-        }),
-      );
-    }
-  }, [scope, overrides, defaults, reset]);
+  const {
+    control,
+    register,
+    reset,
+    formState: { errors },
+  } = form;
+  const autosave = useSettingsAutosave({
+    form,
+    schema: reviewRulesSchema,
+    enabled: !!review && !!intent.state.data && !intent.state.isPending,
+    save: async (rules) => {
+      await intent.act({ action: "save-rules", scope, rules });
+    },
+  });
   const rules = useFieldArray({ control, name: "rules", keyName: "fieldId" });
   const customProfiles = useFieldArray({
     control,
@@ -102,34 +135,18 @@ export const RulesProfiles = ({
         instructions.
       </p>
       {intent.state.error && <p role="alert">{intent.state.error.message}</p>}
-      <Select
-        value={scope}
-        onValueChange={(value) => {
-          if (value === "project" || value === "review") setScope(value);
-        }}
-      >
-        <SelectTrigger aria-label="Rules scope" className="w-full text-base">
-          <SelectValue>
-            {scope === "project"
-              ? "Local project overrides"
-              : "This review only"}
-          </SelectValue>
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="project">Local project overrides</SelectItem>
-          <SelectItem value="review">This review only</SelectItem>
-        </SelectContent>
-      </Select>
       <form
         key={scope}
         noValidate
         className="flex flex-col gap-5"
-        onSubmit={handleSubmit(async (values) => {
-          try {
-            await intent.act({ action: "save-rules", scope, rules: values });
-            reset(values);
-          } catch {}
-        })}
+        onSubmit={(event) => {
+          event.preventDefault();
+          void autosave.flush();
+        }}
+        onBlur={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget))
+            void autosave.flush();
+        }}
       >
         <fieldset
           disabled={intent.state.isPending}
@@ -353,15 +370,13 @@ export const RulesProfiles = ({
             />
           </div>
         ))}
-        <Button type="submit" disabled={intent.state.isPending || isSubmitting}>
-          <LoadingSwap isLoading={isSubmitting}>Save overrides</LoadingSwap>
-        </Button>
         <Button
           type="button"
           variant="outline"
           disabled={intent.pending}
           onClick={async () => {
             try {
+              await autosave.flush();
               await intent.act({ action: "save-rules", scope, rules: {} });
               const refreshed = await intent.state.refetch();
               const profiles =
