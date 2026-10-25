@@ -8,6 +8,7 @@
     "./git": "./src/features/git/repository.ts",
     "./storage": "./src/db/local-store.ts",
     "./workflow": "./src/features/workflow/workflow-store.ts",
+    "./policy": "./src/features/workflow/project-policy.ts",
     "./verification": "./src/features/workflow/verification-store.ts"
   },
   "scripts": {
