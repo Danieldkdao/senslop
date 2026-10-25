@@ -1,5 +1,6 @@
 "use client";
 
+import { useKeyboardShortcuts } from "@senslop/ui/hooks/use-keyboard-shortcuts";
 import { useEffect, useId, useRef, useState } from "react";
 import { ArrowLeft, ChevronRight, Search, Settings } from "lucide-react";
 import { TooltipWrapper } from "@/components/ui/tooltip-wrapper";
@@ -56,7 +57,32 @@ export const SettingsDialog = ({
       }),
     back: () => setScreens((current) => current.slice(0, -1)),
   };
-  const sections = children(navigation, search);
+  const sections = [...children(navigation, search)]
+    .map((section) => ({
+      ...section,
+      links: section.links
+        ?.slice()
+        .sort((a, b) =>
+          a.label.localeCompare(b.label, "en", { sensitivity: "base" }),
+        ),
+    }))
+    .sort((a, b) =>
+      a.label.localeCompare(b.label, "en", { sensitivity: "base" }),
+    );
+  useKeyboardShortcuts(
+    hideTrigger
+      ? []
+      : [
+          {
+            hotkey: "S",
+            callback: () => {
+              if (controlledOpen === undefined) setOpen(true);
+              onOpenChange?.(true);
+            },
+          },
+        ],
+    { enabled: !hideTrigger && !open },
+  );
   const current = screens.at(-1);
   const jump = (sectionId: string, anchor = false) => {
     setScreens([]);
@@ -111,10 +137,15 @@ export const SettingsDialog = ({
       }}
     >
       {!hideTrigger && (
-        <TooltipWrapper content="Settings">
+        <TooltipWrapper content="Settings (S)">
           <DialogTrigger
             render={
-              <Button variant="ghost" size="icon" aria-label="Settings" />
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label="Settings"
+                aria-keyshortcuts="s"
+              />
             }
           >
             <Settings aria-hidden="true" className="size-5" />

@@ -1,5 +1,9 @@
 "use client";
 
+import type { ReviewIdentitySchema } from "@senslop/contracts";
+import { LanguageSupportSettings } from "../../precision/components/language-support-settings";
+import { ReviewQuality } from "../../evaluations/components/review-quality";
+import { RulesProfiles } from "../../precision/components/rules-profiles";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { applicationThemes } from "@/lib/constants";
@@ -20,6 +24,7 @@ import { SourceSettings } from "../../workflow/components/source-settings";
 import { DataSettings } from "../../workflow/components/data-settings";
 
 type ReviewSettingsProps = {
+  review?: ReviewIdentitySchema | null;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
   initialSection?: string;
@@ -34,6 +39,7 @@ type ReviewSettingsProps = {
 };
 
 export const ReviewSettings = ({
+  review,
   open,
   onOpenChange,
   initialSection,
@@ -157,6 +163,20 @@ export const ReviewSettings = ({
             ],
           },
           {
+            id: "language-support",
+            label: "Language support",
+            keywords:
+              "language python go typescript javascript semantic parsing tree sitter pyright gopls",
+            content: <LanguageSupportSettings review={review} />,
+          },
+          {
+            id: "rules-profiles",
+            label: "Rules & profiles",
+            keywords:
+              "rules profiles correctness security performance accessibility api compatibility migrations instructions project",
+            content: <RulesProfiles review={review} />,
+          },
+          {
             id: "project-policy",
             label: "Source & execution",
             keywords:
@@ -169,6 +189,13 @@ export const ReviewSettings = ({
             keywords:
               "data privacy history source export deletion diagnostic bundle",
             content: <DataSettings />,
+          },
+          {
+            id: "review-quality",
+            label: "Review quality",
+            keywords:
+              "quality evaluation corpus precision recall evidence regressions models benchmarks",
+            content: <ReviewQuality />,
           },
           {
             id: "usage",
