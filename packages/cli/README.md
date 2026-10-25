@@ -2,7 +2,7 @@
 
 Requires Node.js 24 or 26+ and Git. Senslop bundles the local browser app and its job engine. Local reviews do not require a hosted Senslop account.
 
-This reference describes the implementation reconciled on October 24, 2026 at baseline 0860767. The package remains private and unpublished. In a source checkout, build through the workspace task graph and substitute `node packages/cli/dist/index.js` for `senslop`; see the [root setup guide](../../README.md). The [technical spec](../../devpost/spec.md) describes the current architecture, while the [roadmap](../../devpost/local-review-roadmap.md) contains proposed features.
+This reference describes the implementation reconciled on October 25, 2026, including the uncommitted precision implementation. The package remains private and unpublished. In a source checkout, build through the workspace task graph and substitute `node packages/cli/dist/index.js` for `senslop`; see the [root setup guide](../../README.md). The [technical spec](../../devpost/spec.md) describes the current architecture, while the [roadmap](../../devpost/local-review-roadmap.md) contains proposed features.
 
 ## Run the app and CLI separately
 
@@ -95,6 +95,35 @@ Settings support `ai`, `review`, and `ui` sections. `settings set KEY VALUE` pat
 CLI writes automatically refresh the open browser's reviews, analysis, notes, completion, providers, and settings. Unsaved AI instruction drafts are preserved when settings refresh. Existing keyboard shortcuts remain available in the browser.
 
 Browser shortcuts include K for file search, D for completion, arrows for file navigation, and optional R/brackets for saved-review history. Typing and overlays retain their keys. Settings include Appearance, Review Preferences, Editor, AI, and Providers, with editor previews and configurable buddy behavior.
+
+## Precision review
+
+Use returned review IDs, hashes, rounds, region IDs, and versions for automation:
+
+```sh
+senslop regions list REVIEW --json
+senslop regions update REVIEW --file action.json --organization-version 3 --json
+senslop brief show REVIEW --json
+senslop brief set REVIEW --file brief.json --brief-version 0 --json
+senslop rules show REVIEW --json
+senslop rules set REVIEW --scope review --file rules.json --json
+senslop source index REVIEW --side before --json
+senslop source show REVIEW src/example.ts --side before --json
+senslop source search REVIEW --search handler --side after --json
+senslop quality run --json
+senslop quality list --json
+senslop quality show RUN_ID --json
+```
+
+Region actions include `complete-unit`, `complete-file`, flow creation/rename/reorder, moving/splitting/combining units, combining flows, and `reset-organization`. Each changed line belongs to one unit once; file completion derives from all its units. Resetting manual organization requires confirmation. Existing `reviews complete`/`incomplete` commands update all units in that file. Add `--expected-hash HASH --expected-round ROUND` when continuing an automated task; conflicts require reassessment.
+
+Brief JSON contains `request`, `documents` as captured text paths with `contents: ""`, optional HTTP/HTTPS `links`, and `criteria` with stable `id`, `text`, `sourceQuote`, and optional `checkIds`. The server reads attachments from captured source. Saving appends a version. Requirement results live on matching saved review runs; verified means source evidence plus explicitly linked passing exact-revision checks.
+
+Rules JSON selects `profiles`, `rules` with stable IDs/text/path globs/enabled state, and optional custom profiles/instruction documents. Root/nested `.senslop/review.json` files must be included in captured Git source; ignored files need tracking or an explicit ignore exception. Only this explicit configuration path is allowed within the private state directory. Nested rules stay scoped; project overrides precede review overrides. `rules set ... --file` replaces the chosen override; `{}` restores inheritance. `rules show` exposes effective settings, source provenance, and limitations.
+
+Source navigation/search always reads the saved before/after version. Python/Go have packaged parsing; semantic servers are optional local tools configured in Language support. Missing tools/dependencies retain honest limitations.
+
+Default quality runs are deterministic synthetic contracts. `quality run --live --yes --json` explicitly sends the corpus plus saved grouping instructions to the selected Review model and may incur charges. Reports retain model/instructions and separate contract checks from live findings/grouping judgments. Unknown usage/cost remains unknown; no live-provider quality result is claimed by ordinary tests.
 
 ## Providers and credentials
 
