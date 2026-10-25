@@ -43,6 +43,7 @@ export const POST = async (request: Request) => {
       snapshot,
     );
     const agent = await createRepositoryAgent({
+      task: "explain",
       local: agents.local,
       snapshot,
       context,

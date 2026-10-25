@@ -1,3 +1,4 @@
+import { WorkflowPolicyError } from "@senslop/review-core/policy";
 import { APICallError, RetryError, TypeValidationError } from "ai";
 import { ZodError } from "zod";
 
@@ -299,6 +300,7 @@ export const formatAiError = (error: unknown) => {
     return "The analysis result was invalid and could not be saved. Retry analysis or choose another model.";
   if (
     error instanceof AiServiceError ||
+    error instanceof WorkflowPolicyError ||
     (error instanceof Error &&
       ["NonRetriableError", "AiTransientError"].includes(error.name))
   )
@@ -328,7 +330,12 @@ export const formatAiError = (error: unknown) => {
 
 export const isFatalAiError = (error: unknown) => {
   if (isAiRefusalError(error)) return true;
-  if (error instanceof AiServiceError || error instanceof ZodError) return true;
+  if (
+    error instanceof AiServiceError ||
+    error instanceof WorkflowPolicyError ||
+    error instanceof ZodError
+  )
+    return true;
   const status = getAiErrorStatus(error);
   return (
     status === 400 ||

@@ -48,6 +48,10 @@ import {
   requireCompletedModelResult,
   requireCompletedModelStream,
 } from "./model-stream";
+import {
+  createWorkflowMiddleware,
+  type ModelWorkflowScope,
+} from "./workflow-middleware";
 
 type ResolvedLanguageModel = {
   toolsSupported?: boolean;
@@ -119,6 +123,7 @@ export const resolveLanguageModel = (
   fetcher: typeof fetch = fetch,
   capacity?: ConnectionCapacitySchema,
   machineConcurrency?: number,
+  workflowScope?: ModelWorkflowScope,
 ): ResolvedLanguageModel => {
   const compatible = getCompatibleModel(connection, modelId);
   const profile = capacity
@@ -313,155 +318,166 @@ export const resolveLanguageModel = (
   const wrapModel = (model: Exclude<LanguageModel, string>) =>
     wrapLanguageModel({
       model,
-      middleware: {
-        specificationVersion: "v4",
-        transformParams: async ({ params }) => {
-          if (compatible) {
-            if (!compatible.supportsChatCompletions)
+      middleware: [
+        ...(workflowScope
+          ? [createWorkflowMiddleware(workflowScope, connection, modelId)]
+          : []),
+        {
+          specificationVersion: "v4",
+          transformParams: async ({ params }) => {
+            if (compatible) {
+              if (!compatible.supportsChatCompletions)
+                params = {
+                  ...params,
+                  providerOptions: {
+                    ...params.providerOptions,
+                    openai: {
+                      ...params.providerOptions?.openai,
+                      forceReasoning: compatible.supportsThinking,
+                    },
+                  },
+                };
+              if (
+                !compatible.supportsImages &&
+                params.prompt.some(
+                  (message) =>
+                    typeof message.content !== "string" &&
+                    message.content.some(
+                      (part) =>
+                        part.type === "file" &&
+                        part.mediaType.startsWith("image/"),
+                    ),
+                )
+              )
+                throw new AiServiceError(
+                  "This model is configured without support for images.",
+                );
+              params = {
+                ...params,
+                maxOutputTokens: Math.min(
+                  params.maxOutputTokens ?? compatible.maxOutputTokens,
+                  compatible.maxOutputTokens,
+                  compatible.supportsChatCompletions
+                    ? compatible.maxCompletionTokens
+                    : Infinity,
+                ),
+                ...(compatible.supportsTools
+                  ? {}
+                  : {
+                      tools: undefined,
+                      toolChoice: { type: "none" as const },
+                    }),
+                ...(compatible.supportsThinking
+                  ? {}
+                  : { reasoning: undefined }),
+              };
+            }
+            if (profile)
+              params = {
+                ...params,
+                maxOutputTokens: Math.min(
+                  params.maxOutputTokens ?? profile.outputTokens,
+                  profile.outputTokens,
+                  profile.outputTokensPerMinute ?? Infinity,
+                ),
+              };
+            if (params.responseFormat?.type !== "json") return params;
+            if (connection.provider === "openrouter") {
+              const routing = params.providerOptions?.openrouter?.provider;
               params = {
                 ...params,
                 providerOptions: {
                   ...params.providerOptions,
-                  openai: {
-                    ...params.providerOptions?.openai,
-                    forceReasoning: compatible.supportsThinking,
+                  openrouter: {
+                    ...params.providerOptions?.openrouter,
+                    provider: {
+                      ...(routing &&
+                      typeof routing === "object" &&
+                      !Array.isArray(routing)
+                        ? routing
+                        : {}),
+                      require_parameters: true,
+                    },
                   },
                 },
               };
-            if (
-              !compatible.supportsImages &&
-              params.prompt.some(
-                (message) =>
-                  typeof message.content !== "string" &&
-                  message.content.some(
-                    (part) =>
-                      part.type === "file" &&
-                      part.mediaType.startsWith("image/"),
+            }
+            const googleSchema =
+              connection.provider === "google" ||
+              (connection.provider === "opencode" &&
+                getOpenCodeProtocol(modelId) === "gemini") ||
+              (connection.provider === "vercel" &&
+                modelId.startsWith("google/"));
+            // Expanding array bounds can exceed Google's schema complexity limit.
+            // Keep empty-array constraints; SDK validation enforces all original bounds.
+            if (googleSchema)
+              return {
+                ...params,
+                responseFormat: JSON.parse(
+                  JSON.stringify(params.responseFormat, (key, value) =>
+                    (key === "minItems" || key === "maxItems") &&
+                    typeof value === "number" &&
+                    value > 0
+                      ? undefined
+                      : value,
                   ),
-              )
-            )
-              throw new AiServiceError(
-                "This model is configured without support for images.",
-              );
-            params = {
-              ...params,
-              maxOutputTokens: Math.min(
-                params.maxOutputTokens ?? compatible.maxOutputTokens,
-                compatible.maxOutputTokens,
-                compatible.supportsChatCompletions
-                  ? compatible.maxCompletionTokens
-                  : Infinity,
-              ),
-              ...(compatible.supportsTools
-                ? {}
-                : { tools: undefined, toolChoice: { type: "none" as const } }),
-              ...(compatible.supportsThinking ? {} : { reasoning: undefined }),
-            };
-          }
-          if (profile)
-            params = {
-              ...params,
-              maxOutputTokens: Math.min(
-                params.maxOutputTokens ?? profile.outputTokens,
-                profile.outputTokens,
-                profile.outputTokensPerMinute ?? Infinity,
-              ),
-            };
-          if (params.responseFormat?.type !== "json") return params;
-          if (connection.provider === "openrouter") {
-            const routing = params.providerOptions?.openrouter?.provider;
-            params = {
-              ...params,
-              providerOptions: {
-                ...params.providerOptions,
-                openrouter: {
-                  ...params.providerOptions?.openrouter,
-                  provider: {
-                    ...(routing &&
-                    typeof routing === "object" &&
-                    !Array.isArray(routing)
-                      ? routing
-                      : {}),
-                    require_parameters: true,
-                  },
-                },
-              },
-            };
-          }
-          const googleSchema =
-            connection.provider === "google" ||
-            (connection.provider === "opencode" &&
-              getOpenCodeProtocol(modelId) === "gemini") ||
-            (connection.provider === "vercel" && modelId.startsWith("google/"));
-          // Expanding array bounds can exceed Google's schema complexity limit.
-          // Keep empty-array constraints; SDK validation enforces all original bounds.
-          if (googleSchema)
-            return {
-              ...params,
-              responseFormat: JSON.parse(
-                JSON.stringify(params.responseFormat, (key, value) =>
-                  (key === "minItems" || key === "maxItems") &&
-                  typeof value === "number" &&
-                  value > 0
-                    ? undefined
-                    : value,
                 ),
-              ),
-            };
-          // MiMo supports JSON mode, while its Gateway adapter cannot enforce a response schema.
-          if (
-            connection.provider === "vercel" &&
-            /^xiaomi\/mimo-/i.test(modelId)
-          )
-            return {
-              ...params,
-              responseFormat: { type: "json" },
-            };
-          return params;
+              };
+            // MiMo supports JSON mode, while its Gateway adapter cannot enforce a response schema.
+            if (
+              connection.provider === "vercel" &&
+              /^xiaomi\/mimo-/i.test(modelId)
+            )
+              return {
+                ...params,
+                responseFormat: { type: "json" },
+              };
+            return params;
+          },
+          wrapGenerate: ({ doGenerate, params }) =>
+            limiter
+              .run(doGenerate, params.abortSignal, {
+                inputTokens: estimateInputTokenUpperBound({
+                  prompt: params.prompt,
+                  tools: params.tools,
+                  responseFormat: params.responseFormat,
+                }),
+                actualInputTokens: (result) => result.usage.inputTokens.total,
+                outputTokens: params.maxOutputTokens ?? 0,
+                actualOutputTokens: (result) => result.usage.outputTokens.total,
+              })
+              .then(requireCompletedModelResult),
+          wrapStream: ({ doStream, params }) =>
+            limiter
+              .runStream(doStream, params.abortSignal, {
+                outputTokens: params.maxOutputTokens ?? 0,
+                actualInputTokens: (part) => {
+                  const chunk = part as {
+                    type: string;
+                    usage?: { inputTokens?: { total?: number } };
+                  };
+                  return chunk.type === "finish"
+                    ? chunk.usage?.inputTokens?.total
+                    : undefined;
+                },
+                actualOutputTokens: (part) => {
+                  const chunk = part as {
+                    type: string;
+                    usage?: { outputTokens?: { total?: number } };
+                  };
+                  return chunk.type === "finish"
+                    ? chunk.usage?.outputTokens?.total
+                    : undefined;
+                },
+                inputTokens: estimateInputTokenUpperBound({
+                  prompt: params.prompt,
+                  tools: params.tools,
+                  responseFormat: params.responseFormat,
+                }),
+              })
+              .then(requireCompletedModelStream),
         },
-        wrapGenerate: ({ doGenerate, params }) =>
-          limiter
-            .run(doGenerate, params.abortSignal, {
-              inputTokens: estimateInputTokenUpperBound({
-                prompt: params.prompt,
-                tools: params.tools,
-                responseFormat: params.responseFormat,
-              }),
-              actualInputTokens: (result) => result.usage.inputTokens.total,
-              outputTokens: params.maxOutputTokens ?? 0,
-              actualOutputTokens: (result) => result.usage.outputTokens.total,
-            })
-            .then(requireCompletedModelResult),
-        wrapStream: ({ doStream, params }) =>
-          limiter
-            .runStream(doStream, params.abortSignal, {
-              outputTokens: params.maxOutputTokens ?? 0,
-              actualInputTokens: (part) => {
-                const chunk = part as {
-                  type: string;
-                  usage?: { inputTokens?: { total?: number } };
-                };
-                return chunk.type === "finish"
-                  ? chunk.usage?.inputTokens?.total
-                  : undefined;
-              },
-              actualOutputTokens: (part) => {
-                const chunk = part as {
-                  type: string;
-                  usage?: { outputTokens?: { total?: number } };
-                };
-                return chunk.type === "finish"
-                  ? chunk.usage?.outputTokens?.total
-                  : undefined;
-              },
-              inputTokens: estimateInputTokenUpperBound({
-                prompt: params.prompt,
-                tools: params.tools,
-                responseFormat: params.responseFormat,
-              }),
-            })
-            .then(requireCompletedModelStream),
-      },
+      ],
     });
   return {
     ...resolved,
