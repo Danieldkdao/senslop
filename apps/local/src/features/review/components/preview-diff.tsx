@@ -37,6 +37,7 @@ type PreviewDiffProps = {
   notes: ReviewNote[];
   onAddComment: (body: string, line: ReviewLine) => void | Promise<void>;
   snapshotId?: string;
+  readOnly?: boolean;
   evidence?: { side: "before" | "after"; start: number; end: number } | null;
   onDeleteNote: (id: string) => void | Promise<void>;
 };
@@ -58,6 +59,7 @@ export const PreviewDiff = ({
   onAddComment,
   onDeleteNote,
   snapshotId,
+  readOnly = false,
   evidence,
 }: PreviewDiffProps) => {
   const { systemTheme } = useTheme();
@@ -234,6 +236,7 @@ export const PreviewDiff = ({
     setSelectionPreview(null);
   }, []);
   const revealedEvidence = useRef<PreviewDiffProps["evidence"]>(null);
+  const restoredPosition = useRef(false);
   const revealEvidence = useCallback(
     (node: HTMLElement, instance: unknown, phase: string) => {
       host.current = phase === "unmount" ? null : node;
@@ -244,6 +247,19 @@ export const PreviewDiff = ({
         activeLineSide: selectedLines?.side,
         notify: false,
       });
+      if (!evidence && phase !== "unmount" && !restoredPosition.current) {
+        const scroller = node.closest<HTMLElement>("[data-reading-key]");
+        if (scroller) {
+          restoredPosition.current = true;
+          const position = sessionStorage.getItem(
+            `senslop:scroll:${scroller.dataset.readingKey}`,
+          );
+          if (position !== null)
+            requestAnimationFrame(() =>
+              scroller.scrollTo({ top: Number(position) }),
+            );
+        }
+      }
       if (!evidence || phase === "unmount") return;
       requestAnimationFrame(() => {
         const line = node.shadowRoot?.querySelector<HTMLElement>(
@@ -277,7 +293,7 @@ export const PreviewDiff = ({
     () => ({
       ...getDiffOptions(settings, view, systemTheme),
       onPostRender: revealEvidence,
-      enableLineSelection: commentTarget === null,
+      enableLineSelection: !readOnly && commentTarget === null,
       controlledSelection: true,
       onLineSelected,
       onLineSelectionStart: onLineSelectionChange,
@@ -285,6 +301,7 @@ export const PreviewDiff = ({
       onLineSelectionEnd,
       // Pierre's native utility tracks gutter width and line height, including hidden numbers.
       enableGutterUtility:
+        !readOnly &&
         commentTarget === null &&
         Boolean(lines.additions.length || lines.deletions.length),
       onGutterUtilityClick: ({ start, side }) =>
@@ -312,6 +329,7 @@ export const PreviewDiff = ({
       onLineSelected,
       onLineSelectionChange,
       onLineSelectionEnd,
+      readOnly,
     ],
   );
   if (file.binary)
@@ -426,7 +444,7 @@ export const PreviewDiff = ({
             enableGutterUtility: options.enableGutterUtility,
             onGutterUtilityClick: ({ start }) =>
               openComment({ side: "additions", lineNumber: start }),
-            enableLineSelection: commentTarget === null,
+            enableLineSelection: !readOnly && commentTarget === null,
             controlledSelection: true,
             onLineSelected,
             onLineSelectionStart: onLineSelectionChange,
