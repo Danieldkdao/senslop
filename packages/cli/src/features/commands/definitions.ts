@@ -4,6 +4,19 @@ export const optionDefinitions: Record<
   string,
   { type: "string" | "boolean"; description: string; short?: string }
 > = {
+  live: {
+    type: "boolean",
+    description:
+      "Opt into live synthetic-corpus inference; may incur provider charges.",
+  },
+  "organization-version": {
+    type: "string",
+    description: "Require the saved organization version before editing.",
+  },
+  "brief-version": {
+    type: "string",
+    description: "Require the saved brief version before editing.",
+  },
   status: {
     type: "string",
     description: "Finding decision: open, accepted, dismissed, or resolved.",
@@ -148,7 +161,8 @@ export const optionDefinitions: Record<
   },
   side: {
     type: "string",
-    description: "Frozen file content: before or after; omit to read the diff.",
+    description:
+      "Frozen source side: before or after. Source commands default to after; reviews diff without --side returns the diff.",
   },
   mode: {
     type: "string",
@@ -158,7 +172,7 @@ export const optionDefinitions: Record<
   title: { type: "string", description: "Name for the saved review." },
   yes: {
     type: "boolean",
-    description: "Explicitly confirm deletion or sign-out.",
+    description: "Explicitly confirm the requested operation.",
   },
   review: {
     type: "string",
@@ -244,7 +258,8 @@ export const optionDefinitions: Record<
   },
   scope: {
     type: "string",
-    description: "Skill installation scope: project or user; default project.",
+    description:
+      "Skill scope: project or user. Rules scope: project or review; default review.",
   },
   url: {
     type: "string",
@@ -279,6 +294,109 @@ const skillInstallationOptions = [
 ];
 
 export const commandDefinitions: CommandDefinition[] = [
+  {
+    name: "regions list",
+    description: "Read exact changed regions, ownership, flows and completion.",
+    arguments: "ID",
+    minArgs: 1,
+    maxArgs: 1,
+    options: ["expected-hash", "expected-round"],
+  },
+  {
+    name: "regions update",
+    description:
+      "Apply an organization action from --file JSON. Reset requires --yes in automation.",
+    arguments: "ID",
+    minArgs: 1,
+    maxArgs: 1,
+    options: [
+      "file",
+      "organization-version",
+      "expected-hash",
+      "expected-round",
+      "yes",
+    ],
+  },
+  {
+    name: "brief show",
+    description:
+      "Read versioned intent, captured documents and effective rules.",
+    arguments: "ID",
+    minArgs: 1,
+    maxArgs: 1,
+    options: ["expected-hash", "expected-round"],
+  },
+  {
+    name: "brief set",
+    description:
+      "Save a review brief from --file JSON. Document paths resolve to captured source.",
+    arguments: "ID",
+    minArgs: 1,
+    maxArgs: 1,
+    options: ["file", "brief-version", "expected-hash", "expected-round"],
+  },
+  {
+    name: "rules show",
+    description:
+      "Inspect effective profiles, rule sources and local overrides.",
+    arguments: "ID",
+    minArgs: 1,
+    maxArgs: 1,
+    options: ["expected-hash", "expected-round"],
+  },
+  {
+    name: "rules set",
+    description:
+      "Replace local project or review overrides from --file JSON; {} restores inheritance.",
+    arguments: "ID",
+    minArgs: 1,
+    maxArgs: 1,
+    options: ["file", "scope", "expected-hash", "expected-round"],
+  },
+  {
+    name: "source index",
+    description:
+      "Read frozen files, symbols, relationships, capabilities and impact.",
+    arguments: "ID",
+    minArgs: 1,
+    maxArgs: 1,
+    options: ["side", "expected-hash", "expected-round"],
+  },
+  {
+    name: "source show",
+    description: "Read exact frozen source, never live disk.",
+    arguments: "ID PATH",
+    minArgs: 2,
+    maxArgs: 2,
+    options: ["side", "expected-hash", "expected-round"],
+  },
+  {
+    name: "source search",
+    description: "Search frozen source content with --search.",
+    arguments: "ID",
+    minArgs: 1,
+    maxArgs: 1,
+    options: ["side", "search", "expected-hash", "expected-round"],
+  },
+  {
+    name: "quality list",
+    description: "Read the last 20 saved project quality reports.",
+    options: [],
+  },
+  {
+    name: "quality show",
+    description: "Read an inspectable quality report for export or comparison.",
+    arguments: "RUN_ID",
+    minArgs: 1,
+    maxArgs: 1,
+    options: [],
+  },
+  {
+    name: "quality run",
+    description:
+      "Run deterministic contracts, or --live for opt-in Review model inference. Live automation requires --yes.",
+    options: ["live", "yes"],
+  },
   ...[
     {
       name: "findings verify",

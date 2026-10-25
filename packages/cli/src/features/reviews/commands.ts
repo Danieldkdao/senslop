@@ -1,3 +1,4 @@
+import { executePrecisionCommand } from "../precision/commands.js";
 import { randomUUID } from "node:crypto";
 import open from "open";
 import type { SavedReviewSchema, ReviewChangeSchema } from "@senslop/contracts";
@@ -88,6 +89,12 @@ export const executeReviewCommand = async (
   openBrowser: (url: string) => Promise<unknown> = open,
 ): Promise<unknown> => {
   const { name, args, values } = command;
+  if (
+    ["regions ", "brief ", "rules ", "source ", "quality "].some((prefix) =>
+      name.startsWith(prefix),
+    )
+  )
+    return executePrecisionCommand(client, command);
   if (
     [
       "findings ",
