@@ -1,11 +1,11 @@
 "use client";
 
 import { Skeleton } from "@/components/ui/skeleton";
-import { FolderOpen, Sprout } from "lucide-react";
-import { PreviewFileItem } from "./preview-file-item";
+import { FolderOpen } from "lucide-react";
 import { GroupedFiles } from "../../agents/components/grouped-files";
 import type { GroupingSchema } from "../../agents/schemas";
 import type { LivePreview } from "../types";
+import { PreviewFileItem } from "./preview-file-item";
 
 type PreviewFilesProps = {
   preview: LivePreview | null;
@@ -28,10 +28,6 @@ export const PreviewFiles = ({
       aria-label="Review files"
       className="flex h-full min-w-0 flex-col overflow-hidden bg-sidebar text-sidebar-foreground"
     >
-      <div className="flex h-14 shrink-0 items-center gap-2 border-b border-border px-5 font-semibold">
-        <Sprout aria-hidden="true" className="size-5 text-primary" />
-        Senslop
-      </div>
       {preparing ? (
         <div
           role="status"
