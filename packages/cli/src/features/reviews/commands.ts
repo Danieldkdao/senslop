@@ -34,7 +34,7 @@ const changeReview = (
 
 const prepareReview = async (
   client: WorkspaceClient,
-  review: SavedReviewSchema,
+  review: SavedReviewSchema & { activated?: boolean },
   command: ParsedCliCommand,
   openBrowser: (url: string) => Promise<unknown>,
 ) => {
@@ -60,17 +60,25 @@ const prepareReview = async (
         4,
         { reviewId: review.id },
       );
-    if (values.wait || values["run-review"])
-      grouping = await waitForJob(client, grouping.id, timeout);
+    if (values.wait) grouping = await waitForJob(client, grouping.id, timeout);
   }
   if (values["run-review"]) {
-    analysis = await startJob(client, review.id, "review");
+    analysis = await startJob(client, review.id, "review", {
+      hash: review.hash,
+      round: review.round,
+      priority: stringOption(values, "priority") as
+        "normal" | "high" | undefined,
+    });
     if (values.wait) analysis = await waitForJob(client, analysis.id, timeout);
   }
-  if (values.open) await openBrowser(client.browserUrl());
+  if (values.open || review.activated)
+    await openBrowser(client.browserUrl(review.id));
   return {
     id: review.id,
-    url: client.info().origin,
+    round: review.round,
+    hash: review.hash,
+    url: `${client.info().origin}/?review=${encodeURIComponent(review.id)}`,
+    jobIds: [grouping?.id, analysis?.id].filter((id): id is string => !!id),
     review,
     preparation: { grouping, review: analysis },
   };
@@ -99,18 +107,27 @@ export const executeReviewCommand = async (
       base: stringOption(values, "base"),
       "working-tree": !!values["working-tree"],
     });
-    let review = await client.request<SavedReviewSchema>("/api/workspace", {
+    let review = await client.request<
+      SavedReviewSchema & { activated?: boolean }
+    >("/api/workspace", {
       action: "inspect",
       source,
+      ...(values.priority ? { priority: values.priority } : {}),
+      activate: !!values.open,
+      directory: client.info().directory ?? process.cwd(),
       ...(grouping === undefined ? {} : { grouping }),
     });
     const title = stringOption(values, "title");
     if (title)
-      review = await changeReview(client, review, { action: "rename", title });
+      review = {
+        ...(await changeReview(client, review, { action: "rename", title })),
+        activated: review.activated,
+      };
     return prepareReview(client, review, command, openBrowser);
   }
   if (name.startsWith("runs ")) {
     if (name === "runs list") {
+      if (values.all) return client.request("/api/agents?queue=1");
       const review = await readReview(client, stringOption(values, "review"));
       return client.request(
         `/api/agents?snapshotId=${review.id}&history=jobs&offset=${integerOption(values, "offset", 0)}&limit=${integerOption(values, "limit", 50, 1, 100)}&search=${encodeURIComponent(stringOption(values, "search") ?? "")}`,
@@ -127,9 +144,18 @@ export const executeReviewCommand = async (
         if (job.status !== "queued" && job.status !== "running") return job;
         return client.request("/api/agents", { action: "cancel", id });
       case "runs retry": {
-        const next = await startJob(client, job.snapshotId, job.kind);
+        const next = await client.request<ReviewJob>("/api/agents", {
+          action: "retry",
+          id: job.id,
+        });
         return values.wait ? waitForJob(client, next.id, timeout) : next;
       }
+      case "runs prioritize":
+        return client.request("/api/agents", {
+          action: "priority",
+          id: job.id,
+          priority: stringOption(values, "priority") ?? "high",
+        });
       case "runs rename":
         return client.request("/api/agents", {
           action: "rename-review",
@@ -159,6 +185,18 @@ export const executeReviewCommand = async (
     }
   }
   const review = await readReview(client, id);
+  const expectedHash = stringOption(values, "expected-hash");
+  if (
+    expectedHash &&
+    (review.hash !== expectedHash ||
+      review.round !== integerOption(values, "expected-round", 1, 1))
+  )
+    throw new CliError(
+      "Review contents changed. Reload the review and retry with its current revision.",
+      "review_conflict",
+      6,
+      { reviewId: review.id, hash: review.hash, round: review.round },
+    );
   switch (name) {
     case "reviews show":
       return review;
@@ -205,8 +243,13 @@ export const executeReviewCommand = async (
     }
     case "reviews open":
       await client.request("/api/workspace", { action: "open", id: review.id });
-      if (values.open) await openBrowser(client.browserUrl());
-      return { id: review.id, url: client.info().origin };
+      await openBrowser(client.browserUrl(review.id));
+      return {
+        id: review.id,
+        round: review.round,
+        hash: review.hash,
+        url: `${client.info().origin}/?review=${encodeURIComponent(review.id)}`,
+      };
     case "reviews rename":
       return changeReview(client, review, {
         action: "rename",
@@ -220,6 +263,8 @@ export const executeReviewCommand = async (
       await client.request("/api/workspace", {
         action: "delete",
         id: review.id,
+        expectedHash: review.hash,
+        expectedRound: review.round,
       });
       return { deleted: review.id };
     case "reviews sync": {
@@ -236,6 +281,11 @@ export const executeReviewCommand = async (
           action: "resync",
           id: review.id,
           mode,
+          ...(values.priority ? { priority: values.priority } : {}),
+          expectedHash: review.hash,
+          expectedRound: review.round,
+          activate: !!values.open,
+          directory: client.info().directory ?? process.cwd(),
           ...(grouping === undefined ? {} : { grouping }),
         },
       );
@@ -247,6 +297,7 @@ export const executeReviewCommand = async (
         path: args[1]!,
       });
       await client.request("/api/workspace", { action: "open", id: review.id });
+      if (values.open) await openBrowser(client.browserUrl(review.id, args[1]));
       return updatedReview;
     }
     case "reviews complete":
@@ -264,6 +315,12 @@ export const executeReviewCommand = async (
         client,
         review.id,
         name === "groups run" ? "grouping" : "review",
+        {
+          hash: review.hash,
+          round: review.round,
+          priority: stringOption(values, "priority") as
+            "normal" | "high" | undefined,
+        },
       );
       return values.wait ? waitForJob(client, job.id, timeout) : job;
     }

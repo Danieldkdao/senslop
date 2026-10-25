@@ -24,6 +24,7 @@ afterEach(() => {
 });
 
 const metadata: WorkspaceMetadata = {
+  directory: "/opened/repo",
   root: "/opened/repo",
   repository: {
     root: "/opened/repo",

@@ -24,6 +24,13 @@ import type {
 } from "./types";
 import type { ConnectionCapacitySchema } from "../../features/ai-capacity/schemas";
 import { capacityBounds } from "../../features/ai-capacity/constants";
+import { SharedRequestCapacity } from "./shared-request-capacity";
+
+const nativeExecution = new AsyncLocalStorage<{
+  active: boolean;
+  coordinator?: SharedRequestCapacity;
+  children: Map<RequestLimiter["run"], RequestLimiter["run"]>;
+}>();
 
 export const createRequestLimiter = (
   {
@@ -32,11 +39,17 @@ export const createRequestLimiter = (
     allowNestedRequests = false,
     limits = {},
     onChange,
+    shared,
   }: {
     initialConcurrency?: number;
     maxConcurrency?: number;
     allowNestedRequests?: boolean;
     limits?: ProviderRequestLimits;
+    shared?: {
+      coordinator: SharedRequestCapacity;
+      key: string;
+      reuseSlot?: boolean;
+    };
     onChange?: (state: {
       concurrency: number;
       active: number;
@@ -181,6 +194,19 @@ export const createRequestLimiter = (
       queue.push(entry);
       pump();
     });
+
+  const createNestedRun = (): RequestLimiter["run"] =>
+    createRequestLimiter(
+      {
+        initialConcurrency: 1,
+        maxConcurrency: 1,
+        allowNestedRequests: true,
+        limits,
+        shared: shared ? { ...shared, reuseSlot: true } : undefined,
+      },
+      reservations,
+    ).run;
+
   const run = async <T>(
     operation: () => PromiseLike<T>,
     signal?: AbortSignal,
@@ -188,6 +214,21 @@ export const createRequestLimiter = (
   ): Promise<T> => {
     const parent = allowNestedRequests ? execution.getStore() : undefined;
     if (parent?.active) return parent.run(operation, signal, budget);
+    const sharedParent = nativeExecution.getStore();
+    if (
+      shared &&
+      !shared.reuseSlot &&
+      sharedParent?.active &&
+      sharedParent.coordinator === shared.coordinator
+    ) {
+      // Context must pass requests blocked on the shared slot held by its native parent.
+      let child = sharedParent.children.get(run);
+      if (!child) {
+        child = createNestedRun();
+        sharedParent.children.set(run, child);
+      }
+      return child(operation, signal, budget);
+    }
     const inputTokens = Math.ceil(budget.inputTokens ?? 0);
     const outputTokens = Math.ceil(budget.outputTokens ?? 0);
     const capacity = {
@@ -221,23 +262,32 @@ export const createRequestLimiter = (
     let nestedRun: typeof run | undefined;
     const scope = {
       active: true,
+      coordinator: shared?.coordinator,
+      children: new Map<RequestLimiter["run"], RequestLimiter["run"]>(),
       // Native MCP calls await Context inside the parent request; serialize children in its slot.
       run: ((operation, signal, budget) => {
-        nestedRun ??= createRequestLimiter(
-          {
-            initialConcurrency: 1,
-            maxConcurrency: 1,
-            limits,
-            allowNestedRequests: true,
-          },
-          reservations,
-        ).run;
+        nestedRun ??= createNestedRun();
         return nestedRun(operation, signal, budget);
       }) as typeof run,
     };
+    let sharedLease:
+      Awaited<ReturnType<SharedRequestCapacity["acquire"]>> | undefined;
     try {
+      sharedLease = await shared?.coordinator.acquire(
+        shared.key,
+        capacity,
+        inputTokens,
+        outputTokens,
+        signal,
+        shared.reuseSlot,
+      );
       signal?.throwIfAborted();
-      const result = await execution.run(scope, operation);
+      // Native Context tools can use another provider but still await inside this live slot.
+      const result = await execution.run(scope, () =>
+        allowNestedRequests && sharedLease
+          ? nativeExecution.run(scope, operation)
+          : operation(),
+      );
       const actualInputTokens = budget.actualInputTokens?.(result);
       if (
         actualInputTokens !== undefined &&
@@ -291,7 +341,11 @@ export const createRequestLimiter = (
       throw error;
     } finally {
       scope.active = false;
-      release();
+      try {
+        sharedLease?.release(reservation.inputTokens, reservation.outputTokens);
+      } finally {
+        release();
+      }
     }
   };
   const runStream = async <T extends { stream: ReadableStream<unknown> }>(
@@ -399,6 +453,7 @@ export const createRequestLimiter = (
 };
 
 const limiters = new Map<string, ReturnType<typeof createRequestLimiter>>();
+const coordinators = new Map<string, SharedRequestCapacity>();
 
 export const getRequestLimiter = (
   key: string,
@@ -410,19 +465,30 @@ export const getRequestLimiter = (
     | "inputTokensPerMinute"
     | "outputTokensPerMinute"
   >,
+  coordination?: { path: string; machineConcurrency?: number },
 ): RequestLimiter => {
-  let limiter = limiters.get(key);
+  const limiterKey = coordination ? `${coordination.path}:${key}` : key;
+  let limiter = limiters.get(limiterKey);
   if (!limiter) {
+    let coordinator = coordination
+      ? coordinators.get(coordination.path)
+      : undefined;
+    if (coordination && !coordinator) {
+      coordinator = new SharedRequestCapacity(coordination.path);
+      coordinators.set(coordination.path, coordinator);
+    }
     limiter = createRequestLimiter({
       maxConcurrency: capacityBounds.concurrency.max,
       allowNestedRequests: provider === "claude-code",
+      shared: coordinator ? { coordinator, key } : undefined,
       onChange: (state) =>
         console.info("[senslop:ai-capacity]", { provider, ...state }),
     });
-    limiters.set(key, limiter);
+    limiters.set(limiterKey, limiter);
   }
   // Every model wrapper keeps its run's policy; endpoint history and active slots remain shared.
   const capacity: RequestCapacity = {
+    machineConcurrency: coordination?.machineConcurrency,
     concurrency:
       profile?.concurrency ??
       (isLocalInferenceProvider(provider)

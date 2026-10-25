@@ -5,8 +5,10 @@ const mocks = vi.hoisted(() => ({
   open: vi.fn(),
   stop: vi.fn(),
   select: vi.fn(),
+  connect: vi.fn(),
 }));
 vi.mock("../local-app.js", () => ({ startLocalApp: mocks.start }));
+vi.mock("../workspace-client.js", () => ({ connectWorkspace: mocks.connect }));
 vi.mock("open", () => ({ default: mocks.open }));
 vi.mock("@clack/prompts", () => ({
   select: mocks.select,
@@ -18,6 +20,7 @@ import { runWorkspace } from "../run-workspace.js";
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.open.mockResolvedValue(undefined);
+  mocks.connect.mockRejectedValue(new Error("Unavailable"));
 });
 
 test("the dedicated app terminal waits for shutdown without presenting a command menu", async () => {
@@ -66,4 +69,20 @@ test("unexpected app exits propagate and remove lifecycle signal handlers", asyn
     "Child exited",
   );
   expect(process.listenerCount("SIGTERM")).toBe(listeners);
+});
+
+test("starting again reuses the authenticated owner and exits without stopping it", async () => {
+  const browserUrl = "http://127.0.0.1:4317/api/session?token=private";
+  mocks.connect.mockResolvedValue({
+    info: () => ({
+      origin: "http://127.0.0.1:4317",
+      repository: "/repo",
+      pid: 123,
+    }),
+    browserUrl: () => browserUrl,
+  });
+  await runWorkspace({ repository: "/repo" });
+  expect(mocks.start).not.toHaveBeenCalled();
+  expect(mocks.open).toHaveBeenCalledWith(browserUrl);
+  expect(mocks.stop).not.toHaveBeenCalled();
 });

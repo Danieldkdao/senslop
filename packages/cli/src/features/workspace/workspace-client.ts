@@ -2,6 +2,8 @@ import { resolveRepository } from "@senslop/review-core/git";
 import { applicationDataDirectory } from "./runtime-paths.js";
 import { readWorkspaceSession } from "./workspace-session.js";
 import { requestJSON } from "../../lib/http.js";
+import { resolve } from "node:path";
+import { CliError } from "../commands/errors.js";
 
 export const connectWorkspace = async (
   repository = process.cwd(),
@@ -26,10 +28,12 @@ export const connectWorkspace = async (
   return {
     info: () => ({
       repository: root,
+      directory: resolve(repository),
       origin: session.origin,
       pid: session.pid,
     }),
-    browserUrl: () => `${session.origin}/api/session?token=${session.token}`,
+    browserUrl: (reviewId?: string, path?: string) =>
+      `${session.origin}/api/session?token=${session.token}${reviewId ? `&review=${encodeURIComponent(reviewId)}` : ""}${path ? `&file=${encodeURIComponent(path)}` : ""}`,
     request: async <T = unknown>(
       path: string,
       body?: object,
@@ -38,16 +42,27 @@ export const connectWorkspace = async (
     ): Promise<T> => {
       if (!path.startsWith("/api/") || path.includes("#"))
         throw new Error("Use a local API path.");
-      return requestJSON<T>(
-        session.origin,
-        path,
-        {
-          method,
-          body: body ? JSON.stringify(body) : undefined,
-          signal: signal ?? AbortSignal.timeout(120000),
-        },
-        session.token,
-      );
+      try {
+        return await requestJSON<T>(
+          session.origin,
+          path,
+          {
+            method,
+            body: body ? JSON.stringify(body) : undefined,
+            signal: signal ?? AbortSignal.timeout(120000),
+          },
+          session.token,
+        );
+      } catch (error) {
+        if (
+          (error as { status?: number }).status === 409 &&
+          /Review contents changed|changed during/.test(
+            (error as Error).message,
+          )
+        )
+          throw new CliError((error as Error).message, "review_conflict", 6);
+        throw error;
+      }
     },
   };
 };

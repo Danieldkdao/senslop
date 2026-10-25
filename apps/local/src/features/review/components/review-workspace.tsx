@@ -373,6 +373,7 @@ export const ReviewWorkspace = ({ children }: ReviewWorkspaceProps) => {
         <span
           className={cn(
             "min-w-0 flex-1 truncate",
+            selectedFile && !preparing && "font-mono",
             completed && !preparing ? "text-success" : "text-foreground",
           )}
         >
@@ -436,12 +437,12 @@ export const ReviewWorkspace = ({ children }: ReviewWorkspaceProps) => {
                   <Check aria-hidden="true" className="size-5" />
                 </Button>
               </TooltipWrapper>
-              <TooltipWrapper content="Find a file (⌘K / Ctrl+K)">
+              <TooltipWrapper content="Find a file (K)">
                 <Button
                   variant="ghost"
                   size="icon"
                   aria-label="Find a file"
-                  aria-keyshortcuts="Meta+K Control+K"
+                  aria-keyshortcuts="k"
                   disabled={preparing}
                   onClick={() => setSearchOpen(true)}
                 >
@@ -569,11 +570,19 @@ export const ReviewWorkspace = ({ children }: ReviewWorkspaceProps) => {
             }
             configured={groupingConfigured}
             onRetry={() =>
-              agents.act({
-                action: "job",
-                snapshotId: preview!.id,
-                kind: "grouping",
-              })
+              agents.act(
+                groupingJobs[0] &&
+                  (groupingJobs[0].status === "failed" ||
+                    groupingJobs[0].status === "canceled")
+                  ? { action: "retry", id: groupingJobs[0].id }
+                  : {
+                      action: "job",
+                      snapshotId: preview!.id,
+                      kind: "grouping",
+                      expectedHash: preview!.hash,
+                      expectedRound: preview!.round,
+                    },
+              )
             }
             onConfigure={() => {
               setInitialSettingsSection("ai");

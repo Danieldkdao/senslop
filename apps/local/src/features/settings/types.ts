@@ -1,12 +1,18 @@
 import type { ReactNode } from "react";
 
-export type SettingsScreen = { id: string; label: string; content: ReactNode };
+export type SettingsScreen = {
+  id: string;
+  label: string;
+  content: ReactNode;
+  headerActions?: ReactNode;
+};
 export type SettingsSection = {
   id: string;
   label: string;
   keywords: string;
   visible?: boolean;
   content: ReactNode;
+  headerActions?: ReactNode;
   links?: { id: string; label: string; onSelect?: () => void }[];
 };
 export type SettingsNavigation = {

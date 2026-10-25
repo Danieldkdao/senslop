@@ -20,6 +20,7 @@ export const useReviewHistory = (search: string, open: boolean) => {
       return data.history;
     },
     enabled: open,
+    refetchInterval: open ? 1000 : false,
     // Loopback history remains accessible without internet connectivity.
     networkMode: "always",
     retry: false,

@@ -1,67 +1,86 @@
 # Senslop
 
-A local browser workspace for reviewing Git changes. `apps/local` is bundled into `packages/cli`; the CLI starts and stops its protected loopback server. Local review needs no cloud account. The hosted `apps/web` keeps its authentication and placeholder dashboard.
+A local code review workspace for understanding changes and catching bugs before pushing. The CLI starts a protected browser app and local background job engine. Local review needs no Senslop account.
 
-The current requirements and historical decisions live in [devpost/prd.md](devpost/prd.md) and [devpost/spec.md](devpost/spec.md). The October 9 additions authorize browser inspection, durable local reviews, and provider configuration. AI generation remains future work.
+Senslop captures Git changes, organizes related files into a suggested reading order, provides source-aware chat and selected-code explanations, and can run AI correctness reviews with original evidence and fix prompts. Saved reviews retain notes, progress, conversations, and analysis history.
 
-## Run locally
+## Run from a source checkout
 
-Requires Node.js 24+, Git, and pnpm 12.8.1 for development.
+Requires Node.js **24.x or 26+**, Git, and pnpm **12.8.1**.
 
 ```sh
 pnpm install
 pnpm exec turbo run build --filter=@senslop/cli
-node packages/cli/dist/index.js connect
+node packages/cli/dist/index.js app start --repo /absolute/path/to/project
 ```
 
-Open the printed browser URL, select changes, and click **Inspect changes**. Keep that terminal open; Ctrl+C shuts down its server. You can also inspect directly:
+Keep that terminal open. The CLI prints/opens the local browser workspace. In a second terminal, run commands against the same project:
 
 ```sh
-node packages/cli/dist/index.js inspect --working-tree
-node packages/cli/dist/index.js inspect --commit HEAD
-node packages/cli/dist/index.js inspect --range BASE..HEAD
-node packages/cli/dist/index.js inspect --branch feature --base main
+node packages/cli/dist/index.js app status --repo /absolute/path/to/project --json
+node packages/cli/dist/index.js reviews create --repo /absolute/path/to/project --working-tree --no-group --open --json
 ```
 
-Run from the repository you want to review. Browser operations stay bound to that repository. Latest commit means local HEAD; inspection never fetches, pulls, checks out, or modifies Git state. The terminal menu remains available in an interactive terminal. `--json` produces pure JSON without a dashboard.
+Choose changes in the browser instead if preferred. Supported sources are working-tree changes, one commit, an endpoint range, or a local branch comparison. Inspection reads Git without checking out, fetching, or editing files. Small changes are supported.
 
-Use **Saved reviews** to reopen, rename, or explicitly delete frozen snapshots and their notes/progress. Browser refreshes and CLI restarts preserve them. The dashboard indicates when the current repository differs from the inspection state. Repository histories stay separate.
+The package remains private and is not published at the recorded baseline. These instructions use the checkout's built CLI; see [CLI documentation](packages/cli/README.md) for installed-package commands, packaging, storage, and troubleshooting.
 
-Open **Settings → Providers** to securely save API keys and select a default for future reviews. Only the twelve requested providers are supported. Remote keys save on Enter or when you leave the key form; shared password inputs provide reveal/hide controls. Local providers offer endpoint presets and context options. Model selection belongs to a future review flow. Saving automatically checks the saved connection and shows feedback; failed checks keep securely saved settings and remain visible across settings refreshes until another check replaces them or settings close. Retry uses the saved credential. API keys are stored in the OS credential store; other configuration is SQLite. A remote compatible endpoint is identified as remote. Saving settings does not invoke inference or send source.
+## Configure AI when wanted
 
-See [packages/cli/README.md](packages/cli/README.md) for local storage locations, credential-store requirements, development mode, packaging, and troubleshooting.
+Open Settings → Providers to save an API key, connect a supported subscription, configure a local server, or add an OpenAI-compatible endpoint. Connection checks use metadata only. Credentials use the OS credential store; saved keys are not returned to the browser.
+
+Choose a shared model or separate Grouping, Context, Review, and Explain models in Settings → AI. Chat has its own model picker. With grouping configured, prepare a grouped review:
+
+```sh
+node packages/cli/dist/index.js reviews create --repo /absolute/path/to/project --working-tree --group --open --wait --json
+```
+
+Grouping does not implicitly request a correctness review. Run one explicitly from the Review panel or with `reviews run REVIEW_ID --wait --json`. Copy a finding's fix instructions or export them through the CLI; Senslop does not currently apply fixes or run project tests.
+
+Remote inference may send captured source to the chosen provider and incur provider charges. Local UI/storage does not imply local inference. Ordinary diff review works without AI configuration.
+
+## Review and revisit
+
+- Read split/unified diffs, file summaries, related-file groups, and original finding evidence.
+- Search files with **K**, mark completion with **D**, and use arrow navigation where available.
+- Add file/line notes; Enter submits and Shift+Enter inserts a newline.
+- Reopen, rename, or delete saved reviews. History searches names and recorded folders, groups the current app folder first, and labels legacy reviews without a folder.
+- Re-sync a specified working-tree review on the same branch/HEAD: keep mode retains its identity, notes/history, and unchanged-file completion; new mode creates a separate newer-edits review.
+- Customize editor/app themes, fonts, diff options, panels, review preferences, and the optional floating buddy.
+
+The app owner must remain running for background jobs. Additional CLI clients create reviews in the background; the first review opens automatically and `--open` explicitly opens another in a dedicated tab. Existing tabs keep their reading state. Captures retain the caller folder, history shows preparation and optional-analysis status, and jobs support cancellation, retry, priority, and restart recovery. Shared request/token limits and a total AI request ceiling coordinate repository processes in the same data directory. Use explicit review IDs and revision expectations for automation. Completion notifications, finding decisions, fix verification, and in-app Git push/pull remain future work.
 
 ## Development and verification
 
 ```sh
 pnpm dev:local
+pnpm test
 pnpm typecheck
 pnpm lint
-pnpm test
 pnpm build
 ```
 
-`dev:local` runs the local dashboard through the CLI with Next.js refresh and owned shutdown. The default behavioral suite uses isolated Git, persistence, provider, and transport fixtures. No dedicated schema tests are used.
+`dev:local` starts the source local app and worker through the CLI. Stop the app terminal after testing. Root build/typecheck commands include hosted workspaces and their environment requirements; targeted package checks can be used for local-only changes.
 
-Opt-in verification exercises real local servers and disposable OS credentials:
+Default tests use deterministic fixtures. Opt-in process, package, real credential, and live-provider scenarios require separate execution; a passing unit suite does not certify those environments. See the [verification ledger](devpost/checklist.md) and [CLI README](packages/cli/README.md).
 
-```sh
-RUN_LOCAL_DEV_TESTS=1 pnpm exec vitest run packages/cli/src/features/workspace/tests/local-app.test.ts
-RUN_OS_CREDENTIAL_TESTS=1 pnpm exec vitest run apps/local/src/services/credentials/tests/os-credentials.test.ts
-SENSLOP_PACK_TEST=1 pnpm exec vitest run packages/cli/tests/packaged-workspace.test.ts
-```
+## Repository guide
 
-The package check installs an npm archive outside the monorepo, exercises inspection and restart persistence, and verifies installed native credential storage. It removes its disposable review records and credentials afterward. Building and packing do not publish anything.
+| Location               | Responsibility                                                                  |
+| ---------------------- | ------------------------------------------------------------------------------- |
+| apps/local             | Local review UI, protected APIs, model/analysis services, jobs, and settings    |
+| packages/cli           | App lifecycle, structured commands, agent skill, and standalone packaging       |
+| packages/review-core   | Git capture and local SQLite review persistence                                 |
+| packages/contracts     | Shared Zod contracts and constants                                              |
+| packages/ui            | Shared components, theme infrastructure, and shortcuts                          |
+| apps/web               | Separate hosted authentication/device flows, landing, and placeholder dashboard |
+| apps/connection-server | Separate hosted Express/ws presence service                                     |
+| packages/database      | Hosted Drizzle/Neon schema and database infrastructure                          |
 
-## Architecture and hosted development
+Local review does not require hosted Postgres, Mailjet, OAuth, or a hosted inference proxy. Hosted development retains its own environment setup through `.env.example` and typed env modules; `pnpm dev:web` starts that separate web app.
 
-- `apps/local`: protected local Next.js review UI, Git/history APIs, and provider settings. No hosted authentication or Postgres dependency.
-- `packages/cli`: Git commands, one-terminal lifecycle, disposable snapshot handoff, and standalone packaging.
-- `packages/review-core`: shared Git capture and local SQLite review storage.
-- `packages/contracts`: validated snapshot, note/progress, and nonsecret provider contracts.
-- `packages/ui`: generated UI primitives and the owner's theme.
-- `apps/web`, `apps/connection-server`, `packages/database`: existing hosted account/device/presence services. They do not receive local source, snapshots, notes, history, or provider keys.
+## Current documents and future work
 
-Hosted development still uses the root `.env` with typed T3 Env Core validation. `.env.example` documents its service variables. Choose an isolated Neon development branch before applying migrations; pooled and direct URLs have separate roles. `pnpm --filter @senslop/web auth` regenerates the single auth schema; `pnpm db:generate` and `pnpm db:migrate` manage hosted migrations. `pnpm dev:web` runs the website; `pnpm dev` also starts the presence service and CLI watcher. Mailjet and OAuth configuration are needed for their corresponding hosted account flows. None are prerequisites for local review.
+Start with [scope](devpost/scope.md), [PRD](devpost/prd.md), and [technical spec](devpost/spec.md). They describe the current local application. [Checklist](devpost/checklist.md) separates implemented foundations from verification still outstanding.
 
-The local workspace uses one file header: **New review** opens Git selection, **Saved reviews** searches local history, and **Settings** combines appearance, editor, and provider configuration. Remote API keys save on blur or Enter; models can be chosen later. Nested settings contents expand/collapse. Below the Editor controls, a live sample diff previews every display setting, including word/character highlighting, unchanged context, and wrapping. Press `d` to toggle completion for the selected file. Completed files show checkmarks and themed outlines. Enter submits notes and comments, while Shift+Enter adds a newline.
+The [20-feature roadmap](devpost/local-review-roadmap.md) preserves the next-stage vision, acceptance criteria, code entry points, and new-chat handoff. Background reviews, explicit IDs, and concurrency are grouped as feature 1. Dated research notes are historical rationale, not alternate current architecture.

@@ -19,6 +19,7 @@ export const commandCatalog = () => ({
     appUnavailable: 3,
     analysisFailed: 4,
     timeout: 5,
+    reviewConflict: 6,
   },
 });
 

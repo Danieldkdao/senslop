@@ -31,6 +31,7 @@ vi.mock("../../agents/hooks/use-ai-settings", () => ({
 const context = vi.hoisted(() => ({
   preview: null as LivePreview | null,
   refresh: vi.fn(),
+  openReview: vi.fn(),
   trackReviewOperation: vi.fn(),
 }));
 vi.mock("../../review/components/live-preview-provider", () => ({
@@ -54,6 +55,7 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 const metadata = {
+  directory: "/opened/repo",
   root: "/opened/repo",
   repository: {
     root: "/opened/repo",
@@ -67,6 +69,8 @@ const metadata = {
 };
 
 const shortcutReviews = ["Newest", "Middle", "Oldest"].map((title, index) => ({
+  repository: "/opened/repo",
+  directory: "/opened/repo",
   id: `00000000-0000-4000-8000-00000000000${index}`,
   title,
   createdAt: "2026-10-17",
@@ -223,8 +227,11 @@ test("review shortcuts leave editable controls, shadow-root inputs, overlays, an
     document.createElement("select"),
     document.createElement("div"),
   ]) {
-    if (target.tagName === "DIV")
+    if (target.tagName === "DIV") {
       target.setAttribute("contenteditable", "true");
+      // JSDOM does not implement the browser's isContentEditable property.
+      Object.defineProperty(target, "isContentEditable", { value: true });
+    }
     host.append(target);
     for (const key of ["r", "[", "]"]) fireEvent.keyDown(target, { key });
   }
@@ -345,6 +352,7 @@ test("browser inspection defaults to uncommitted changes and latest commit uses 
       body: JSON.stringify({
         action: "inspect",
         source: { kind: "working-tree" },
+        activate: true,
       }),
     }),
   );
@@ -360,6 +368,7 @@ test("browser inspection defaults to uncommitted changes and latest commit uses 
       body: JSON.stringify({
         action: "inspect",
         source: { kind: "commit", commit: "HEAD" },
+        activate: true,
       }),
     }),
   );
@@ -401,6 +410,7 @@ test("Git errors preserve selections and expose retry, branch base is optional",
         body: JSON.stringify({
           action: "inspect",
           source: { kind: "branch", branch: "main", base: "HEAD" },
+          activate: true,
         }),
       }),
     ),
@@ -415,6 +425,7 @@ test("re-sync is enabled only for an uncommitted review on the captured branch a
     status: "ready",
     error: null,
     id: "round-one",
+    round: 1,
     fingerprint: "e".repeat(64),
     hash: "c".repeat(64),
     source: {
@@ -442,7 +453,10 @@ test("re-sync is enabled only for an uncommitted review on the captured branch a
         body: JSON.stringify({
           action: "resync",
           id: "round-one",
+          expectedHash: "c".repeat(64),
+          expectedRound: 1,
           mode: "new",
+          activate: true,
         }),
       }),
     ),
@@ -467,6 +481,8 @@ test("re-sync is enabled only for an uncommitted review on the captured branch a
 test("re-sync offers a cumulative mode before submitting", async () => {
   context.preview = {
     id: "round",
+    hash: "c".repeat(64),
+    round: 1,
     status: "ready",
     fingerprint: "e".repeat(64),
     files: [],
@@ -504,7 +520,14 @@ test("re-sync offers a cumulative mode before submitting", async () => {
     expect(fetcher).toHaveBeenCalledWith(
       "/api/workspace",
       expect.objectContaining({
-        body: JSON.stringify({ action: "resync", id: "round", mode: "keep" }),
+        body: JSON.stringify({
+          action: "resync",
+          id: "round",
+          expectedHash: "c".repeat(64),
+          expectedRound: 1,
+          mode: "keep",
+          activate: true,
+        }),
       }),
     ),
   );
@@ -515,6 +538,8 @@ test("ask grouping mode exposes a toggle and submits the selected choice", async
   groupingPreference.configured = true;
   context.preview = {
     id: "round",
+    hash: "c".repeat(64),
+    round: 1,
     status: "ready",
     fingerprint: "e".repeat(64),
     files: [],
@@ -547,8 +572,11 @@ test("ask grouping mode exposes a toggle and submits the selected choice", async
         body: JSON.stringify({
           action: "resync",
           id: "round",
+          expectedHash: "c".repeat(64),
+          expectedRound: 1,
           mode: "new",
           grouping: false,
+          activate: true,
         }),
       }),
     ),
@@ -634,6 +662,8 @@ test.each([
 ])("re-sync explains why it is unavailable when %s", async (state, reason) => {
   context.preview = {
     id: "round",
+    hash: "c".repeat(64),
+    round: 1,
     status: "ready",
     fingerprint:
       state === "unchanged" ? metadata.repository.fingerprint : "e".repeat(64),
@@ -684,6 +714,8 @@ test.each([
 test("a failed metadata refresh disables re-sync even with previously cached data", async () => {
   context.preview = {
     id: "round",
+    hash: "c".repeat(64),
+    round: 1,
     status: "ready",
     fingerprint: "e".repeat(64),
     files: [],

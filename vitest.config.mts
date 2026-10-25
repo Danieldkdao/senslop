@@ -133,6 +133,8 @@ export default defineConfig({
       deps: { inline: ["@lobehub/icons", "@lobehub/ui", "@emoji-mart/data"] },
     },
     include: [
+      "tests/**/*.test.ts",
+      "tests/**/*.test.tsx",
       "apps/**/tests/**/*.test.ts",
       "apps/**/tests/**/*.test.tsx",
       "packages/**/tests/**/*.test.ts",

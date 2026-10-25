@@ -1,4 +1,5 @@
 import { scheduleGrouping } from "../../../services/inngest/functions";
+import { z } from "zod";
 import {
   getWorkspace,
   localWorkspaceError,
@@ -12,7 +13,16 @@ export const GET = async (request: Request) => {
       { status: 403 },
     );
   try {
-    const preview = await getWorkspace().current();
+    const workspace = getWorkspace();
+    const id = new URL(request.url).searchParams.get("id");
+    if (id && !z.uuid().safeParse(id).success)
+      return Response.json(
+        { message: "Choose a valid review ID." },
+        { status: 400 },
+      );
+    const preview = id
+      ? workspace.store.getReview(await workspace.root(), id)
+      : await workspace.current();
     if (preview) await scheduleGrouping(preview.id);
     const etag = `W/"${preview?.id ?? "empty"}-${preview?.revision ?? 0}"`;
     const headers = { "Cache-Control": "no-store", ETag: etag };

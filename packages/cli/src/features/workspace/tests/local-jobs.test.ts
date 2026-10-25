@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { createServer } from "node:net";
 import { join } from "node:path";
 import { startLocalJobs, workspacePort } from "../local-jobs";
+import { workspaceStateDirectory } from "../runtime-paths";
 const directories: string[] = [];
 afterEach(async () => {
   await Promise.all(
@@ -76,4 +77,15 @@ test("an unowned workspace replaces an occupied saved port and persists its repl
       server.close((error) => (error ? reject(error) : resolve())),
     );
   }
+});
+
+test("malformed saved ports are recoverable without claiming an unrelated owner", async () => {
+  const dataDirectory = await mkdtemp(join(tmpdir(), "senslop-invalid-port-"));
+  directories.push(dataDirectory);
+  await workspacePort(dataDirectory, "/repo");
+  await writeFile(
+    join(workspaceStateDirectory(dataDirectory, "/repo"), "worker-port.json"),
+    "invalid",
+  );
+  expect(await workspacePort(dataDirectory, "/repo")).toBeGreaterThan(0);
 });

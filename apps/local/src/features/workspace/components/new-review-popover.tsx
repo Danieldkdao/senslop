@@ -382,7 +382,8 @@ export const NewReviewPopover = ({
               <ul>
                 {preview.excluded.map((file) => (
                   <li key={file.path}>
-                    {file.path}: {file.reason}
+                    <span className="font-mono">{file.path}</span>:{" "}
+                    {file.reason}
                   </li>
                 ))}
               </ul>

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { serverEnv } from "@/data/env/server";
 import {
   allowsLocalRequest,
@@ -18,7 +19,13 @@ export const GET = (request: Request) => {
   headers.delete("cookie");
   if (!allowsLocalRequest(headers, { origin, token }))
     return new Response(null, { status: 403 });
-  const response = NextResponse.redirect(new URL("/", origin));
+  const destination = new URL("/", origin);
+  const review = new URL(request.url).searchParams.get("review");
+  if (review && z.uuid().safeParse(review).success)
+    destination.searchParams.set("review", review);
+  const file = new URL(request.url).searchParams.get("file");
+  if (file && file.length <= 4096) destination.searchParams.set("file", file);
+  const response = NextResponse.redirect(destination);
   response.cookies.set(localCookieName(origin), token, {
     httpOnly: true,
     sameSite: "strict",

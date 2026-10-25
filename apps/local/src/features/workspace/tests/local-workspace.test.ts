@@ -193,7 +193,7 @@ test("browser inspection is repository-bound, restarts restore reviews, and term
   }
 });
 
-const syncWorkspace = async () => {
+const syncWorkspace = async (subfolder?: string) => {
   const directory = await mkdtemp(join(tmpdir(), "senslop-resync-"));
   directories.push(directory);
   await mkdir(join(directory, "repo"));
@@ -209,11 +209,39 @@ const syncWorkspace = async () => {
   git("commit", "-m", "baseline");
   const workspace = new LocalWorkspace({
     repository,
+    directory: subfolder ? join(repository, subfolder) : repository,
     databasePath: join(directory, "data/reviews.sqlite"),
     snapshotPath: join(directory, "handoff.json"),
   });
   return { workspace, repository, git };
 };
+
+test("browser inspections, re-syncs and CLI handoffs retain the CLI launch folder", async () => {
+  const { workspace, repository } = await syncWorkspace("apps/client");
+  const directory = join(repository, "apps/client");
+  try {
+    await writeFile(join(repository, "a.ts"), "one\n");
+    const first = await workspace.inspect({ kind: "working-tree" }, false);
+    expect(first.directory).toBe(directory);
+    await writeFile(join(repository, "a.ts"), "two\n");
+    const keptReview = await workspace.resync(first.id, "keep", false);
+    expect(keptReview.directory).toBe(directory);
+    await writeFile(join(repository, "a.ts"), "three\n");
+    const newReview = await workspace.resync(first.id, "new", false);
+    expect(newReview.directory).toBe(directory);
+    await writeFile(
+      join(repository, "..", "handoff.json"),
+      JSON.stringify({ ...first, id: crypto.randomUUID() }),
+    );
+    const handoffReview = await workspace.current();
+    expect(handoffReview?.directory).toBe(directory);
+    expect(
+      workspace.store.listReviews(repository).map((review) => review.directory),
+    ).toEqual([directory, directory, directory]);
+  } finally {
+    await workspace.close();
+  }
+});
 
 test("new reviews save alongside large artwork without replacing previously saved reviews", async () => {
   const { workspace, repository } = await syncWorkspace();
@@ -285,9 +313,14 @@ test("re-sync advances the captured baseline across rounds without changing Git,
     ).toEqual(["a.ts", "b.ts"]);
     expect(git("status", "--porcelain=v1")).toBe(status);
     expect(git("write-tree")).toBe(index);
-    await expect(workspace.resync(first.id)).rejects.toThrow(/active|current/i);
+    await expect(
+      workspace.resync(first.id, "keep", false, {
+        hash: "stale",
+        round: first.round,
+      }),
+    ).rejects.toThrow(/changed|reload/i);
     await expect(workspace.resync(second.id)).rejects.toThrow(/No new changes/);
-    expect((await workspace.current())?.id).toBe(second.id);
+    expect((await workspace.current())?.id).toBe(first.id);
     await writeFile(join(repository, "b.ts"), "export const b = 2;\n");
     const third = await workspace.resync(second.id);
     expect(third.round).toBe(3);
@@ -409,7 +442,7 @@ test("re-sync handles an entirely restored tree and refuses publication if repos
       /changed during re-sync/,
     );
     expect(workspace.store.listReviews(repository)).toHaveLength(historyLength);
-    expect(workspace.store.currentReview(repository)?.id).toBe(third.id);
+    expect(workspace.store.currentReview(repository)?.id).toBe(first.id);
     expect(
       workspace.store.getReview(repository, third.id)?.completedPaths,
     ).toEqual([]);
@@ -521,7 +554,7 @@ test("cumulative re-sync preserves the round baseline, notes, completion and fol
           expectedHash: first.hash,
         },
       ),
-    ).toThrow(/active review/);
+    ).toThrow(/changed|reload/);
     expect(agents.conversation(conversation.id)?.snapshotId).toBe(first.id);
     expect(agents.job(review.id)?.status).toBe("completed");
     expect(agents.job(pending.id)?.status).toBe("canceled");
@@ -815,6 +848,62 @@ test("shared background capture cannot overwrite a later round that returns to t
     expect(captured.error).toBeUndefined();
   } finally {
     release();
+    await workspace.close();
+  }
+});
+
+test("concurrent background captures keep the first reader and retain validated caller folders", async () => {
+  const { workspace, repository } = await syncWorkspace();
+  try {
+    await mkdir(join(repository, "one"));
+    await mkdir(join(repository, "two"));
+    const first = await workspace.inspect(
+      { kind: "commit", commit: "HEAD" },
+      false,
+    );
+    const [second, third] = await Promise.all([
+      workspace.inspect({ kind: "commit", commit: "HEAD" }, false, {
+        directory: join(repository, "one"),
+      }),
+      workspace.inspect({ kind: "commit", commit: "HEAD" }, false, {
+        directory: join(repository, "two"),
+      }),
+    ]);
+    expect(new Set([first.id, second.id, third.id]).size).toBe(3);
+    expect((await workspace.current())?.id).toBe(first.id);
+    expect(second.directory).toBe(join(repository, "one"));
+    expect(third.directory).toBe(join(repository, "two"));
+    await expect(
+      workspace.inspect({ kind: "commit", commit: "HEAD" }, false, {
+        directory: tmpdir(),
+      }),
+    ).rejects.toThrow(/folder|workspace|repository/i);
+    expect(workspace.store.listReviews(repository)).toHaveLength(3);
+  } finally {
+    await workspace.close();
+  }
+});
+
+test("explicit revision re-sync does not depend on active selection and rejects stale rounds", async () => {
+  const { workspace, repository } = await syncWorkspace();
+  try {
+    await writeFile(join(repository, "a.ts"), "one\n");
+    const first = await workspace.inspect({ kind: "working-tree" }, false);
+    const other = await workspace.inspect(
+      { kind: "commit", commit: "HEAD" },
+      false,
+      { activate: true },
+    );
+    await writeFile(join(repository, "a.ts"), "two\n");
+    const expected = { hash: first.hash, round: first.round };
+    const updated = await workspace.resync(first.id, "keep", false, expected);
+    expect(updated.id).toBe(first.id);
+    expect(updated.round).toBe(2);
+    expect((await workspace.current())?.id).toBe(other.id);
+    await expect(
+      workspace.resync(first.id, "keep", false, expected),
+    ).rejects.toThrow(/changed|stale|reload/i);
+  } finally {
     await workspace.close();
   }
 });

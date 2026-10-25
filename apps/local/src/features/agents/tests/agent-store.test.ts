@@ -230,7 +230,9 @@ test("an intentional retry can reuse compatible checkpoint keys from the same sn
     const previousJob = agents.createJob(review.id, "grouping");
     agents.writeCheckpoint(previousJob.id, "same-input", { groups: [] });
     agents.updateJob(previousJob.id, { status: "failed" });
-    const nextJob = agents.createJob(review.id, "grouping");
+    const nextJob = agents.createJob(review.id, "grouping", {
+      retryOf: previousJob.id,
+    });
     expect(agents.readCheckpoint(nextJob.id, "same-input")).toEqual({
       groups: [],
     });
@@ -567,6 +569,127 @@ test("failure callbacks never schedule fallback for canceled, completed, or corr
       status: "failed",
       fallbackAt: null,
     });
+  } finally {
+    local.close();
+  }
+});
+
+test("history work summaries expose only the latest jobs for the saved revision", async () => {
+  const { local, review, agents } = await fixture();
+  try {
+    const grouping = agents.createJob(review.id, "grouping");
+    agents.createJob(review.id, "review");
+    const work = agents.reviewWork(review);
+    expect(work).toHaveLength(2);
+    expect(work.find((job) => job.kind === "grouping")).toMatchObject({
+      id: grouping.id,
+      status: "queued",
+    });
+    expect(work[0]).not.toHaveProperty("settings");
+    expect(work[0]).not.toHaveProperty("result");
+    expect(agents.reviewWork({ ...review, round: review.round + 1 })).toEqual(
+      [],
+    );
+  } finally {
+    local.close();
+  }
+});
+
+test("queued priority changes invalidate dispatch and retries retain source and settings provenance", async () => {
+  const { local, review, agents } = await fixture();
+  try {
+    const first = agents.createJob(review.id, "grouping", {
+      hash: review.hash,
+      round: review.round,
+      priority: "normal",
+    });
+    agents.updateJob(first.id, { dispatched: true, dispatchKey: "old" });
+    const priority = agents.prioritizeJob(first.id, "high");
+    expect(priority).toMatchObject({
+      priority: "high",
+      dispatched: false,
+      dispatchKey: null,
+      dispatchGeneration: 1,
+    });
+    agents.failJob(first.id, "Unavailable");
+    const retry = agents.createJob(review.id, "grouping", {
+      retryOf: first.id,
+    });
+    expect(retry).toMatchObject({
+      retryOf: first.id,
+      hash: first.hash,
+      snapshotRound: first.snapshotRound,
+      settings: first.settings,
+      priority: "high",
+    });
+    expect(retry.id).not.toBe(first.id);
+    expect(agents.createJob(review.id, "grouping").id).toBe(retry.id);
+    expect(() =>
+      agents.createJob(review.id, "review", { hash: "stale", round: 1 }),
+    ).toThrow(/changed|reload/i);
+    agents.updateJob(retry.id, { status: "running" });
+    expect(() => agents.prioritizeJob(retry.id, "normal")).toThrow(/queued/i);
+  } finally {
+    local.close();
+  }
+});
+
+test("machine capacity is shared in preferences and locked while any workspace has pending jobs", async () => {
+  const { local, review, agents } = await fixture();
+  try {
+    agents.patchSettings({ machineConcurrency: 2 });
+    expect(new AgentStore(local, "/other").settings().machineConcurrency).toBe(
+      2,
+    );
+    agents.createJob(review.id, "grouping");
+    expect(() => agents.patchSettings({ machineConcurrency: 8 })).toThrow(
+      /capacity|active|running|queued/i,
+    );
+  } finally {
+    local.close();
+  }
+});
+
+test("an execution from an older dispatch cannot update or publish after recovery", async () => {
+  const { local, review, agents } = await fixture();
+  try {
+    const job = agents.createJob(review.id, "grouping");
+    agents.updateJob(job.id, { dispatchKey: "old", status: "running" });
+    const previousExecution = new AgentStore(local, "/repo", {
+      id: job.id,
+      key: "old",
+    });
+    agents.recoverJobs(new Date(Date.now() + 1000).toISOString());
+    previousExecution.updateJob(job.id, { status: "running", error: "stale" });
+    expect(previousExecution.publish(job.id, { groups: [] })).toBe(false);
+    expect(agents.job(job.id)).toMatchObject({
+      status: "queued",
+      dispatchKey: null,
+      error: null,
+    });
+  } finally {
+    local.close();
+  }
+});
+
+test("intentional re-analysis does not inherit a completed run's cached batches", async () => {
+  const { local, review, agents } = await fixture();
+  try {
+    const previous = agents.createJob(review.id, "grouping");
+    agents.writeCheckpoint(previous.id, "batch", { cached: true });
+    agents.publish(previous.id, {
+      groups: [
+        {
+          title: "Flow",
+          rationale: "why",
+          files: [{ path: "file.ts", summary: "change", related: [] }],
+        },
+      ],
+    });
+    const next = agents.createJob(review.id, "grouping");
+    expect(next.id).not.toBe(previous.id);
+    expect(next.retryOf).toBeNull();
+    expect(agents.readCheckpoint(next.id, "batch")).toBeNull();
   } finally {
     local.close();
   }

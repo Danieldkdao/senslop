@@ -1,3 +1,5 @@
+import type { JobSchema } from "../agents/schemas";
+
 export type RepositoryState = {
   root: string;
   branch: string;
@@ -7,6 +9,12 @@ export type RepositoryState = {
   commits: { id: string; subject: string; date: string }[];
 };
 export type SavedReviewSummary = {
+  work?: Pick<
+    JobSchema,
+    "id" | "kind" | "status" | "progress" | "error" | "priority"
+  >[];
+  directory: string | null;
+  repository: string;
   round?: number;
   id: string;
   title: string;
@@ -19,6 +27,7 @@ export type SavedReviewSummary = {
   completedCount: number;
 };
 export type WorkspaceMetadata = {
+  directory: string;
   root: string;
   repository: RepositoryState | null;
   history: SavedReviewSummary[];

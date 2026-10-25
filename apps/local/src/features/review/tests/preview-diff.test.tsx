@@ -1,7 +1,13 @@
 // @vitest-environment jsdom
 
 import { afterEach, expect, test, vi } from "vitest";
-import { act, cleanup, render, screen } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { FileDiffProps, FileProps } from "@pierre/diffs/react";
 import type { PreviewFileSchema } from "@senslop/contracts";
@@ -409,6 +415,64 @@ test("review evidence selects the exact source side and brings it into view", ()
     scroller.remove();
     vi.unstubAllGlobals();
   }
+});
+
+test.each(["split", "unified", "unchanged"] as const)(
+  "%s highlights the live range during dragging and opens actions only after release",
+  (view) => {
+    const unchanged = view === "unchanged";
+    render(
+      <PreviewDiff
+        snapshotId="snapshot"
+        file={unchanged ? { ...file, before: file.after } : file}
+        view={unchanged ? "split" : view}
+        settings={settings}
+        {...handlers}
+      />,
+    );
+    const current = () =>
+      (unchanged ? mocks.file : mocks.diff).mock.lastCall![0];
+    const start = { start: 1, end: 1, side: "additions" as const };
+    const range = { ...start, end: 3 };
+    act(() => current().options.onLineSelectionStart?.(start));
+    expect(current().selectedLines).toEqual(start);
+    act(() => current().options.onLineSelectionChange?.(range));
+    expect(current().selectedLines).toEqual(range);
+    expect(mocks.explanation).not.toHaveBeenCalled();
+    act(() => {
+      current().options.onLineSelectionEnd?.(range);
+      current().options.onLineSelected?.(range);
+    });
+    expect(current().selectedLines).toEqual(range);
+    expect(mocks.explanation.mock.lastCall?.[0].range).toEqual(range);
+  },
+);
+
+test("canceling a drag restores the previous highlight without opening actions", () => {
+  render(
+    <PreviewDiff
+      snapshotId="snapshot"
+      file={file}
+      view="split"
+      settings={settings}
+      {...handlers}
+      evidence={{ side: "before", start: 1, end: 1 }}
+    />,
+  );
+  act(() =>
+    mocks.diff.mock.lastCall?.[0].options.onLineSelectionStart?.({
+      start: 1,
+      end: 1,
+      side: "additions",
+    }),
+  );
+  fireEvent(document, new Event("pointercancel"));
+  expect(mocks.diff.mock.lastCall?.[0].selectedLines).toEqual({
+    start: 1,
+    end: 1,
+    side: "deletions",
+  });
+  expect(mocks.explanation).not.toHaveBeenCalled();
 });
 
 test("native line selection controls the range without opening a comment composer", () => {

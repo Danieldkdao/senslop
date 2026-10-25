@@ -1,6 +1,11 @@
 "use client";
 
-import { providerIds } from "@senslop/contracts";
+import {
+  providerIds,
+  type ProviderId,
+  type PublicConnectionSchema,
+} from "@senslop/contracts";
+import { AddProviderMenu } from "../../providers/components/add-provider-menu";
 import { ProviderSettings } from "../../providers/components/provider-settings";
 import { ConnectionForm } from "../../providers/components/connection-form";
 import { CompatibleProviderForm } from "../../providers/components/compatible-provider-form";
@@ -11,37 +16,42 @@ import { SettingsDialog } from "./settings-dialog";
 export const getProviderSettingsSection = (
   navigation: SettingsNavigation,
   query: string,
-): SettingsSection => ({
-  id: "providers",
-  label: "Providers",
-  keywords: `providers api key model endpoint ${providerIds.map((provider) => formatProvider(provider).label).join(" ")}`,
-  content: (
-    <ProviderSettings
-      search={query}
-      onConfigure={(provider, connection) =>
-        navigation.navigate({
-          id: connection?.id ?? provider,
-          label:
-            provider === "openai-compatible"
-              ? connection
-                ? `Configure ${connection.name}`
-                : "Add OpenAI-Compatible Provider"
-              : formatProvider(provider).label,
-          content:
-            provider === "openai-compatible" ? (
-              <CompatibleProviderForm
-                connection={connection}
-                onCancel={navigation.back}
-                onSaved={() => navigation.back()}
-              />
-            ) : (
-              <ConnectionForm provider={provider} connection={connection} />
-            ),
-        })
-      }
-    />
-  ),
-});
+): SettingsSection => {
+  const onConfigure = (
+    provider: ProviderId,
+    connection: PublicConnectionSchema | undefined,
+  ) =>
+    navigation.navigate({
+      id: connection?.id ?? provider,
+      label:
+        provider === "openai-compatible"
+          ? connection
+            ? `Configure ${connection.name}`
+            : "Add OpenAI-Compatible Provider"
+          : formatProvider(provider).label,
+      content:
+        provider === "openai-compatible" ? (
+          <CompatibleProviderForm
+            connection={connection}
+            onCancel={navigation.back}
+            onSaved={() => navigation.back()}
+          />
+        ) : (
+          <ConnectionForm provider={provider} connection={connection} />
+        ),
+    });
+  return {
+    id: "providers",
+    label: "Providers",
+    keywords: `providers api key model endpoint ${providerIds.map((provider) => formatProvider(provider).label).join(" ")}`,
+    headerActions: (
+      <AddProviderMenu
+        onSelect={() => onConfigure("openai-compatible", undefined)}
+      />
+    ),
+    content: <ProviderSettings search={query} onConfigure={onConfigure} />,
+  };
+};
 
 type ProviderSettingsDialogProps = {
   open: boolean;

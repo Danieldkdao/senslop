@@ -1,5 +1,7 @@
 # Local AI review integration feasibility
 
+> Historical research, retained for provenance. Reconciled October 24, 2026: direct provider adapters, subscription connections, local context analysis, chat, grouping, and correctness reviews are now implemented. Earlier recommendations and third-party eligibility/API observations below reflect their research dates and have not been revalidated for this documentation refresh. Use [current scope](scope.md), [PRD](prd.md), and [spec](spec.md) for application behavior, and the [roadmap](local-review-roadmap.md) for future work.
+
 Checked October 8, 2026 against primary official documentation. This is exploratory research, not an approved specification change.
 
 ## Execution and privacy boundaries
@@ -43,7 +45,7 @@ Keep capture, source storage, and Git reconstruction local. Normalize provider o
 
 ## October 9 implementation research
 
-The October 9 authorization in the PRD/spec supersedes the earlier exploratory boundary for browser inspection, durable local reviews, and provider settings. Source execution, AI generation, hosted inference, and subscription adapters remain deferred.
+At this October 9 research checkpoint, the PRD/spec had authorized browser inspection, durable local reviews, and provider settings; source execution, AI generation, hosted inference, and subscription adapters were still deferred. Later local AI and subscription implementation superseded those deferrals as described in the current spec. Project command execution and hosted inference remain outside the current local review implementation.
 
 Installed versions checked: Node.js 24.14.0, Next.js 16.3.8, React 19.2.8, Turborepo 2.11.7, React Hook Form 7.89.0, Zod 4.6.5, `@napi-rs/keyring` 2.1.0, and `@lobehub/icons` 5.23.0. Read Next's bundled route-handler, standalone output, and external-package guides; Turbo's bundled README and task-running guide; and installed icon declarations. These take precedence over assumptions from older versions.
 

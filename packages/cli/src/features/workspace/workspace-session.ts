@@ -1,12 +1,7 @@
-import {
-  chmod,
-  mkdir,
-  readFile,
-  rename,
-  unlink,
-  writeFile,
-} from "node:fs/promises";
+import { chmod, mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
+import { readFileSync, unlinkSync, renameSync } from "node:fs";
+import { withWorkspaceState } from "./workspace-owner.js";
 import { join } from "node:path";
 import { z } from "zod";
 import { workspaceStateDirectory } from "./runtime-paths.js";
@@ -47,7 +42,9 @@ export const publishWorkspaceSession = async (
       flag: "wx",
       mode: 0o600,
     });
-    await rename(pending, workspaceSessionPath(directory, session.repository));
+    withWorkspaceState(directory, session.repository, () => {
+      renameSync(pending, workspaceSessionPath(directory, session.repository));
+    });
   } finally {
     await unlink(pending).catch(() => {});
   }
@@ -71,12 +68,17 @@ export const removeWorkspaceSession = async (
   directory: string,
   session: WorkspaceSessionSchema,
 ) => {
-  const existingSession = await readWorkspaceSession(
-    directory,
-    session.repository,
-  ).catch(() => null);
-  if (existingSession?.token === session.token)
-    await unlink(workspaceSessionPath(directory, session.repository)).catch(
-      () => {},
-    );
+  withWorkspaceState(directory, session.repository, () => {
+    const path = workspaceSessionPath(directory, session.repository);
+    let existingSession: WorkspaceSessionSchema;
+    try {
+      existingSession = workspaceSessionSchema.parse(
+        JSON.parse(readFileSync(path, "utf8")),
+      );
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+      throw error;
+    }
+    if (existingSession.token === session.token) unlinkSync(path);
+  });
 };

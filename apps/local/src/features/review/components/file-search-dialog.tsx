@@ -44,7 +44,7 @@ export const FileSearchDialog = ({
       }}
     >
       <FileIcon fileName={file.path} />
-      <span className="min-w-0 flex-1 break-all">{file.path}</span>
+      <span className="min-w-0 flex-1 break-all font-mono">{file.path}</span>
     </CommandItem>
   );
   return (

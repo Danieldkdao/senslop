@@ -70,6 +70,7 @@ test("another terminal discovers its repository session and uses authenticated r
   expect(await client.request("/api/workspace")).toEqual({ ok: true });
   expect(requests).toEqual(["/api/health", "/api/workspace"]);
   expect(client.info()).toEqual({
+    directory: repository,
     repository: session.repository,
     origin: session.origin,
     pid: process.pid,

@@ -95,15 +95,38 @@ export class LocalStore {
     search = "",
     page?: { offset: number; limit: number },
   ) => {
-    const query = `SELECT id, json_extract(body, '$.round') AS round, json_extract(body, '$.title') AS title, json_extract(body, '$.createdAt') AS created_at, json_extract(body, '$.updatedAt') AS updated_at, json_extract(body, '$.hash') AS hash, json_extract(body, '$.source.kind') AS kind, json_array_length(body, '$.files') AS file_count, json_array_length(body, '$.notes') AS note_count, json_array_length(body, '$.completedPaths') AS completed_count FROM reviews WHERE repository = ? AND instr(lower(json_extract(body, '$.title')), lower(?)) > 0 ORDER BY rowid DESC${page ? " LIMIT ? OFFSET ?" : ""}`;
+    const query = `
+      SELECT id, repository,
+        json_extract(body, '$.directory') AS directory,
+        json_extract(body, '$.round') AS round,
+        json_extract(body, '$.title') AS title,
+        json_extract(body, '$.createdAt') AS created_at,
+        json_extract(body, '$.updatedAt') AS updated_at,
+        json_extract(body, '$.hash') AS hash,
+        json_extract(body, '$.source.kind') AS kind,
+        json_array_length(body, '$.files') AS file_count,
+        json_array_length(body, '$.notes') AS note_count,
+        json_array_length(body, '$.completedPaths') AS completed_count
+      FROM reviews
+      WHERE repository = ? AND (
+        instr(lower(json_extract(body, '$.title')), lower(?)) > 0
+        OR instr(lower(COALESCE(json_extract(body, '$.directory'), '')), lower(?)) > 0
+      )
+      ORDER BY rowid DESC
+      ${page ? "LIMIT ? OFFSET ?" : ""}
+    `;
+    const normalizedSearch = search.trim().slice(0, 200);
     const parameters = [
       repository,
-      search.trim().slice(0, 200),
+      normalizedSearch,
+      normalizedSearch,
       ...(page ? [page.limit, page.offset] : []),
     ];
     const existingReviews = this.database.prepare(query).all(...parameters);
     return existingReviews.map((row) => ({
       id: String(row.id),
+      repository: String(row.repository),
+      directory: row.directory === null ? null : String(row.directory),
       round: Number(row.round ?? 1),
       title: String(row.title),
       createdAt: String(row.created_at),
@@ -146,9 +169,17 @@ export class LocalStore {
     metadata: Partial<
       Pick<
         SavedReviewSchema,
-        "repositoryState" | "syncBaseline" | "previousReviewId" | "resyncMode"
+        | "directory"
+        | "repositoryState"
+        | "syncBaseline"
+        | "previousReviewId"
+        | "resyncMode"
       >
-    > & { expectedHash?: string; expectedRound?: number } = {},
+    > & {
+      expectedHash?: string;
+      expectedRound?: number;
+      activate?: boolean;
+    } = {},
   ) =>
     this.transaction(() => {
       const preview = localPreviewSchema.parse(input);
@@ -156,7 +187,7 @@ export class LocalStore {
       const keep = metadata.resyncMode === "keep";
       if (existingReview && !keep) return existingReview;
       const previousReview = metadata.previousReviewId
-        ? this.currentReview(repository)
+        ? this.getReview(repository, metadata.previousReviewId)
         : null;
       if (
         (keep && !previousReview) ||
@@ -167,9 +198,7 @@ export class LocalStore {
             (metadata.expectedRound &&
               previousReview?.round !== metadata.expectedRound)))
       )
-        throw new Error(
-          "Re-sync requires the current active review. Reload and retry.",
-        );
+        throw new Error("Review contents changed. Reload and retry re-sync.");
       if (keep && previousReview) preview.id = previousReview.id;
       const now = new Date().toISOString();
       const unchanged = new Set(
@@ -195,6 +224,7 @@ export class LocalStore {
         ...preview,
         groupingEnabled,
         ...metadata,
+        directory: keep ? previousReview?.directory : metadata.directory,
         previousReviewId: keep
           ? previousReview?.previousReviewId
           : metadata.previousReviewId,
@@ -277,11 +307,17 @@ export class LocalStore {
           .prepare("INSERT INTO reviews VALUES (?, ?, ?)")
           .run(saved.id, repository, JSON.stringify(saved));
       }
-      this.database
-        .prepare(
-          "INSERT INTO active_reviews VALUES (?, ?) ON CONFLICT(repository) DO UPDATE SET review_id = excluded.review_id",
-        )
-        .run(repository, saved.id);
+      const reviewCount = Number(
+        this.database
+          .prepare("SELECT count(*) AS count FROM reviews WHERE repository = ?")
+          .get(repository)?.count,
+      );
+      if (metadata.activate !== false || reviewCount === 1)
+        this.database
+          .prepare(
+            "INSERT INTO active_reviews VALUES (?, ?) ON CONFLICT(repository) DO UPDATE SET review_id = excluded.review_id",
+          )
+          .run(repository, saved.id);
       return saved;
     });
 
@@ -385,8 +421,19 @@ export class LocalStore {
         .run(JSON.stringify(updatedReview), repository, id);
     });
 
-  deleteReview = (repository: string, id: string) => {
+  deleteReview = (
+    repository: string,
+    id: string,
+    expected?: Pick<SavedReviewSchema, "hash" | "round">,
+  ) => {
     this.transaction(() => {
+      const existingReview = this.getReview(repository, id);
+      if (
+        expected &&
+        (existingReview?.hash !== expected.hash ||
+          existingReview.round !== expected.round)
+      )
+        throw new Error("Review contents changed. Reload and retry.");
       const deletedReview = this.database
         .prepare("DELETE FROM reviews WHERE repository = ? AND id = ?")
         .run(repository, id);

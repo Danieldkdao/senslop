@@ -32,6 +32,7 @@ export const resyncModes = ["new", "keep"] as const;
 export type ResyncMode = (typeof resyncModes)[number];
 
 export const savedReviewSchema = localPreviewSchema.extend({
+  directory: z.string().min(1).max(4096).optional(),
   repositoryState: z
     .object({
       branch: z.string().min(1),

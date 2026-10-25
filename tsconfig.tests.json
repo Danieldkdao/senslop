@@ -24,6 +24,8 @@
     "lib": ["ES2022", "DOM", "DOM.Iterable"]
   },
   "include": [
+    "tests/**/*.ts",
+    "tests/**/*.tsx",
     "apps/**/tests/**/*.ts",
     "apps/**/tests/**/*.tsx",
     "packages/**/tests/**/*.ts",

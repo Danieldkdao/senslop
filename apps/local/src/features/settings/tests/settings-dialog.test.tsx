@@ -13,6 +13,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 import { ReviewSettings } from "../components/review-settings";
 import { ProviderSettingsDialog } from "../components/provider-settings-dialog";
+import { SettingsDialog } from "../components/settings-dialog";
 import { defaultDiffSettings } from "../../review/constants";
 import { parseDiffFromFile } from "@pierre/diffs";
 import type { MultiFileDiffProps } from "@pierre/diffs/react";
@@ -104,6 +105,12 @@ test("compatible providers open a nested form inside the same settings dialog an
   );
   render(<ProviderSettingsDialog open onOpenChange={vi.fn()} />);
   const user = userEvent.setup();
+  const heading = screen.getByRole("heading", { name: "Providers" });
+  expect(
+    within(heading.parentElement!.parentElement!).getByRole("button", {
+      name: "Add provider",
+    }),
+  ).toBeTruthy();
   await user.click(await screen.findByRole("button", { name: "Add provider" }));
   await user.click(await screen.findByRole("menuitem", { name: "OpenAI" }));
   expect(screen.getAllByRole("dialog")).toHaveLength(1);
@@ -119,6 +126,84 @@ test("compatible providers open a nested form inside the same settings dialog an
   await user.click(screen.getByRole("button", { name: "Cancel" }));
   expect(screen.queryByLabelText("Provider name")).toBeNull();
   expect(screen.getByRole("button", { name: "Add provider" })).toBeTruthy();
+});
+
+test("nested settings screens render their own header actions beside the title", async () => {
+  const action = vi.fn();
+  render(
+    <SettingsDialog open hideTrigger>
+      {(navigation) => [
+        {
+          id: "example",
+          label: "Example settings",
+          keywords: "example",
+          headerActions: (
+            <button
+              onClick={() =>
+                navigation.navigate({
+                  id: "nested",
+                  label: "Nested settings",
+                  headerActions: (
+                    <button onClick={action}>Screen action</button>
+                  ),
+                  content: <p>Nested content</p>,
+                })
+              }
+            >
+              Open nested
+            </button>
+          ),
+          content: <p>Section content</p>,
+        },
+      ]}
+    </SettingsDialog>,
+  );
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Open nested" }));
+  const heading = screen.getByRole("heading", { name: "Nested settings" });
+  await waitFor(() => expect(document.activeElement).toBe(heading));
+  await user.click(
+    within(heading.parentElement!.parentElement!).getByRole("button", {
+      name: "Screen action",
+    }),
+  );
+  expect(action).toHaveBeenCalledOnce();
+});
+
+test("Configure Providers keeps header actions when opening providers from AI settings", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        connections: [],
+        defaultId: null,
+        cleanupPending: false,
+      }),
+    }),
+  );
+  render(
+    <ReviewSettings
+      open
+      settings={defaultDiffSettings}
+      onChange={vi.fn()}
+      view="split"
+      onViewChange={vi.fn()}
+    />,
+  );
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Configure Providers" }));
+  const heading = screen.getByRole("heading", { name: "Providers" });
+  await waitFor(() => expect(document.activeElement).toBe(heading));
+  await user.click(
+    within(heading.parentElement!.parentElement!).getByRole("button", {
+      name: "Add provider",
+    }),
+  );
+  await user.click(await screen.findByRole("menuitem", { name: "OpenAI" }));
+  expect(
+    screen.getByRole("heading", { name: "Add OpenAI-Compatible Provider" }),
+  ).toBeTruthy();
 });
 
 afterEach(() => {

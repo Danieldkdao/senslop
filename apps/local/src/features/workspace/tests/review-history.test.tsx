@@ -12,10 +12,15 @@ import { ReviewHistory } from "../components/review-history";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState, type ReactNode } from "react";
 import { onlineManager } from "@tanstack/react-query";
+import { TooltipProvider } from "@/components/ui/tooltip";
 
 const QueryProvider = ({ children }: { children: ReactNode }) => {
   const [client] = useState(() => new QueryClient());
-  return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
+  return (
+    <QueryClientProvider client={client}>
+      <TooltipProvider>{children}</TooltipProvider>
+    </QueryClientProvider>
+  );
 };
 
 beforeEach(() => {
@@ -51,6 +56,8 @@ test("local history can load while the browser reports no internet connectivity"
 const review = {
   id: "9cf6e565-c38e-48aa-a5aa-aac759789b6c",
   title: "Fix API",
+  repository: "/work",
+  directory: "/work/current",
   createdAt: "2026-10-09",
   updatedAt: "2026-10-09",
   hash: "a".repeat(64),
@@ -59,6 +66,108 @@ const review = {
   completedCount: 1,
   kind: "commit",
 };
+
+test("history groups reviews by full folder path with the current folder first and monospace headings", async () => {
+  const otherReview = {
+    ...review,
+    id: crypto.randomUUID(),
+    title: "Other project review",
+    directory: "/work/another",
+  };
+  const olderReview = {
+    ...review,
+    id: crypto.randomUUID(),
+    title: "Older review",
+  };
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        history: [
+          {
+            ...review,
+            id: crypto.randomUUID(),
+            title: "Legacy review",
+            directory: null,
+          },
+          otherReview,
+          review,
+          olderReview,
+        ],
+      }),
+    }),
+  );
+  render(
+    <ReviewHistory
+      open
+      currentDirectory={review.directory}
+      onOpenChange={vi.fn()}
+      onAction={vi.fn()}
+    />,
+    { wrapper: QueryProvider },
+  );
+  await screen.findByText(review.title);
+  const groups = screen.getAllByRole("group", {
+    name: /\/work\/current|\/work\/another|Folder not recorded/,
+  });
+  expect(groups).toHaveLength(3);
+  expect(groups[0]).toBe(
+    screen.getByRole("group", { name: /\/work\/current.*Current folder/ }),
+  );
+  expect(groups[1]).toBe(
+    screen.getByRole("group", { name: otherReview.directory }),
+  );
+  expect(groups[2]).toBe(
+    screen.getByRole("group", { name: "Folder not recorded" }),
+  );
+  expect(
+    within(groups[0]!)
+      .getAllByRole("option")
+      .map((option) => option.textContent),
+  ).toEqual([
+    expect.stringContaining(review.title),
+    expect.stringContaining(olderReview.title),
+  ]);
+  expect(
+    screen.getByText(review.directory).classList.contains("font-mono"),
+  ).toBe(true);
+  expect(
+    screen.getByText(otherReview.directory).classList.contains("font-mono"),
+  ).toBe(true);
+  expect(screen.getByLabelText("Current folder")).toBeTruthy();
+});
+
+test("folder searches use the debounced server query and retain folder grouping", async () => {
+  const fetcher = vi
+    .fn()
+    .mockResolvedValue({ ok: true, json: async () => ({ history: [review] }) });
+  vi.stubGlobal("fetch", fetcher);
+  const user = userEvent.setup();
+  render(
+    <ReviewHistory
+      open
+      currentDirectory={review.directory}
+      onOpenChange={vi.fn()}
+      onAction={vi.fn()}
+    />,
+    { wrapper: QueryProvider },
+  );
+  await screen.findByText(review.title);
+  await user.type(
+    screen.getByLabelText("Search saved reviews"),
+    "/work/current",
+  );
+  await waitFor(() =>
+    expect(fetcher).toHaveBeenCalledWith(
+      "/api/workspace?history=1&search=%2Fwork%2Fcurrent",
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    ),
+  );
+  expect(
+    await screen.findByRole("group", { name: /\/work\/current/ }),
+  ).toBeTruthy();
+});
 
 test("history initially highlights the current review and search can select a different review", async () => {
   Element.prototype.scrollIntoView = vi.fn();
@@ -192,7 +301,12 @@ test("rename and delete icon actions do not reopen; rename is inline and deletio
   await user.click(screen.getByRole("button", { name: "Delete Fix API" }));
   await user.click(screen.getByRole("button", { name: "Confirm" }));
   await waitFor(() =>
-    expect(action).toHaveBeenCalledWith({ action: "delete", id: review.id }),
+    expect(action).toHaveBeenCalledWith({
+      action: "delete",
+      id: review.id,
+      expectedHash: review.hash,
+      expectedRound: 1,
+    }),
   );
 });
 
@@ -265,4 +379,167 @@ test("a superseded query is aborted and its late response cannot replace search 
   finishInitial({ ok: true, json: async () => ({ history: [review] }) });
   expect(await screen.findByText("Latest result")).toBeTruthy();
   expect(screen.queryByText(review.title)).toBeNull();
+});
+
+test("history exposes compact snapshot and analysis status icons with keyboard and hover tooltips", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        history: [
+          {
+            ...review,
+            work: [
+              {
+                id: "group",
+                kind: "grouping",
+                status: "queued",
+                progress: "Waiting for capacity",
+                error: null,
+              },
+              {
+                id: "analysis",
+                kind: "review",
+                status: "failed",
+                progress: "Stopped",
+                error: "Model unavailable",
+              },
+            ],
+          },
+        ],
+      }),
+    }),
+  );
+  const user = userEvent.setup();
+  const onAction = vi.fn();
+  render(<ReviewHistory open onOpenChange={vi.fn()} onAction={onAction} />, {
+    wrapper: QueryProvider,
+  });
+  const snapshot = await screen.findByRole("img", {
+    name: "Snapshot ready to read",
+  });
+  const grouping = screen.getByRole("img", {
+    name: "Grouping: Queued — Waiting for capacity",
+  });
+  const correctness = screen.getByRole("img", {
+    name: "Correctness: Failed — Model unavailable",
+  });
+  expect(snapshot.textContent).toBe("");
+  expect(grouping.textContent).toBe("");
+  expect(correctness.textContent).toBe("");
+  await user.tab();
+  expect(document.activeElement).toBe(snapshot);
+  expect(await screen.findByText("Snapshot ready to read")).toBeTruthy();
+  await user.keyboard("{Enter}");
+  expect(onAction).not.toHaveBeenCalled();
+  await user.tab();
+  expect(document.activeElement).toBe(grouping);
+  expect(
+    await screen.findByText("Grouping: Queued — Waiting for capacity"),
+  ).toBeTruthy();
+  await user.hover(correctness);
+  expect(
+    await screen.findByText("Correctness: Failed — Model unavailable"),
+  ).toBeTruthy();
+  expect(onAction).not.toHaveBeenCalled();
+});
+
+test("queued work can be prioritized and canceled without opening its snapshot", async () => {
+  const fetcher = vi.fn(async (_url, options) =>
+    options?.method === "POST"
+      ? Response.json({ saved: true })
+      : Response.json({
+          history: [
+            {
+              ...review,
+              work: [
+                {
+                  id: "job",
+                  kind: "grouping",
+                  status: "queued",
+                  priority: "normal",
+                  progress: "Waiting",
+                  error: null,
+                },
+              ],
+            },
+          ],
+        }),
+  );
+  vi.stubGlobal("fetch", fetcher);
+  const onAction = vi.fn();
+  const user = userEvent.setup();
+  render(<ReviewHistory open onOpenChange={vi.fn()} onAction={onAction} />, {
+    wrapper: QueryProvider,
+  });
+  const prioritize = await screen.findByRole("button", {
+    name: "Prioritize grouping",
+  });
+  expect(prioritize.textContent).toBe("");
+  await user.hover(prioritize);
+  expect(await screen.findByText("Prioritize grouping")).toBeTruthy();
+  await user.click(prioritize);
+  expect(fetcher).toHaveBeenCalledWith(
+    "/api/agents",
+    expect.objectContaining({
+      body: JSON.stringify({ action: "priority", id: "job", priority: "high" }),
+    }),
+  );
+  const cancel = await screen.findByRole("button", { name: "Cancel grouping" });
+  expect(cancel.textContent).toBe("");
+  await user.hover(cancel);
+  expect(await screen.findByText("Cancel grouping")).toBeTruthy();
+  await user.click(cancel);
+  expect(fetcher).toHaveBeenCalledWith(
+    "/api/agents",
+    expect.objectContaining({
+      body: JSON.stringify({ action: "cancel", id: "job" }),
+    }),
+  );
+  expect(onAction).not.toHaveBeenCalled();
+});
+
+test("failed work retries through an icon button without opening its snapshot", async () => {
+  const fetcher = vi.fn(async (_url, options) =>
+    options?.method === "POST"
+      ? Response.json({ saved: true })
+      : Response.json({
+          history: [
+            {
+              ...review,
+              work: [
+                {
+                  id: "failed-job",
+                  kind: "review",
+                  status: "failed",
+                  priority: "normal",
+                  progress: "Stopped",
+                  error: "Model unavailable",
+                },
+              ],
+            },
+          ],
+        }),
+  );
+  vi.stubGlobal("fetch", fetcher);
+  const onAction = vi.fn();
+  const user = userEvent.setup();
+  render(<ReviewHistory open onOpenChange={vi.fn()} onAction={onAction} />, {
+    wrapper: QueryProvider,
+  });
+  const retry = await screen.findByRole("button", {
+    name: "Retry correctness",
+  });
+  expect(retry.textContent).toBe("");
+  await user.hover(retry);
+  expect(await screen.findByText("Retry correctness")).toBeTruthy();
+  await user.click(retry);
+  expect(fetcher).toHaveBeenCalledWith(
+    "/api/agents",
+    expect.objectContaining({
+      body: JSON.stringify({ action: "retry", id: "failed-job" }),
+    }),
+  );
+  expect(onAction).not.toHaveBeenCalled();
 });

@@ -65,6 +65,36 @@ const fixture = () => {
   return { request, client };
 };
 
+test.each(["create", "sync"])(
+  "%s forwards high priority to optional correctness analysis",
+  async (operation) => {
+    const { request, client } = fixture();
+    await executeReviewCommand(
+      client,
+      parseCliCommand([
+        "reviews",
+        operation,
+        ...(operation === "create" ? ["--working-tree"] : [review.id]),
+        "--run-review",
+        "--priority",
+        "high",
+      ]),
+      vi.fn(),
+    );
+    expect(request).toHaveBeenCalledWith(
+      "/api/agents",
+      expect.objectContaining({
+        action: "job",
+        snapshotId: review.id,
+        kind: "review",
+        expectedHash: review.hash,
+        expectedRound: review.round,
+        priority: "high",
+      }),
+    );
+  },
+);
+
 test("the agent handoff uses the shared workspace API, waits for matching grouping and returns a safe browser URL", async () => {
   const { request, client } = fixture();
   const open = vi.fn();
@@ -81,15 +111,20 @@ test("the agent handoff uses the shared workspace API, waits for matching groupi
     ]),
     open,
   );
-  expect(request).toHaveBeenCalledWith("/api/workspace", {
-    action: "inspect",
-    source: { kind: "working-tree" },
-    grouping: true,
-  });
+  expect(request).toHaveBeenCalledWith(
+    "/api/workspace",
+    expect.objectContaining({
+      action: "inspect",
+      source: { kind: "working-tree" },
+      grouping: true,
+      activate: true,
+      directory: expect.any(String),
+    }),
+  );
   expect(open).toHaveBeenCalledWith(client.browserUrl());
   expect(result).toMatchObject({
     id: review.id,
-    url: "http://127.0.0.1:4317",
+    url: `http://127.0.0.1:4317/?review=${review.id}`,
     preparation: { grouping: { status: "completed" } },
   });
   expect(JSON.stringify(result)).not.toContain("private");
@@ -211,5 +246,92 @@ test("watch bounds an unresponsive status request by the requested timeout", asy
     exitCode: 5,
     code: "timeout",
     details: { jobId: "job" },
+  });
+});
+
+test("background creation returns explicit revision and job identities without waiting or opening", async () => {
+  const { request, client } = fixture();
+  const open = vi.fn();
+  const result = await executeReviewCommand(
+    client,
+    parseCliCommand(["reviews", "create", "--working-tree"]),
+    open,
+  );
+  expect(open).not.toHaveBeenCalled();
+  expect(request).toHaveBeenCalledWith(
+    "/api/workspace",
+    expect.objectContaining({ activate: false, directory: expect.any(String) }),
+  );
+  expect(request.mock.calls.some(([path]) => path.includes("jobId="))).toBe(
+    false,
+  );
+  expect(result).toMatchObject({
+    id: review.id,
+    round: review.round,
+    hash: review.hash,
+    jobIds: ["job"],
+  });
+});
+
+test("the first review opens automatically and --open targets the requested review", async () => {
+  const { client } = fixture();
+  vi.spyOn(client, "request").mockResolvedValue({
+    ...review,
+    groupingEnabled: false,
+    activated: true,
+  });
+  const open = vi.fn();
+  await executeReviewCommand(
+    client,
+    parseCliCommand(["reviews", "create", "--working-tree"]),
+    open,
+  );
+  expect(open).toHaveBeenCalledWith(client.browserUrl(review.id));
+});
+
+test("re-sync carries the revision read before another client can change it", async () => {
+  const { request, client } = fixture();
+  await executeReviewCommand(
+    client,
+    parseCliCommand(["reviews", "sync", review.id]),
+  );
+  expect(request).toHaveBeenCalledWith(
+    "/api/workspace",
+    expect.objectContaining({
+      action: "resync",
+      id: review.id,
+      expectedHash: review.hash,
+      expectedRound: review.round,
+      activate: false,
+    }),
+  );
+});
+
+test("a retained revision expectation fails before a stale automation command writes", async () => {
+  const { request, client } = fixture();
+  await expect(
+    executeReviewCommand(
+      client,
+      parseCliCommand([
+        "reviews",
+        "complete",
+        review.id,
+        "a.ts",
+        "--expected-hash",
+        "stale",
+        "--expected-round",
+        "1",
+      ]),
+    ),
+  ).rejects.toMatchObject({ code: "review_conflict" });
+  expect(request).toHaveBeenCalledTimes(1);
+});
+
+test("retry uses the original job identity rather than resolving shared current", async () => {
+  const { request, client } = fixture();
+  await executeReviewCommand(client, parseCliCommand(["runs", "retry", "job"]));
+  expect(request).toHaveBeenLastCalledWith("/api/agents", {
+    action: "retry",
+    id: "job",
   });
 });

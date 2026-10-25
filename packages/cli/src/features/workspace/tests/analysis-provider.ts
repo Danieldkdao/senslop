@@ -1,6 +1,67 @@
 import { createServer } from "node:http";
 import { once } from "node:events";
 
+type AnalysisFixtureSchema = {
+  type?: string;
+  properties?: Record<string, AnalysisFixtureSchema>;
+  items?: AnalysisFixtureSchema;
+};
+
+export const createAnalysisFixtureResult = (body: Record<string, unknown>) => {
+  let schema = (
+    body.response_format as
+      { json_schema?: { schema?: AnalysisFixtureSchema } } | undefined
+  )?.json_schema?.schema;
+  for (const message of (body.messages as
+    { content?: unknown }[] | undefined) ?? [])
+    if (
+      typeof message.content === "string" &&
+      message.content.startsWith("Required final JSON schema:")
+    )
+      schema = JSON.parse(message.content.split("\n").slice(1).join("\n"));
+  const properties = schema?.properties ?? {};
+  const file = {
+    path: "a.ts",
+    summary: "Updates the exported constant.",
+    related: [],
+  };
+  let result: unknown;
+  if (properties.groups && properties.files)
+    result = {
+      groups: [
+        {
+          title: "Value change",
+          rationale: "Constant before consumers",
+          index: 0,
+        },
+      ],
+      files: [{ ...file, groupIndex: 0, beforePath: null }],
+    };
+  else if (properties.groups)
+    result = {
+      groups: [
+        {
+          title: "Value change",
+          rationale: "Constant before consumers",
+          files:
+            properties.groups.items?.properties?.files?.items?.type ===
+            "integer"
+              ? [0]
+              : [file],
+        },
+      ],
+    };
+  else if (properties.files)
+    result = { files: [{ path: "a.ts", findings: [] }], limitations: [] };
+  else
+    result = {
+      findings: [],
+      limitations: ["Deterministic provider; not a model quality evaluation"],
+      fixAllPrompt: "No fixes needed.",
+    };
+  return result;
+};
+
 export const startAnalysisProvider = async () => {
   let paused = false;
   const waiting = new Set<() => void>();
@@ -20,53 +81,7 @@ export const startAnalysisProvider = async () => {
         waiting.add(resolve);
       });
     if (response.destroyed) return;
-    let schema = body.response_format?.json_schema?.schema;
-    for (const message of body.messages ?? [])
-      if (
-        typeof message.content === "string" &&
-        message.content.startsWith("Required final JSON schema:")
-      )
-        schema = JSON.parse(message.content.split("\n").slice(1).join("\n"));
-    const properties = schema?.properties ?? {};
-    const file = {
-      path: "a.ts",
-      summary: "Updates the exported constant.",
-      related: [],
-    };
-    let result: unknown;
-    if (properties.groups && properties.files)
-      result = {
-        groups: [
-          {
-            title: "Value change",
-            rationale: "Constant before consumers",
-            index: 0,
-          },
-        ],
-        files: [{ ...file, groupIndex: 0, beforePath: null }],
-      };
-    else if (properties.groups)
-      result = {
-        groups: [
-          {
-            title: "Value change",
-            rationale: "Constant before consumers",
-            files:
-              properties.groups.items?.properties?.files?.items?.type ===
-              "integer"
-                ? [0]
-                : [file],
-          },
-        ],
-      };
-    else if (properties.files)
-      result = { files: [{ path: "a.ts", findings: [] }], limitations: [] };
-    else
-      result = {
-        findings: [],
-        limitations: ["Deterministic provider; not a model quality evaluation"],
-        fixAllPrompt: "No fixes needed.",
-      };
+    const result = createAnalysisFixtureResult(body);
     response.setHeader("Content-Type", "application/json");
     response.end(
       JSON.stringify({

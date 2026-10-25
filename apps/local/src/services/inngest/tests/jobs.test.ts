@@ -419,3 +419,29 @@ test("terminally failed work is never restarted by a late worker delivery", asyn
   expect(store.snapshot).not.toHaveBeenCalled();
   expect(store.updateJob).not.toHaveBeenCalled();
 });
+
+test("a job stays queued until the engine admits its first durable step", async () => {
+  const store = {
+    job: () => ({
+      id: "job",
+      snapshotId: "snapshot",
+      hash: "hash",
+      kind: "grouping",
+      status: "queued",
+      settings: defaultAiSettings,
+    }),
+    snapshot: () => ({ id: "snapshot", hash: "hash" }),
+    updateJob: vi.fn(),
+    publish: vi.fn(),
+    repository: "/repo",
+    local: {},
+  };
+  await expect(
+    executeJob(store as never, "job", "run", {
+      run: async () => {
+        throw new Error("Waiting for engine capacity");
+      },
+    }),
+  ).rejects.toThrow(/capacity/);
+  expect(store.updateJob).not.toHaveBeenCalled();
+});

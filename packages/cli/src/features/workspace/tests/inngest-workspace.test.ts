@@ -9,6 +9,7 @@ import { once } from "node:events";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { startLocalApp } from "../local-app";
+import { createAnalysisFixtureResult } from "./analysis-provider";
 
 // This opt-in starts the packaged server and real engine with a deterministic test provider.
 test.skipIf(process.env.RUN_LOCAL_AI_TESTS !== "1")(
@@ -48,35 +49,12 @@ test.skipIf(process.env.RUN_LOCAL_AI_TESTS !== "1")(
         );
         return;
       }
-      const prompt = JSON.stringify(body.messages);
       if (pauseNext) {
         pauseNext = false;
         paused();
         await providerResume;
       }
-      const output = prompt.includes("Group all changed files")
-        ? {
-            groups: [
-              {
-                title: "Value change",
-                rationale: "Constant before consumers",
-                files: [
-                  {
-                    path: "a.ts",
-                    summary: "Changes the exported constant to two.",
-                    related: [],
-                  },
-                ],
-              },
-            ],
-          }
-        : {
-            findings: [],
-            limitations: [
-              "Deterministic fixture provider; not a quality evaluation",
-            ],
-            fixAllPrompt: "No findings to fix.",
-          };
+      const output = createAnalysisFixtureResult(body);
       response.setHeader("Content-Type", "application/json");
       response.end(
         JSON.stringify({

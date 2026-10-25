@@ -200,6 +200,90 @@ test("database search matches review names literally and remains scoped after re
   }
 });
 
+test("history retains launch folders within one repository after restart and searches them literally", async () => {
+  const path = await fixture();
+  let store = new LocalStore(path);
+  const repository = "/work/projects";
+  const directory = "/work/projects/100%_Project";
+  const savedReview = store.saveReview(repository, preview(), null, false, {
+    directory,
+  });
+  const siblingReview = store.saveReview(repository, preview(), null, false, {
+    directory: "/work/projects/sibling",
+  });
+  store.saveReview("/work/other", preview(), null);
+  store.close();
+  store = new LocalStore(path);
+  try {
+    expect(store.listReviews(repository)).toEqual([
+      expect.objectContaining({
+        id: siblingReview.id,
+        directory: "/work/projects/sibling",
+      }),
+      expect.objectContaining({ id: savedReview.id, repository, directory }),
+    ]);
+    expect(store.listReviews(repository, "100%_project")).toEqual([
+      expect.objectContaining({ id: savedReview.id, repository, directory }),
+    ]);
+    expect(store.getReview(repository, savedReview.id)?.directory).toBe(
+      directory,
+    );
+    expect(store.getReview(repository, siblingReview.id)?.directory).toBe(
+      "/work/projects/sibling",
+    );
+    expect(store.listReviews(repository, "100XXProject")).toEqual([]);
+    expect(store.listReviews("/work/other", "100%_project")).toEqual([]);
+  } finally {
+    store.close();
+  }
+});
+
+test("legacy reviews keep an unknown launch folder through reopening and rename", async () => {
+  const path = await fixture();
+  let store = new LocalStore(path);
+  const savedReview = store.saveReview("/repo", preview(), null);
+  store.close();
+  store = new LocalStore(path);
+  try {
+    expect(store.getReview("/repo", savedReview.id)?.directory).toBeUndefined();
+    expect(store.listReviews("/repo")).toEqual([
+      expect.objectContaining({ id: savedReview.id, directory: null }),
+    ]);
+    store.changeReview("/repo", savedReview.id, {
+      action: "rename",
+      title: "Legacy review",
+    });
+    expect(store.listReviews("/repo")[0]).toMatchObject({
+      title: "Legacy review",
+      directory: null,
+    });
+    expect(store.listReviews("/repo", "/repo")).toEqual([]);
+  } finally {
+    store.close();
+  }
+});
+
+test("keeping a review preserves its original launch folder when syncing from another folder", async () => {
+  const store = new LocalStore(await fixture());
+  try {
+    const savedReview = store.saveReview("/repo", preview(), null, false, {
+      directory: "/repo/first",
+    });
+    const updatedReview = store.saveReview("/repo", preview(), null, false, {
+      directory: "/repo/second",
+      previousReviewId: savedReview.id,
+      resyncMode: "keep",
+      expectedHash: savedReview.hash,
+      expectedRound: savedReview.round,
+    });
+    expect(updatedReview.id).toBe(savedReview.id);
+    expect(updatedReview.directory).toBe("/repo/first");
+    expect(store.listReviews("/repo")[0]?.directory).toBe("/repo/first");
+  } finally {
+    store.close();
+  }
+});
+
 test("multiline notes validate the entire frozen range and overlapping notes survive reopening", async () => {
   const path = await fixture();
   let store = new LocalStore(path);
@@ -340,6 +424,24 @@ test("cumulative snapshots retain file notes and re-anchor exact unique line ran
     expect(third.id).toBe(first.id);
     expect(store.listReviews("/repo")).toHaveLength(1);
     expect(store.getReview("/repo", second.id)?.notes).toHaveLength(2);
+  } finally {
+    store.close();
+  }
+});
+
+test("background captures activate only the first saved review and keep explicit opening available", async () => {
+  const store = new LocalStore(await fixture());
+  try {
+    const first = store.saveReview("/repo", preview(), null, false, {
+      activate: false,
+    });
+    const second = store.saveReview("/repo", preview(), null, false, {
+      activate: false,
+    });
+    expect(store.currentReview("/repo")?.id).toBe(first.id);
+    expect(store.listReviews("/repo")).toHaveLength(2);
+    expect(store.openReview("/repo", second.id).id).toBe(second.id);
+    expect(store.currentReview("/repo")?.id).toBe(second.id);
   } finally {
     store.close();
   }

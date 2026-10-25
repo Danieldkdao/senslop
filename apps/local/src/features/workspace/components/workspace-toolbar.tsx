@@ -23,7 +23,8 @@ export const WorkspaceToolbar = ({
 }: {
   preparing?: boolean;
 }) => {
-  const { preview, refresh, trackReviewOperation } = useLivePreview();
+  const { preview, refresh, openReview, trackReviewOperation } =
+    useLivePreview();
   const repository = useWorkspaceMetadata();
   const metadata = repository.data ?? null;
   const [actionError, setError] = useState<string | null>(null);
@@ -56,6 +57,11 @@ export const WorkspaceToolbar = ({
           hash: savedReview.data.hash,
           mode: notify,
         });
+      if (
+        savedReview.success &&
+        (notify || ("action" in body && body.action === "open"))
+      )
+        openReview(savedReview.data);
       await refresh();
       await load();
       return true;
@@ -138,7 +144,18 @@ export const WorkspaceToolbar = ({
         busy={busy}
         error={error}
         onResync={(mode, grouping) =>
-          act({ action: "resync", id: preview!.id, mode, grouping }, mode)
+          act(
+            {
+              action: "resync",
+              id: preview!.id,
+              expectedHash: preview!.hash,
+              expectedRound: preview!.round,
+              mode,
+              grouping,
+              activate: true,
+            },
+            mode,
+          )
         }
       />
       <TooltipWrapper
@@ -157,6 +174,7 @@ export const WorkspaceToolbar = ({
       <ReviewHistory
         open={historyOpen}
         currentReviewId={preview?.id}
+        currentDirectory={metadata?.directory}
         shortcutsEnabled={shortcutsEnabled}
         onShortcutsEnabledChange={setShortcutsEnabled}
         onOpenChange={setHistoryOpen}
@@ -169,7 +187,10 @@ export const WorkspaceToolbar = ({
         busy={busy}
         error={error}
         onInspect={(source, grouping) =>
-          act({ action: "inspect", source, grouping }, "inspect")
+          act(
+            { action: "inspect", source, grouping, activate: true },
+            "inspect",
+          )
         }
       />
     </div>

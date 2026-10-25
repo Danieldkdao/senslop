@@ -99,15 +99,27 @@ export const formatSeverity = (severity: FindingSeverity) => {
 export const formatJobStatusAppearance = (status: JobStatus) => {
   switch (status) {
     case "completed":
-      return { Icon: CircleCheck, className: "text-success" };
+      return { Icon: CircleCheck, className: "text-success!", loading: false };
     case "failed":
-      return { Icon: CircleX, className: "text-destructive" };
+      return { Icon: CircleX, className: "text-destructive!", loading: false };
     case "running":
-      return { Icon: LoaderCircle, className: "text-muted-foreground" };
+      return {
+        Icon: LoaderCircle,
+        className: "text-muted-foreground!",
+        loading: true,
+      };
     case "queued":
-      return { Icon: Clock, className: "text-muted-foreground" };
+      return {
+        Icon: Clock,
+        className: "text-muted-foreground!",
+        loading: false,
+      };
     case "canceled":
-      return { Icon: CircleMinus, className: "text-muted-foreground" };
+      return {
+        Icon: CircleMinus,
+        className: "text-muted-foreground!",
+        loading: false,
+      };
   }
 };
 

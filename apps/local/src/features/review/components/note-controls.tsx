@@ -45,7 +45,9 @@ export const NoteControls = ({
           className="w-[min(25rem,calc(100vw-2rem))] text-base"
           align="end"
         >
-          <p className="break-all text-muted-foreground">{selectedPath}</p>
+          <p className="break-all font-mono text-muted-foreground">
+            {selectedPath}
+          </p>
           <ReviewNoteForm
             key={`${reviewId}:${selectedPath}`}
             onSubmit={async ({ body }) => {

@@ -52,14 +52,14 @@ vi.mock("../../settings/components/provider-settings-dialog", () => ({
 }));
 afterEach(cleanup);
 
-test("capacity edits submit with AI settings and active runs disable capacity controls", async () => {
+test("capacity edits autosave without a button and active runs disable capacity controls", async () => {
   const navigation = { navigate: vi.fn() } as never;
   const view = render(<AiSettings navigation={navigation} />);
   const user = userEvent.setup();
   const input = screen.getByRole("spinbutton", { name: "Concurrent requests" });
   await user.clear(input);
   await user.type(input, "3");
-  await user.click(screen.getByRole("button", { name: "Save AI settings" }));
+  expect(screen.queryByRole("button", { name: "Save AI settings" })).toBeNull();
   await waitFor(() =>
     expect(state.save).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -140,6 +140,9 @@ test("grouping options describe waiting behavior and save the selected mode", as
   ).toBeTruthy();
   await user.click(screen.getByRole("option", { name: /Decide each review/ }));
   expect(select.textContent).toContain("Decide each review");
+  await waitFor(() =>
+    expect(state.save).toHaveBeenCalledWith({ groupingMode: "ask" }),
+  );
 });
 
 test("grouping controls stay disabled until the active grouping model is assigned", () => {
@@ -157,4 +160,51 @@ test("grouping controls stay disabled until the active grouping model is assigne
   expect(
     screen.getByLabelText("Grouping instructions").hasAttribute("disabled"),
   ).toBe(true);
+});
+
+test("grouping instructions autosave after typing and flush on blur or closing settings", async () => {
+  state.settings = {
+    ...defaultAiSettings,
+    shared: { connectionId: "test", modelId: "test", name: "Test" },
+  };
+  const view = render(
+    <AiSettings navigation={{ navigate: vi.fn() } as never} />,
+  );
+  const user = userEvent.setup();
+  const input = screen.getByLabelText("Grouping instructions");
+  await user.clear(input);
+  await user.type(input, "Group by behavior");
+  await waitFor(() =>
+    expect(state.save).toHaveBeenCalledWith({ prompt: "Group by behavior" }),
+  );
+  expect(state.save).toHaveBeenCalledTimes(1);
+  await user.type(input, " and dependencies");
+  await user.tab();
+  expect(state.save).toHaveBeenLastCalledWith({
+    prompt: "Group by behavior and dependencies",
+  });
+  await user.type(input, " first");
+  view.unmount();
+  expect(state.save).toHaveBeenLastCalledWith({
+    prompt: "Group by behavior and dependencies first",
+  });
+});
+
+test("blank instructions show validation feedback without saving", async () => {
+  state.settings = {
+    ...defaultAiSettings,
+    shared: { connectionId: "test", modelId: "test", name: "Test" },
+  };
+  render(<AiSettings navigation={{ navigate: vi.fn() } as never} />);
+  const user = userEvent.setup();
+  await user.clear(screen.getByLabelText("Grouping instructions"));
+  await user.tab();
+  await waitFor(() =>
+    expect(
+      screen
+        .getByLabelText("Grouping instructions")
+        .getAttribute("aria-invalid"),
+    ).toBe("true"),
+  );
+  expect(state.save).not.toHaveBeenCalled();
 });

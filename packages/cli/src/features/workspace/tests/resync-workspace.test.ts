@@ -58,7 +58,13 @@ test.skipIf(process.env.RUN_LOCAL_AI_TESTS !== "1")(
       expect(first.repositoryState?.branch).toBe("main");
       await writeFile(join(repository, "a.ts"), "export const a = 2;\n");
       const status = (await git("status", "--porcelain=v1")).stdout;
-      const second = await send({ action: "resync", id: first.id });
+      const second = await send({
+        action: "resync",
+        id: first.id,
+        expectedHash: first.hash,
+        expectedRound: first.round,
+        activate: true,
+      });
       expect(second.files[0]).toMatchObject({
         before: "export const a = 1;\n",
         after: "export const a = 2;\n",
@@ -97,7 +103,13 @@ test.skipIf(process.env.RUN_LOCAL_AI_TESTS !== "1")(
       const next = await fetch(`${app.origin}/api/workspace`, {
         method: "POST",
         headers: restartHeaders,
-        body: JSON.stringify({ action: "resync", id: reopened.id }),
+        body: JSON.stringify({
+          action: "resync",
+          id: reopened.id,
+          expectedHash: reopened.hash,
+          expectedRound: reopened.round,
+          activate: true,
+        }),
       });
       expect(next.status).toBe(200);
       const third = savedReviewSchema.parse(await next.json());
