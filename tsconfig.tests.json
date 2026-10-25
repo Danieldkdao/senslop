@@ -30,5 +30,6 @@
     "apps/**/tests/**/*.tsx",
     "packages/**/tests/**/*.ts",
     "vitest.config.mts"
-  ]
+  ],
+  "exclude": ["**/node_modules/**", "**/dist/**", "**/.next/**"]
 }
