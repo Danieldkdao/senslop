@@ -537,17 +537,11 @@ export const ReviewWorkspace = ({ children }: ReviewWorkspaceProps) => {
   );
 
   const canvas = (
-    <main
-      aria-label="Review canvas"
-      className={cn(
-        "flex h-full min-w-0 flex-col",
-        !preparing && completed && "ring-1 ring-inset ring-primary/40",
-      )}
-    >
+    <main aria-label="Review canvas" className="flex h-full min-w-0 flex-col">
       <header
         className={cn(
           "flex min-h-14 shrink-0 items-center gap-2 border-b border-border px-3 py-2 text-muted-foreground md:px-5",
-          !preparing && completed && "border-primary/40 bg-primary/10",
+          !preparing && completed && "bg-success/10",
         )}
       >
         <TooltipWrapper content="Back in reading history">
@@ -840,8 +834,8 @@ export const ReviewWorkspace = ({ children }: ReviewWorkspaceProps) => {
         )}
       {settings.whitespace && settings.whitespace !== "all" && (
         <p className="border-b px-4 py-2 text-base text-muted-foreground">
-          Whitespace filter: {formatWhitespaceMode(settings.whitespace)}.
-          Completion remains manual.
+          {formatWhitespaceMode(settings.whitespace)} whitespace filter is
+          active; completion remains manual.
         </p>
       )}
       {!!grouping?.organizationLimitations?.length && (
@@ -867,7 +861,7 @@ export const ReviewWorkspace = ({ children }: ReviewWorkspaceProps) => {
                 setRegionContext((value) => (value >= 20 ? 0 : value + 5))
               }
             >
-              Context: {regionContext} lines
+              {regionContext} context lines
             </Button>
           )}
           <Button

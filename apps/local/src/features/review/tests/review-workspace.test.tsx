@@ -646,7 +646,10 @@ test("d toggles persisted completion with header/sidebar indicators, without int
       .getByRole("button", { name: "Mark incomplete" })
       .getAttribute("aria-pressed"),
   ).toBe("true");
-  expect(canvas.classList.contains("ring-primary/40")).toBe(true);
+  expect(canvas.classList.contains("ring-primary/40")).toBe(false);
+  expect(
+    canvas.querySelector("header")?.classList.contains("bg-success/10"),
+  ).toBe(true);
   expect(
     screen
       .getByRole("button", { name: /src\/first.ts: Completed/ })

@@ -106,7 +106,7 @@ test("saved review findings navigate to their exact evidence and expose copyable
   ).toHaveLength(2);
 });
 
-test("completed groups start collapsed even when their selected file is inside the group", async () => {
+test("the selected group starts open even when completed and remains manually collapsible", async () => {
   render(
     <GroupedFiles
       grouping={grouping}
@@ -117,13 +117,13 @@ test("completed groups start collapsed even when their selected file is inside t
     />,
   );
   const trigger = screen.getByRole("button", { name: /Shared behavior/ });
-  expect(trigger.getAttribute("aria-expanded")).toBe("false");
-  await userEvent.setup().click(trigger);
   expect(trigger.getAttribute("aria-expanded")).toBe("true");
   expect(screen.getByRole("button", { name: /b.ts: Completed/ })).toBeTruthy();
+  await userEvent.setup().click(trigger);
+  expect(trigger.getAttribute("aria-expanded")).toBe("false");
 });
 
-test("finishing the last file auto collapses a group, including after a manual reopen and undo", async () => {
+test("completion and undo preserve the user's group expansion", async () => {
   const props = {
     grouping,
     preview,
@@ -133,18 +133,11 @@ test("finishing the last file auto collapses a group, including after a manual r
   };
   const mounted = render(<GroupedFiles {...props} />);
   const trigger = () => screen.getByRole("button", { name: /Shared behavior/ });
-  expect(trigger().getAttribute("aria-expanded")).toBe("true");
   const done = { ...preview, completedPaths: ["a.ts", "b.ts"] };
   mounted.rerender(<GroupedFiles {...props} preview={done} />);
-  expect(trigger().getAttribute("aria-expanded")).toBe("false");
-  const user = userEvent.setup();
-  await user.click(trigger());
   expect(trigger().getAttribute("aria-expanded")).toBe("true");
-  mounted.rerender(<GroupedFiles {...props} preview={{ ...done }} />);
-  expect(trigger().getAttribute("aria-expanded")).toBe("true");
+  await userEvent.setup().click(trigger());
   mounted.rerender(<GroupedFiles {...props} />);
-  expect(trigger().getAttribute("aria-expanded")).toBe("true");
-  mounted.rerender(<GroupedFiles {...props} preview={done} />);
   expect(trigger().getAttribute("aria-expanded")).toBe("false");
   mounted.rerender(<GroupedFiles {...props} preview={done} search="b.ts" />);
   expect(trigger().getAttribute("aria-expanded")).toBe("true");

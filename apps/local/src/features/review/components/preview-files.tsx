@@ -74,6 +74,7 @@ export const PreviewFiles = ({
         </div>
       ) : organization && onSelectUnit && onOrganizationAction ? (
         <RegionBrowser
+          key={preview.id}
           organization={organization}
           impact={impact}
           selectedUnitId={selectedUnitId}
