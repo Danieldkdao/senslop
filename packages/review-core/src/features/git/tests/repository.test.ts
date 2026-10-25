@@ -1,6 +1,7 @@
 import { afterEach, expect, test, vi } from "vitest";
 import {
   mkdtemp,
+  mkdir,
   realpath,
   rm,
   writeFile,
@@ -12,6 +13,7 @@ import { join } from "node:path";
 import { simpleGit } from "simple-git";
 import {
   readSourceTexts,
+  listSourcePaths,
   collectSnapshot,
   inspectRepository,
   readRepository,
@@ -131,4 +133,26 @@ test("batched revision reads preserve unusual paths, file bounds, and symlink ex
   const bounded = await readSourceTexts(cwd, names, "HEAD", 1);
   expect(bounded.limited).toBe(true);
   expect(bounded.sources).toEqual({});
+});
+
+test("explicit review configuration is capturable while private local state remains excluded", async () => {
+  const { cwd } = await fixture();
+  await mkdir(join(cwd, ".senslop"), { recursive: true });
+  await mkdir(join(cwd, "api/.senslop"), { recursive: true });
+  await writeFile(
+    join(cwd, ".senslop/review.json"),
+    '{"profiles":["security"]}',
+  );
+  await writeFile(
+    join(cwd, "api/.senslop/review.json"),
+    '{"profiles":["correctness"]}',
+  );
+  await writeFile(join(cwd, ".senslop/state.sqlite"), "private");
+  const paths = await listSourcePaths(cwd, null);
+  expect(paths).toContain(".senslop/review.json");
+  expect(paths).toContain("api/.senslop/review.json");
+  expect(paths).not.toContain(".senslop/state.sqlite");
+  const captured = await readSourceTexts(cwd, paths, null, 100000);
+  expect(captured.sources[".senslop/review.json"]).toContain("security");
+  expect(captured.sources[".senslop/state.sqlite"]).toBeUndefined();
 });

@@ -115,7 +115,12 @@ const revision = async (cwd: string, input: string) => {
   ).trim();
 };
 export const secretReason = (path: string): string | null => {
-  const name = path.split("/").at(-1)!;
+  const parts = path.split("/");
+  const name = parts.at(-1)!;
+  const reviewConfig =
+    name === "review.json" &&
+    parts.at(-2) === ".senslop" &&
+    parts.filter((part) => part === ".senslop").length === 1;
   if (
     (/^\.env(?:\.|$)/i.test(name) &&
       !/^\.env\.(example|sample|template)$/i.test(name)) ||
@@ -123,7 +128,8 @@ export const secretReason = (path: string): string | null => {
       name,
     ) ||
     /\.(pem|p12|pfx|key)$/i.test(name) ||
-    /(^|\/)(\.aws|\.ssh|\.senslop)(\/|$)/.test(path)
+    /(^|\/)(\.aws|\.ssh)(\/|$)/.test(path) ||
+    (/(^|\/)\.senslop(\/|$)/.test(path) && !reviewConfig)
   )
     return "credential-like path; excluded without reading contents";
   return null;
