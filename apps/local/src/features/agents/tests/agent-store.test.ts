@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { LocalStore } from "@senslop/review-core/storage";
 import { saveProjectPolicy } from "@senslop/review-core/policy";
 import { projectPolicySchema } from "@senslop/contracts";
+import { saveReviewLimits } from "@senslop/review-core/policy";
 import { AgentStore } from "../lib/agent-store";
 import { defaultConnectionCapacity } from "../../ai-capacity/lib/capacity";
 
@@ -692,6 +693,30 @@ test("intentional re-analysis does not inherit a completed run's cached batches"
     expect(next.id).not.toBe(previous.id);
     expect(next.retryOf).toBeNull();
     expect(agents.readCheckpoint(next.id, "batch")).toBeNull();
+  } finally {
+    local.close();
+  }
+});
+
+test("analysis depth is captured per run and retained by a retry", async () => {
+  const { local, review, agents } = await fixture();
+  try {
+    saveReviewLimits(local, "/repo", review.id, {
+      mode: "quick",
+      tokenBudget: null,
+      timeLimitSeconds: null,
+    });
+    const job = agents.createJob(review.id, "review");
+    expect(job.analysisMode).toBe("quick");
+    agents.updateJob(job.id, { status: "failed" });
+    saveReviewLimits(local, "/repo", review.id, {
+      mode: "thorough",
+      tokenBudget: null,
+      timeLimitSeconds: null,
+    });
+    expect(
+      agents.createJob(review.id, "review", { retryOf: job.id }).analysisMode,
+    ).toBe("quick");
   } finally {
     local.close();
   }

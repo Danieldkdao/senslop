@@ -60,9 +60,20 @@ const resultUsage = {
   },
   outputTokens: { total: 10, text: 10, reasoning: undefined },
 };
+const localFixture = {
+  database: {
+    prepare: (query: string) => ({
+      get: () =>
+        query.startsWith("SELECT repository")
+          ? { repository: "/fixture" }
+          : undefined,
+    }),
+  },
+} as never;
+
 const resultAgent = (signal = new AbortController().signal) =>
   createRepositoryAgent({
-    local: {} as never,
+    local: localFixture,
     snapshot: {
       id: "snapshot",
       source: {},
@@ -283,7 +294,7 @@ test("a malformed file summary preserves valid files and requests only the defec
   });
   state.resolved = { model };
   const agent = await createRepositoryAgent({
-    local: {} as never,
+    local: localFixture,
     snapshot: { id: "snapshot", source: {}, files } as never,
     settings: defaultAiSettings,
     selection: { connectionId: "connection", modelId: "model", name: "Model" },
@@ -623,7 +634,7 @@ test("concurrent batches keep context quotas and parent request IDs isolated", a
     name: "Model",
   };
   const agent = await createRepositoryAgent({
-    local: {} as never,
+    local: localFixture,
     snapshot: { id: "snapshot", source: {}, files } as never,
     settings: {
       ...defaultAiSettings,
@@ -757,7 +768,7 @@ test.each([
       model: new MockLanguageModelV4({ doGenerate: generate }),
     };
     const agent = await createRepositoryAgent({
-      local: {} as never,
+      local: localFixture,
       snapshot: {
         id: "snapshot",
         source: {},
@@ -823,7 +834,7 @@ test("grouping consumes validated structured model output and rejects incomplete
     }),
   };
   const agent = await createRepositoryAgent({
-    local: {} as never,
+    local: localFixture,
     snapshot: {
       id: "snapshot",
       source: {},
@@ -920,7 +931,7 @@ test("Context retrieval reserves a final answer after repository tools instead o
     name: "Model",
   };
   const agent = await createRepositoryAgent({
-    local: {} as never,
+    local: localFixture,
     snapshot: {
       id: "snapshot",
       source: {},
@@ -952,4 +963,36 @@ test("Context retrieval reserves a final answer after repository tools instead o
   });
   await expect(agent.grouping()).resolves.toEqual(resultGroups);
   expect(contextCalls).toBe(4);
+});
+
+test("finding verification returns a separate assessment without a user decision", async () => {
+  state.resolved = {
+    model: new MockLanguageModelV4({
+      doGenerate: async () =>
+        jsonResponse({
+          outcome: "apparently-fixed",
+          explanation:
+            "The new guard handles the original empty-input trigger.",
+        }),
+    }),
+  };
+  const assessment = await (
+    await resultAgent()
+  ).verify({
+    title: "Guard missing",
+    severity: "high",
+    problem: "Empty input crashes",
+    path: "a.ts",
+    side: "after",
+    start: 1,
+    end: 1,
+    code: "input.value",
+    fixPrompt: "Add a guard",
+    category: "correctness",
+  });
+  expect(assessment).toEqual({
+    outcome: "apparently-fixed",
+    explanation: "The new guard handles the original empty-input trigger.",
+  });
+  expect(assessment).not.toHaveProperty("decision");
 });

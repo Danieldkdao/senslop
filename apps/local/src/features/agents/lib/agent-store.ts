@@ -5,6 +5,7 @@ import { storedConnectionSchema } from "@senslop/contracts";
 import type { LocalStore } from "@senslop/review-core/storage";
 import {
   projectPreferenceKey,
+  readReviewPolicy,
   readProjectPolicy,
   sourcePolicyHash,
   WorkflowPolicyError,
@@ -321,6 +322,9 @@ export class AgentStore {
         hash: snapshot.hash,
         snapshotRound: snapshot.round,
         kind,
+        analysisMode:
+          previousJob?.analysisMode ??
+          readReviewPolicy(this.local, this.repository, snapshotId).mode,
         generation: (jobs[0]?.generation ?? 0) + 1,
         settings: previousJob?.settings ?? this.runSettings(),
         priority: options.priority ?? previousJob?.priority ?? "normal",
