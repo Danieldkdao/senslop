@@ -7,6 +7,9 @@ const nextConfig: NextConfig = {
   outputFileTracingRoot: fileURLToPath(new URL("../../", import.meta.url)),
   reactCompiler: true,
   serverExternalPackages: [
+    "tree-sitter",
+    "tree-sitter-python",
+    "tree-sitter-go",
     "@napi-rs/keyring",
     "dependency-cruiser",
     "typescript",
@@ -26,6 +29,9 @@ const nextConfig: NextConfig = {
   outputFileTracingIncludes: {
     "/*": [
       "./src/app/fonts/cascadia-code-license.txt",
+      "./node_modules/tree-sitter/**/*",
+      "./node_modules/tree-sitter-python/**/*",
+      "./node_modules/tree-sitter-go/**/*",
       "./node_modules/@anthropic-ai/claude-agent-sdk/**/*",
       "../../node_modules/.pnpm/@anthropic-ai+claude-agent-sdk*/node_modules/@anthropic-ai/claude-agent-sdk*/**/*",
     ],
