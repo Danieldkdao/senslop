@@ -34,9 +34,9 @@ test("JS/TS graph resolves aliases, type-only imports, references and cycles fro
 test("diagnostics are labeled and unsupported languages are available as text", async () => {
   const sources = {
     "bad.tsx": "const n: number = 'wrong'; export const x = <div/>;",
-    "other.py": "def hello(): pass",
+    "other.rs": "fn hello() {}",
   };
-  const analysis = await analyzeSources(sources, ["bad.tsx", "other.py"]);
+  const analysis = await analyzeSources(sources, ["bad.tsx", "other.rs"]);
   expect(
     analysis.diagnostics.some((diagnostic) => diagnostic.code === 2322),
   ).toBe(true);
@@ -44,7 +44,7 @@ test("diagnostics are labeled and unsupported languages are available as text", 
   expect(
     sourceTools({ sources, analysis, limitations: [] }).search("hello")[0]
       ?.path,
-  ).toBe("other.py");
+  ).toBe("other.rs");
 });
 
 test("frozen diagnostics resolve nearest nested configs and inherited aliases without mixing project settings", async () => {

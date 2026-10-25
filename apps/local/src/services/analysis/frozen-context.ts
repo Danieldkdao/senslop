@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import { readLanguageSettings } from "./language-settings";
 import {
   listSourcePaths,
   readRepository,
@@ -254,8 +256,13 @@ export const loadContext = async (
     throw new WorkflowPolicyError(
       "Source policy changed. Capture a new review before requesting analysis.",
     );
+  const languageSettings = readLanguageSettings(store, root);
+  const settingsHash = createHash("sha256")
+    .update(JSON.stringify(languageSettings))
+    .digest("hex");
   const currentAnalysis =
-    captured.analysis?.version === snapshotAnalysisVersion;
+    captured.analysis?.version === snapshotAnalysisVersion &&
+    captured.analysis.settingsHash === settingsHash;
   const analysis = currentAnalysis
     ? captured.analysis!
     : await analyzeSources(
@@ -263,7 +270,9 @@ export const loadContext = async (
         snapshot.files
           .filter((file) => file.after !== null)
           .map((file) => file.path),
+        languageSettings,
       );
+  analysis.settingsHash = settingsHash;
   if (
     !currentAnalysis &&
     store.getReview(root, snapshot.id)?.hash === snapshot.hash &&
