@@ -1,3 +1,4 @@
+import { deleteReviewData } from "@senslop/review-core/maintenance";
 import { z } from "zod";
 import { AgentStore } from "../../../features/agents/lib/agent-store";
 import { jobPriorities } from "../../../features/agents/schemas";
@@ -218,7 +219,8 @@ export const POST = async (request: Request) => {
         );
       }
       case "delete":
-        workspace.store.deleteReview(
+        await deleteReviewData(
+          workspace.store,
           root,
           action.id,
           action.expectedHash && action.expectedRound

@@ -7,7 +7,10 @@ const state = vi.hoisted(() => ({
   allowed: true,
 }));
 vi.mock("../../workspace/lib/server-workspace", () => ({
-  getWorkspace: () => ({ store: { database: state.database } }),
+  getWorkspace: () => ({
+    store: { database: state.database },
+    root: async () => "/fixture",
+  }),
   protectLocalRoute: () => state.allowed,
   readLocalBody: (request: Request) => request.json(),
 }));
@@ -36,7 +39,7 @@ test("review preferences default off and saving is durable without any model con
       String(
         state.database
           .prepare(
-            "SELECT value FROM preferences WHERE name = 'review_preferences'",
+            "SELECT value FROM preferences WHERE name = 'project_review_preferences:/fixture'",
           )
           .get()?.value,
       ),

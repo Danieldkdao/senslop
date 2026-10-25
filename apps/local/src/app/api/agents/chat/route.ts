@@ -41,6 +41,7 @@ export const POST = async (request: Request) => {
       snapshot,
     );
     const agent = await createRepositoryAgent({
+      task: "chat",
       local: agents.local,
       snapshot,
       context,

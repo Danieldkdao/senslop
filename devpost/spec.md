@@ -1,7 +1,7 @@
 ---
 doc: spec
 status: approved
-last-reconciled: 2026-10-24
+last-reconciled: 2026-10-25
 implementation-baseline: 0860767
 ---
 
@@ -89,7 +89,7 @@ Ordinary saved-review inspection accepts small changes. Legacy standalone `inspe
 
 ## Persistence and migrations
 
-The [LocalStore](../packages/review-core/src/db/local-store.ts) uses SQLite WAL, a busy timeout, foreign keys, explicit transactions, and restrictive filesystem permissions. The current user_version is 4; newer unsupported data versions are rejected.
+The [LocalStore](../packages/review-core/src/db/local-store.ts) uses SQLite WAL, a busy timeout, foreign keys, explicit transactions, and restrictive filesystem permissions. The current user_version is 6; newer unsupported data versions are rejected.
 
 | Table                | Responsibility                                                                      |
 | -------------------- | ----------------------------------------------------------------------------------- |
@@ -103,7 +103,7 @@ The [LocalStore](../packages/review-core/src/db/local-store.ts) uses SQLite WAL,
 | ai_context           | Captured source, static analysis cache, and incremental grouping context            |
 | ai_batch_checkpoints | Resumable analysis batch output by job/checkpoint                                   |
 
-Local settings and provider metadata are stored in shared per-user data; do not assume every preference has a per-project scope. Repository isolation is enforced for review reads/writes. Deleting a review cascades associated job/context/conversation records through the implemented persistence paths.
+Provider metadata, machine capacity, and appearance use shared per-user data. Project source/AI/review preferences use common-Git-directory keys; review limits use explicit review IDs. Worktree roots retain independent reviews and execution records. Repository isolation is enforced for review reads/writes. Deleting a review cascades associated job/context/conversation records through the implemented persistence paths.
 
 History summaries expose recorded directory or null for legacy data. Search uses literal, case-insensitive name/directory matching scoped by repository. No launch-folder schema migration was required because metadata lives in review JSON.
 
@@ -113,7 +113,7 @@ History summaries expose recorded directory or null for legacy data. Search uses
 
 An eligible re-sync identifies the saved working-tree review by ID and expected hash/round with captured branch/HEAD, independently of global selection. A workspace operation queue serializes capture/re-sync; persistence rechecks expected identity before publishing. Keep mode updates the same ID, carries original references/notes, retains unchanged-file completion, and preserves the original directory. New mode saves a newer-edits review while retaining the older review. Changed branch/HEAD requires a new review.
 
-[Note anchoring](../packages/review-core/src/features/history/note-anchors.ts) retains/remaps exact excerpts where unambiguous; original note context is not replaced with unrelated live source. Superseded jobs cannot publish over the current round. Prior correctness output remains historical; no automatic finding lifecycle is inferred.
+[Note anchoring](../packages/review-core/src/features/history/note-anchors.ts) retains/remaps exact excerpts where unambiguous; original note context is not replaced with unrelated live source. Superseded jobs cannot publish over the current round. Original correctness output remains historical. Durable finding observations and decisions live separately; absence in a later run does not imply resolution.
 
 ## Frozen context and analysis
 
@@ -208,6 +208,24 @@ Build dependencies through the workspace task graph, then run the CLI bundle. It
 
 The CLI package is private and not published at this baseline. Normal data lives in OS application-data storage; jobs/state are per-root subdirectories, while reviews.sqlite is the per-user local store. Disposable transport/session paths are separate from durable data.
 
+## Fix and verify architecture
+
+`packages/contracts/src/workflow.ts` defines finding/observation history, immutable round identities, fix tasks, check results, execution manifests, verification runs, project policies, usage records, and private session discovery. Migrations add `review_rounds`, `review_findings`, `fix_tasks`, `check_runs`, `execution_manifests`, `review_usage`, and `finding_verifications`. Old reviews/runs remain readable; new revisions archive source and frozen context. Nested SQLite operations use savepoints.
+
+`packages/review-core/src/features/workflow` owns persistence, conservative finding matching, revision guards, manual decisions, exact check linkage, task ownership/transitions, source materialization, process supervision, source/provider policy, usage admission, project discovery, and retention. The root-scoped Next APIs `/api/workflow`, `/api/project`, and `/api/projects` share existing local capability/origin protection. Source context remains frozen and source-policy-checked. Browser hooks own their TanStack Query configuration in feature hook files. Finding observation matching consumes at most one distinct location per finding per job, preserves exact replay identity, and prefers unambiguous locations across runs.
+
+Managed source uses a detached `git worktree add --no-checkout`, bounded allowed Git objects, and full captured working-tree overlays from `syncBaseline` when available, including unchanged dirty helpers and deletions outside the current round diff, with SHA/mode manifests and a separate index. Source is limited to 20 MiB; unsupported/missing inputs fail explicitly. Binary execution bytes require an exact available hash. Worktrees share Git objects and host access. Current-worktree tasks require explicit selection and fresh identity; managed application checks destinations, preserves modes/index, and rolls back only bytes written by that application when possible. Task return explicitly rejects file-mode changes, including mode-only edits and newly executable files, instead of silently omitting them. Application and re-sync share the workspace operation queue.
+
+The command supervisor owns a shell process group, streams bounded output, and terminates child work on cancellation, timeout, or parent disconnection. Standard tool/runtime environment variables are allowlisted; application/provider credentials are not injected. Result metadata includes dependency manifests/installed metadata, selected artifacts, exact source side, and revision. Modifying captured inputs invalidates a pass. Filesystem inventory comparison detects restored deleted files and staged additions independently of the mutable Git index and ignore rules; dependency/build outputs and explicitly selected generated artifacts remain excluded from additional-source detection. Automatic cleanup uses the same comparison. Artifact downloads recheck recorded hashes and current policy; cleanup can make old artifact bytes unavailable while retaining metadata.
+
+Inngest registers check and verification functions alongside existing analysis. Queued records redispatch after restart; interrupted running checks require an explicit new run. Verification uses frozen read-only tools, persists partial results, and publishes against the current revision without resolving human decisions. Passing checks attach only when their finding IDs and exact changed revision match.
+
+Model middleware applies current source/local-only policy before every supported model request, reserves review token/time allowances transactionally, and records measured usage at completion. Active requests recheck shared persisted accounting against one aggregate request-time allowance, including requests admitted by another store connection; completion releases their active time contribution into measured duration. Unknown reservations remain conservative. Saved analysis captures Quick/Thorough depth; retries retain it, and incremental grouping requires compatible source, settings, and depth. Source-policy changes block old conversation continuation and excluded original finding evidence. Models without reliable pricing keep cost unknown; no invented zero charge or dollar budget is shown.
+
+The browser adds finding filters/decisions/history, round comparison, task/change review, command logs/artifacts, verification history, context/routing inspection, project switching, source/privacy/usage settings, and shadcn/Recharts usage charts. Notes are contiguous padded rows. The Pierre 1.5.2 React adapter reapplies controlled selection after `onPostRender`; a parent layout effect reapplies `activeLineSide` after that synchronization so split selection stays on its initiating side. Real-renderer tests cover pointer-down, multi-line drag, release, and rerender on both columns.
+
+The bundled agent skill and CLI support explicit finding/task/check/verification/round/usage operations. External-agent launch adapters remain optional; the implemented integration is copy/export plus claim/return/apply through the authenticated original project. The initial evaluation fixture pair and metric harness measure deterministic reporting behavior; live-model quality remains unmeasured until the later evaluation work.
+
 ## Separate hosted services
 
 `apps/web` retains public landing, Better Auth email/password and OAuth, OTP verification, device approval, and account/device API routes. Its dashboard is a placeholder. `apps/connection-server` retains Express/ws presence with ticket/auth boundaries. `packages/database` owns hosted Drizzle/Neon infrastructure.
@@ -218,4 +236,4 @@ Hosted development uses its own configured environment and services. Local revie
 
 See [checklist.md](checklist.md) for the current verification ledger and [README](../README.md) for commands. Local source/fixture tests, typechecks, opt-in process/package tests, real provider checks, and human browser exploration are different evidence.
 
-Future completion notifications, finding states, automated fix verification, command execution, hunk grouping, Git mutations, and report generation are described only in the [roadmap](local-review-roadmap.md). Their implementation must extend the existing identities, storage, and lifecycle rather than silently substituting the old hosted design.
+Future completion notifications, hunk grouping, general Git mutations, and report generation are described in the [roadmap](local-review-roadmap.md). Group 1 finding decisions, verification, task application, and explicit check execution are committed on `feat/fix-verify`. Further implementation must extend the existing identities, storage, and lifecycle rather than silently substituting the old hosted design.

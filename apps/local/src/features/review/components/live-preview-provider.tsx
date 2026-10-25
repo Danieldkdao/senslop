@@ -55,6 +55,13 @@ export const LivePreviewProvider = ({ children }: { children: ReactNode }) => {
   }, [state]);
   const apply = useCallback((data: unknown) => {
     if (data === null) {
+      selectedReview.current = null;
+      sessionStorage.removeItem("senslop:last-review");
+      const url = new URL(window.location.href);
+      url.searchParams.delete("review");
+      url.searchParams.delete("file");
+      window.history.replaceState(null, "", url);
+      etag.current = null;
       setState({ preview: null, error: null });
       return;
     }
@@ -63,6 +70,7 @@ export const LivePreviewProvider = ({ children }: { children: ReactNode }) => {
       ? durable.data
       : localPreviewSchema.parse(data);
     selectedReview.current = preview.id;
+    sessionStorage.setItem("senslop:last-review", preview.id);
     const url = new URL(window.location.href);
     url.searchParams.set("review", preview.id);
     const storedPath = [
@@ -109,9 +117,9 @@ export const LivePreviewProvider = ({ children }: { children: ReactNode }) => {
     async (signal?: AbortSignal, force = false) => {
       const started = epoch.current;
       if (!initialized.current) {
-        selectedReview.current = new URL(window.location.href).searchParams.get(
-          "review",
-        );
+        selectedReview.current =
+          new URL(window.location.href).searchParams.get("review") ??
+          sessionStorage.getItem("senslop:last-review");
         initialized.current = true;
       }
       const response = await fetch(
@@ -146,7 +154,8 @@ export const LivePreviewProvider = ({ children }: { children: ReactNode }) => {
         const data: unknown = await response.json();
         if (signal?.aborted || started !== epoch.current) return;
         apply(data);
-        etag.current = response.headers?.get("etag") ?? null;
+        etag.current =
+          data === null ? null : (response.headers?.get("etag") ?? null);
       }
       setState((current) =>
         current.error ? { ...current, error: null } : current,

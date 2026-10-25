@@ -1,7 +1,7 @@
 ---
 doc: prd
 status: approved
-last-reconciled: 2026-10-24
+last-reconciled: 2026-10-25
 implementation-baseline: 0860767
 ---
 
@@ -13,7 +13,7 @@ Senslop helps developers understand changes and find problems locally before pus
 
 This document describes the implementation at the recorded baseline. It replaces the previously interleaved hosted-upload plan and local follow-up notes. The [roadmap](local-review-roadmap.md) separately records proposed features; those are not presented here as delivered behavior.
 
-The recorded commit is the foundation. Feature 1 was implemented on October 24, 2026 and updates the behavior below; completion notifications remain deferred. Its implementation commits and verification evidence are recorded in the roadmap progress record.
+The recorded commit is the foundation. Feature 1 and the Fix and verify group update the behavior below. Group 1 is committed on `feat/fix-verify`; implementation evidence and verification limits are recorded in the roadmap. Completion notifications remain deferred.
 
 ## Local setup and ownership
 
@@ -81,7 +81,7 @@ Input editing, composition, handled events, and open overlays retain their keybo
 ## Notes, explanations, and chat
 
 - Add notes for a whole file or selected source lines; search, edit, delete, and revisit saved notes.
-- Line notes retain original side, coordinates, and source excerpt. Enter submits and Shift+Enter inserts a newline; IME composition and failed-save drafts are preserved.
+- Notes use contiguous full-width rows with internal padding, a wrapping note header, and monospace file/line metadata. Split-diff selection highlights only the chosen column during dragging and after release. Line notes retain original side, coordinates, and source excerpt. Enter submits and Shift+Enter inserts a newline; IME composition and failed-save drafts are preserved.
 - Selected-code explanations stream from the configured Explain model. Selection must stay on a supported side of the diff. Users can stop/retry the response or add a note.
 - Snapshot chat has a model picker, streaming replies, stop/retry behavior, and saved conversation history.
 - Agents can inspect captured source, search, symbols, references, dependencies, and related tests as available. Static tooling does not execute the repository's test suite.
@@ -94,11 +94,25 @@ A correctness review is an explicit action, separate from organizing files or as
 - Users select a Review model and request analysis through the Review panel or CLI.
 - Working-tree correctness requests require a matching current repository fingerprint. Stale or unknown state requires refresh/re-sync or an appropriate new review.
 - Results show severity, a concise issue description, exact frozen-source evidence, a navigable file/range, targeted fix guidance, and analysis limitations.
-- Users can copy a single finding's fix prompt or combined instructions. These do not apply edits or execute checks.
+- Users can copy individual or combined fix instructions, or select findings and human notes for a persistent fix task. Applying task edits and executing a check are separate explicit actions.
 - A successful run with no supported findings is different from a failed, canceled, or incomplete run.
 - Saved correctness runs can be reopened, renamed, deleted when finished, and exported. Old results remain associated with their captured review round.
 - Evidence validation confirms that referenced code exists in the selected change. It is not a guarantee that the model's diagnosis is true.
-- Individual finding decisions and cross-round fix verification remain roadmap features.
+- Findings retain durable IDs, optional decision reasons, observation history, duplicate links, and filters. A later run that omits a finding leaves it visible. Original source evidence remains available by round.
+
+## Fix tasks, rounds, and verification
+
+The Review panel filters findings through a tooltip filter icon and popover. Decision changes save immediately; dismissal reasons are optional. Manual verification also accepts an optional note. Every decision and verification outcome has a label and Lucide icon. Finding colors use subdued backgrounds/borders and readable text.
+
+Select findings to create a task or request a new model assessment. Work contains task, check, and verification history. A task records selected evidence, human notes, constraints, suggested checks, the source revision, the handling agent, and activity. Users choose a managed worktree or their current worktree. Manual copy/export and CLI claim/return commands support independent agents; Senslop does not automatically launch them. Canceling a task preserves its evidence and does not stop an external agent process.
+
+Managed worktrees contain the full captured staged, unstaged, deleted, and untracked state plus allowed frozen execution inputs, including dirty helpers retained outside a newer round’s diff. Executable-bit and other file-mode edits require manual handling and are reported explicitly when returning a task. Returned changes have a focused before/after inspector; files outside the request are flagged. Only selected files are applied after inspection, with concurrent-edit and revision guards and the original index preserved. Application re-syncs the review; findings require a separate decision. A failed re-sync after successful application reports that distinction.
+
+The round control uses full-width selectors with a Lucide arrow, and opens captured history or a round-to-round diff without changing the reader. Changed sections reopen while unchanged file completion is retained. Original findings remain inspectable when code moves, is removed, or the current review no longer contains their file. Identical findings at different locations in one run stay independently actionable. Conservative matching preserves unambiguous repeated issues and offers ambiguous matches for explicit linking. Recurrences reopen resolved issues with history.
+
+Checks run an explicitly chosen script or shell command in a managed local worktree with host permissions. Dependency installation is explicit, and an exact-round prepared workspace can be reused. Results retain command, directory, revision, input/dependency hashes, environment, duration, exit status, live output, cancellation, timeout, and selected generated-artifact hashes. Output supports follow/search/copy/download. Unavailable tools, failures, interruptions, and timeouts are distinct. Base comparison reports both outcomes without assuming that two failures have the same cause. Source-changing commands cannot produce a pass for their original inputs, including restored deletions and staged additions. Command results and automatic cleanup compare the source inventory independently of the mutable Git index.
+
+Verification assesses selected findings against frozen source. Model outcomes, matching passing checks, and human decisions remain independent. A passing check only attaches to its exact revision and selected findings. Missing/deleted code does not itself establish a fix. Stale work cannot change newer finding assessments, and a newer round does not prevent canceling an older check. Partial assessments and completed analysis checkpoints remain recorded when later work stops.
 
 ## Saved reviews and folder organization
 
@@ -150,7 +164,7 @@ Provider connections include remote APIs, local servers, subscription connection
 - Capacity changes are locked while saved jobs are queued/running. Captured settings protect runs from unrelated later preference changes.
 - Subscription sign-in/out and provider sign-in status/cancellation are separate from hosted Senslop account authentication.
 
-Settings are one searchable dialog with sections for Appearance, Review Preferences, Editor, AI, and Providers. Section links and nested screens preserve breadcrumbs. Optional header actions align with their titles; Add provider remains available when opening Providers from AI settings.
+Settings are one searchable dialog with Appearance, Review Preferences, Editor, AI/Providers, Source & execution, Data & privacy, and Usage sections. Section links and nested screens preserve breadcrumbs. Optional header actions align with their titles; Add provider remains available when opening Providers from AI settings.
 
 Editor settings include a live sample diff. Appearance includes multiple light/dark palettes and system mode, plus buddy selection, visibility, animation, size, and position. UI preferences persist locally.
 
@@ -166,12 +180,22 @@ Reviews, notes, source context, preferences, conversations, and AI output are st
 
 Configured remote inference can receive captured source/context and incur provider charges. Local endpoints are identified by their URL; provider branding alone does not guarantee local execution. Current source-analysis tools are read-only.
 
+## Projects, source policy, and usage
+
+The project switcher discovers known projects and sibling Git worktrees, shows root/branch/activity, opens a project in the same tab or through a tooltip icon in a new tab, and keeps saved source readable if a folder disappears. Each origin/tab retains the selected review, file, and scroll position. Reviews remain root-scoped; source policy, AI assignments, and review preferences share the common Git project. Credentials, machine capacity, and appearance stay shared.
+
+Source policy includes path/folder/glob inclusion and exclusion, an inspectable frozen context inventory, and visible model routes. Credentials and symlinks stay excluded. Current policy applies before capture, re-sync reuse, model calls, verification evidence, and task export/claim. Local-only routing blocks remote endpoints and remote subscription integrations. Stricter source rules preserve old evidence locally while blocking incompatible inference and continuation of old conversations. Independent external agents and host shell commands must honor their own access policy; a Git worktree is not an OS sandbox.
+
+History, logs, and owned workspaces have retention controls. Default history is indefinite, logs expire after 30 days, and unchanged inactive workspaces after seven days. Cleanup preserves newer source edits and active work. Deletion requires active tasks/checks to stop; it cleans owned workspaces before deleting evidence. Metadata/source exports are separate, and the diagnostic bundle omits source and credentials.
+
+Usage accounting records model requests, context calls, retries, measured tokens, and request duration without storing prompts in accounting records. Per-review token and aggregate request-time allowances use conservative reservations. Concurrent requests share one remaining request-time allowance, which is rechecked while requests run. Quick skips delegated context; Thorough permits it. Compatible unchanged grouping and retry checkpoints can be reused. Stops retain completed work and show actionable budget/policy feedback. Aggregate Usage settings use shadcn charts/tooltips; the compact popover uses a small progress ring. Missing pricing and unreported usage remain unknown, and independent external-agent usage is outside these totals.
+
 ## Separate hosted application
 
 The repo retains hosted signup/login, email verification, device authorization, account status/logout, and presence-service code. The landing page displays Senslop and the hosted dashboard displays a placeholder. These are not prerequisites or the entry point for local reviews.
 
 ## Current omissions and next work
 
-The [roadmap](local-review-roadmap.md) is authoritative for proposed next-stage behavior. Current omissions include completion notifications, individual finding decisions, fix verification, direct fix execution, project check execution, hunk-level grouping, in-app stage/commit/fetch/pull/push, and consolidated review reports.
+The [roadmap](local-review-roadmap.md) is authoritative for proposed next-stage behavior. Current omissions include completion notifications, automatic external-agent launch adapters, hunk-level grouping, in-app stage/commit/fetch/pull/push, and consolidated review reports. The initial deterministic evaluation corpus is a starting harness; it does not establish live-model diagnosis quality.
 
 Git push/pull conveniences are accepted future direction. Hosted PR ingestion and team approval workflows are outside the current roadmap. Do not convert those future directions into claims about today's application.

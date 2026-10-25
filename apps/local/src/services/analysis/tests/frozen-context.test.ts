@@ -119,8 +119,8 @@ test.each([false, true])(
     const store = {
       getReview: () => snapshot,
       database: {
-        prepare: () => ({
-          get: () => ({ body }),
+        prepare: (query: string) => ({
+          get: () => (query.includes("preferences") ? undefined : { body }),
           run: (value: unknown) => {
             body = String(value);
             writes++;

@@ -65,27 +65,27 @@ export const formatSeverity = (severity: FindingSeverity) => {
     case "critical":
       return {
         label: "Critical",
-        className: "text-finding-critical",
+        className: "text-finding-critical/85",
         cardClassName:
-          "border-finding-critical/80 bg-finding-critical-surface/50",
+          "border-finding-critical/20 bg-finding-critical-surface/15",
       };
     case "high":
       return {
         label: "High",
-        className: "text-finding-high",
-        cardClassName: "border-finding-high/80 bg-finding-high-surface/50",
+        className: "text-finding-high/85",
+        cardClassName: "border-finding-high/20 bg-finding-high-surface/15",
       };
     case "medium":
       return {
         label: "Medium",
-        className: "text-finding-medium",
-        cardClassName: "border-finding-medium/80 bg-finding-medium-surface/50",
+        className: "text-finding-medium/85",
+        cardClassName: "border-finding-medium/20 bg-finding-medium-surface/15",
       };
     case "low":
       return {
         label: "Low",
-        className: "text-finding-low",
-        cardClassName: "border-finding-low/80 bg-finding-low-surface/50",
+        className: "text-finding-low/85",
+        cardClassName: "border-finding-low/20 bg-finding-low-surface/15",
       };
     case "informational":
       return {

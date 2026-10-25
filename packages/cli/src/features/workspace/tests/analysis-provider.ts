@@ -7,7 +7,10 @@ type AnalysisFixtureSchema = {
   items?: AnalysisFixtureSchema;
 };
 
-export const createAnalysisFixtureResult = (body: Record<string, unknown>) => {
+export const createAnalysisFixtureResult = (
+  body: Record<string, unknown>,
+  findings: unknown[] = [],
+) => {
   let schema = (
     body.response_format as
       { json_schema?: { schema?: AnalysisFixtureSchema } } | undefined
@@ -26,7 +29,13 @@ export const createAnalysisFixtureResult = (body: Record<string, unknown>) => {
     related: [],
   };
   let result: unknown;
-  if (properties.groups && properties.files)
+  if (properties.outcome)
+    result = {
+      outcome: "apparently-fixed",
+      explanation:
+        "Deterministic fixture assessment; not a model quality result.",
+    };
+  else if (properties.groups && properties.files)
     result = {
       groups: [
         {
@@ -52,7 +61,7 @@ export const createAnalysisFixtureResult = (body: Record<string, unknown>) => {
       ],
     };
   else if (properties.files)
-    result = { files: [{ path: "a.ts", findings: [] }], limitations: [] };
+    result = { files: [{ path: "a.ts", findings }], limitations: [] };
   else
     result = {
       findings: [],
@@ -62,7 +71,7 @@ export const createAnalysisFixtureResult = (body: Record<string, unknown>) => {
   return result;
 };
 
-export const startAnalysisProvider = async () => {
+export const startAnalysisProvider = async (findings: unknown[] = []) => {
   let paused = false;
   const waiting = new Set<() => void>();
   const server = createServer(async (request, response) => {
@@ -81,7 +90,7 @@ export const startAnalysisProvider = async () => {
         waiting.add(resolve);
       });
     if (response.destroyed) return;
-    const result = createAnalysisFixtureResult(body);
+    const result = createAnalysisFixtureResult(body, findings);
     response.setHeader("Content-Type", "application/json");
     response.end(
       JSON.stringify({

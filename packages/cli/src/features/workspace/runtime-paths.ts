@@ -1,7 +1,7 @@
-import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import { serverEnv } from "../../data/env/server.js";
+export { workspaceStateDirectory } from "@senslop/review-core/runtime-paths";
 
 export const applicationDataDirectory = () => {
   if (serverEnv.SENSLOP_DATA_DIRECTORY) return serverEnv.SENSLOP_DATA_DIRECTORY;
@@ -22,13 +22,3 @@ export const applicationDataDirectory = () => {
       );
   }
 };
-
-export const workspaceStateDirectory = (
-  dataDirectory: string,
-  repository: string,
-) =>
-  join(
-    dataDirectory,
-    "jobs",
-    createHash("sha256").update(repository).digest("hex").slice(0, 20),
-  );

@@ -36,6 +36,15 @@ vi.mock("@senslop/ui/hooks/use-highlighted-code", () => ({
   useHighlightedCode: (value: string) => value.split("\n"),
 }));
 afterEach(cleanup);
+
+test("finding filters live behind an accessible filter icon popover", async () => {
+  render(<ReviewResults job={job} />);
+  expect(screen.queryByRole("combobox", { name: "Severity" })).toBeNull();
+  await userEvent.click(
+    screen.getByRole("button", { name: "Filter findings" }),
+  );
+  expect(screen.getByRole("combobox", { name: "Severity" })).toBeTruthy();
+});
 const finding = {
   severity: "high" as const,
   title: "Missing guard",
@@ -55,6 +64,41 @@ const job = {
     fixAllPrompt: "Verify fixes.",
   },
 } as JobSchema;
+
+test("a finding absent from a newer analysis remains visible as a durable unresolved issue", () => {
+  const tracked = {
+    id: "issue",
+    reviewId: "snapshot",
+    decision: "accepted",
+    observations: [
+      {
+        id: "observation",
+        jobId: "old-job",
+        review: { id: "snapshot", hash: "a".repeat(64), round: 1 },
+        evidence: { ...finding, category: "correctness" },
+        createdAt: "2026-10-24T00:00:00.000Z",
+      },
+    ],
+    history: [],
+    possibleMatches: [],
+    duplicateOf: null,
+    assessment: null,
+  } as import("@senslop/contracts").TrackedFindingSchema;
+  render(
+    <ReviewResults
+      job={
+        {
+          ...job,
+          result: { findings: [], limitations: [], fixAllPrompt: "" },
+        } as JobSchema
+      }
+      trackedFindings={[tracked]}
+      includeTracked
+    />,
+  );
+  expect(screen.getByRole("button", { name: "Missing guard" })).toBeTruthy();
+  expect(screen.queryByText(/No verified issues/)).toBeNull();
+});
 
 test("findings expand independently and keep evidence actions out of the title trigger", async () => {
   const evidence = vi.fn();

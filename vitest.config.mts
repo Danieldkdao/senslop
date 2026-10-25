@@ -1,4 +1,4 @@
-import { defineConfig } from "vitest/config";
+import { configDefaults, defineConfig } from "vitest/config";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 
@@ -128,6 +128,7 @@ export default defineConfig({
   },
   oxc: { jsx: { runtime: "automatic" } },
   test: {
+    exclude: [...configDefaults.exclude, "**/dist/**", "**/.next/**"],
     environment: "node",
     server: {
       deps: { inline: ["@lobehub/icons", "@lobehub/ui", "@emoji-mart/data"] },

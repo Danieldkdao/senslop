@@ -421,6 +421,63 @@ test("selection explanation resolves a connected selected-code anchor on its fir
   expect(anchor.getBoundingClientRect()).toBe(moved);
 });
 
+test.each(["deletions", "additions"] as const)(
+  "real split selection highlights only %s during and after a gesture",
+  async (side) => {
+    const props = {
+      file: {
+        ...file,
+        before: "export const value = 1;\nexport const other = 1;\n",
+        after: "export const value = 2;\nexport const other = 2;\n",
+        diff: "",
+      },
+      settings: defaultDiffSettings,
+      view: "split" as const,
+      notes: [],
+      snapshotId: "snapshot",
+      onAddComment: vi.fn(),
+      onDeleteNote: vi.fn(),
+    };
+    const view = render(<PreviewDiff {...props} />);
+    await waitFor(() => expect(codeText(view.container)).toContain("value"));
+    const root = view.container.querySelector("diffs-container")!.shadowRoot!;
+    const opposite = side === "deletions" ? "additions" : "deletions";
+    const gutter = root.querySelector<HTMLElement>(
+      `[data-code][data-${side}] [data-gutter] [data-column-number]`,
+    )!;
+    expect(gutter).not.toBeNull();
+    vi.stubGlobal("PointerEvent", MouseEvent);
+    let selectedCount = 1;
+    const expectOneSide = () => {
+      expect(
+        root.querySelectorAll(
+          `[data-code][data-${side}] [data-line][data-selected-line]`,
+        ),
+      ).toHaveLength(selectedCount);
+      expect(
+        root.querySelectorAll(`[data-${opposite}] [data-selected-line]`),
+      ).toHaveLength(0);
+    };
+    fireEvent.pointerDown(gutter, { button: 0, buttons: 1 });
+    await waitFor(expectOneSide);
+    const endingLine = root.querySelector<HTMLElement>(
+      `[data-code][data-${side}] [data-line="2"]`,
+    )!;
+    fireEvent.pointerMove(endingLine, { button: 0, buttons: 1 });
+    selectedCount = 2;
+    await waitFor(expectOneSide);
+    fireEvent.pointerUp(document, { button: 0 });
+    await waitFor(expectOneSide);
+    view.rerender(
+      <PreviewDiff
+        {...props}
+        settings={{ ...defaultDiffSettings, wrapping: true }}
+      />,
+    );
+    await waitFor(expectOneSide);
+  },
+);
+
 test("repeated navigation releases each real Pierre diff instance", async () => {
   const cleaned = vi.spyOn(PierreFileDiff.prototype, "cleanUp");
   const props = {

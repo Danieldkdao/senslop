@@ -1,8 +1,12 @@
+import type { ProjectStatus } from "../hooks/use-projects";
 import type { LivePreview } from "../../review/types";
 import type { ResyncMode } from "@senslop/contracts";
 import type { RepositoryState, SavedReviewSummary } from "../types";
 import {
   ListTodo,
+  Power,
+  Unplug,
+  FolderX,
   ListTree,
   ListX,
   ShieldAlert,
@@ -130,4 +134,18 @@ export const formatResyncUnavailableReason = ({
   if (preview.fingerprint === repository.fingerprint)
     return "No new changes to re-sync. Edit the repository, then refresh.";
   return undefined;
+};
+
+export const formatProjectStatus = (status: ProjectStatus) => {
+  switch (status) {
+    case "running":
+      return { label: "App running", Icon: Power };
+    case "stopped":
+      return { label: "App stopped", Icon: Unplug };
+    case "missing":
+      return {
+        label: "Folder missing; saved evidence retained",
+        Icon: FolderX,
+      };
+  }
 };

@@ -19,6 +19,21 @@ import { parseDiffFromFile } from "@pierre/diffs";
 import type { MultiFileDiffProps } from "@pierre/diffs/react";
 import type { ProviderId, PublicConnectionSchema } from "@senslop/contracts";
 
+vi.mock("../../workflow/hooks/use-project-settings", async () => {
+  const { projectPolicySchema } = await import("@senslop/contracts");
+  return {
+    useProjectSettings: () => ({
+      state: {
+        data: {
+          policy: projectPolicySchema.parse({}),
+          usage: [],
+          workspaces: [],
+        },
+      },
+      save: vi.fn(),
+    }),
+  };
+});
 vi.mock("../hooks/use-ui-preferences", async () => {
   const { defaultUiPreferences } = await import("../constants");
   return {
@@ -252,7 +267,7 @@ test("theme and font hover preview is temporary, selection commits, and applicat
       undefined
     >;
   await user.click(screen.getByRole("combobox", { name: "Editor theme" }));
-  expect(screen.getAllByRole("option")).toHaveLength(21);
+  expect(await screen.findAllByRole("option")).toHaveLength(21);
   expect(screen.getAllByRole("option")[0].textContent).toContain("Default");
   expect(
     within(screen.getByRole("group", { name: "Light themes" })).getAllByRole(
@@ -557,6 +572,9 @@ test("one settings dialog orders appearance/editor/AI, search navigates nested l
     "Review Preferences",
     "Editor",
     "AI",
+    "Source & execution",
+    "Data & privacy",
+    "Usage",
   ]);
   const sidebar = within(
     screen.getByRole("navigation", { name: "Settings sections" }),

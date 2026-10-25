@@ -1,3 +1,8 @@
+import { isDeepStrictEqual } from "node:util";
+import {
+  readProjectPolicy,
+  allowsSourcePath,
+} from "@senslop/review-core/policy";
 import { prepareIncrementalGrouping } from "../ai/incremental-grouping";
 import { formatAiError, isFatalAiError } from "../ai/errors";
 import { NonRetriableError, RetryAfterError } from "inngest";
@@ -161,22 +166,46 @@ export const executeJob = async (
                   )
                 : null))
             : null;
-        const previousGrouping = previous
+        const sourcePolicy = previous
+          ? readProjectPolicy(store.local, store.repository)
+          : null;
+        const compatiblePrevious =
+          previous &&
+          previous.files.every(
+            (file) =>
+              allowsSourcePath(sourcePolicy!, file.path) &&
+              (!file.oldPath || allowsSourcePath(sourcePolicy!, file.oldPath)),
+          )
+            ? previous
+            : null;
+        const previousGroupingJob = compatiblePrevious
           ? store
-              .jobs(previous.id)
+              .jobs(compatiblePrevious.id)
               .find(
                 (job) =>
                   job.kind === "grouping" &&
-                  matchesJobSnapshot(job, previous) &&
+                  matchesJobSnapshot(job, compatiblePrevious) &&
                   job.status === "completed",
-              )?.result
+              )
           : null;
+        const previousGrouping =
+          previousGroupingJob &&
+          isDeepStrictEqual(previousGroupingJob.settings, job.settings) &&
+          (previousGroupingJob.analysisMode ?? "thorough") ===
+            (job.analysisMode ?? "thorough")
+            ? previousGroupingJob.result
+            : null;
         const groupingSeed =
-          previous && previousGrouping && "groups" in previousGrouping
-            ? prepareIncrementalGrouping(snapshot, previous, previousGrouping)
+          compatiblePrevious && previousGrouping && "groups" in previousGrouping
+            ? prepareIncrementalGrouping(
+                snapshot,
+                compatiblePrevious,
+                previousGrouping,
+              )
             : undefined;
         const agent = await createRepositoryAgent({
           groupingSeed,
+          analysisMode: job.analysisMode,
           local: store.local,
           snapshot,
           context,

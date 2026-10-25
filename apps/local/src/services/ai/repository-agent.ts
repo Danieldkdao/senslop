@@ -1,3 +1,4 @@
+import type { AnalysisMode } from "@senslop/contracts";
 import "server-only";
 import { createHash } from "node:crypto";
 import { defaultConnectionCapacity } from "../../features/ai-capacity/lib/capacity";
@@ -5,6 +6,7 @@ import { getCompatibleModel } from "../../features/providers/lib/compatible-mode
 import { AsyncLocalStorage } from "node:async_hooks";
 import {
   generateText,
+  Output,
   streamText,
   tool,
   isStepCount,
@@ -12,7 +14,11 @@ import {
   type ToolSet,
 } from "ai";
 import { z } from "zod";
-import type { SavedReviewSchema } from "@senslop/contracts";
+import {
+  verificationAssessmentSchema,
+  type FindingEvidenceSchema,
+  type SavedReviewSchema,
+} from "@senslop/contracts";
 import { resolveProviderConnection } from "./provider-connection";
 import {
   AiServiceError,
@@ -45,6 +51,10 @@ import {
   type ModelSelectionSchema,
 } from "../../features/agents/schemas";
 import type { LocalStore } from "@senslop/review-core/storage";
+import {
+  readReviewPolicy,
+  sourcePolicyHash,
+} from "@senslop/review-core/policy";
 import {
   validateGrouping,
   validateReview,
@@ -99,6 +109,8 @@ export const createRepositoryAgent = async ({
   checkpoint,
   executionPolicy,
   groupingSeed,
+  task = "review",
+  analysisMode,
 }: {
   local: LocalStore;
   snapshot: SavedReviewSchema;
@@ -115,8 +127,39 @@ export const createRepositoryAgent = async ({
     retained: GroupingSchema;
     aliases?: { key: string; title: string }[];
   };
+  task?: string;
+  analysisMode?: AnalysisMode;
 }) => {
   settings = structuredClone(settings);
+  const repository = String(
+    local.database
+      .prepare("SELECT repository FROM reviews WHERE id = ?")
+      .get(snapshot.id)?.repository ?? "",
+  );
+  const projectPolicy = readReviewPolicy(local, repository, snapshot.id);
+  const contextSelection =
+    (analysisMode ?? projectPolicy.mode) === "thorough"
+      ? assignedModel(settings, "context")
+      : null;
+  const workflowScope = {
+    store: local,
+    repository,
+    sourcePaths: [
+      ...Object.keys(context.sources),
+      ...Object.keys(context.before ?? {}),
+    ],
+    policyHash: sourcePolicyHash(projectPolicy),
+    review: { id: snapshot.id, hash: snapshot.hash, round: snapshot.round },
+    task: diagnostics?.jobId
+      ? String(
+          local.database
+            .prepare(
+              "SELECT json_extract(body,'$.kind') AS kind FROM ai_jobs WHERE id=?",
+            )
+            .get(diagnostics.jobId)?.kind ?? task,
+        )
+      : task,
+  };
   const resolved = await resolveProviderConnection(
     local,
     selection.connectionId,
@@ -162,6 +205,7 @@ export const createRepositoryAgent = async ({
     undefined,
     capacity,
     settings.machineConcurrency,
+    workflowScope,
   );
   const requestLimiter = model.requestLimiter;
   const batchConcurrency = () =>
@@ -380,7 +424,7 @@ export const createRepositoryAgent = async ({
       const state = requestState.getStore();
       if (state ? ++state.contextCalls > 4 : ++foregroundContextCalls > 4)
         throw new AiServiceError("Context-agent request budget reached.");
-      const selection = assignedModel(settings, "context");
+      const selection = contextSelection;
       if (!selection)
         throw new AiServiceError("Configure a Context model in AI settings.");
       const connection = await resolveProviderConnection(
@@ -421,6 +465,7 @@ export const createRepositoryAgent = async ({
         undefined,
         contextCapacity,
         settings.machineConcurrency,
+        { ...workflowScope, task: "context" },
       );
       const contextLimit = contextCapacity.contextTokens;
       const contextGeneration = getGenerationOptions(
@@ -587,7 +632,7 @@ export const createRepositoryAgent = async ({
         ? {}
         : {
             ...repositoryTools,
-            ...(assignedModel(settings, "context") ? { askContext } : {}),
+            ...(contextSelection ? { askContext } : {}),
           },
     maxOutputTokens,
     maxRetries: 2,
@@ -611,9 +656,7 @@ export const createRepositoryAgent = async ({
       assertContextBudget(
         estimateTokens({ instructions, messages: compact }) +
           (toolsEnabled ? activeRepositorySchemaTokens : 0) +
-          (toolsEnabled &&
-          model.toolsSupported !== false &&
-          assignedModel(settings, "context")
+          (toolsEnabled && model.toolsSupported !== false && contextSelection
             ? schemaTokens(askContext.inputSchema as z.ZodType)
             : 0) +
           extraSchemaTokens,
@@ -769,9 +812,26 @@ export const createRepositoryAgent = async ({
       previousSummaries,
     });
   return {
+    verify: async (finding: FindingEvidenceSchema) => {
+      const schema = verificationAssessmentSchema.omit({ findingId: true });
+      const result = await generateText({
+        ...options,
+        ...(model.createModel
+          ? { model: model.createModel(options.tools, 6, signal), tools: {} }
+          : {}),
+        output: Output.object({ schema }),
+        instructions: `${instructions}\nAssess the original reported failure condition against the current frozen source. Use repository tools to investigate. A missing report or a passing generic test does not prove a fix. Distinguish still present, apparently fixed, no longer applicable, and unverified. Explain the evidence and limitations. This assessment never changes the user's decision.`,
+        prompt: `Original finding:\n${JSON.stringify(finding)}\nCurrent captured source:\n${initial}`,
+        abortSignal: signal,
+        maxOutputTokens: 2000,
+        maxRetries: 0,
+        stopWhen: isStepCount(model.createModel ? 1 : 6),
+      });
+      return schema.parse(result.output);
+    },
     tools: {
       ...repositoryTools,
-      ...(assignedModel(settings, "context") ? { askContext } : {}),
+      ...(contextSelection ? { askContext } : {}),
     },
     grouping: async () => {
       const retainedPaths = new Set(

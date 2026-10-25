@@ -82,7 +82,16 @@ const agent = (
   groupingSeed?: Parameters<typeof createRepositoryAgent>[0]["groupingSeed"],
 ) =>
   createRepositoryAgent({
-    local: {} as never,
+    local: {
+      database: {
+        prepare: (query: string) => ({
+          get: () =>
+            query.startsWith("SELECT repository")
+              ? { repository: "/fixture" }
+              : undefined,
+        }),
+      },
+    } as never,
     snapshot: {
       id: "snapshot",
       source: { kind: "working-tree", base: "base" },
