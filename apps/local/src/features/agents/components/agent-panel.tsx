@@ -1,5 +1,22 @@
 "use client";
 
+import {
+  ExpandingTabs,
+  ExpandingTabsPanel,
+} from "@senslop/ui/components/expanding-tabs";
+import { useReviewIntent } from "../../precision/hooks/use-review-intent";
+import { ReviewBriefForm } from "../../precision/components/review-brief-form";
+import { RequirementsView } from "../../precision/components/requirements-view";
+import { RulesProfiles } from "../../precision/components/rules-profiles";
+import { ReviewOptionsPopover } from "../../precision/components/review-options-popover";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
+import { ClipboardList, ListChecks } from "lucide-react";
 import { useState } from "react";
 import { ChevronDown, History, Plus } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -61,6 +78,13 @@ export const AgentPanel = ({
       ? { id: snapshot.id, hash: snapshot.hash, round: snapshot.round }
       : null,
   );
+  const identity =
+    snapshot?.hash && snapshot.round
+      ? { id: snapshot.id, hash: snapshot.hash, round: snapshot.round }
+      : null;
+  const intent = useReviewIntent(identity);
+  const [briefOpen, setBriefOpen] = useState(false);
+  const [rulesOpen, setRulesOpen] = useState(false);
   const repository = useWorkspaceMetadata(
     requireFreshSnapshot || !!snapshotFingerprint,
   );
@@ -122,7 +146,7 @@ export const AgentPanel = ({
         className="min-h-0 flex-1 gap-0 flex flex-col"
       >
         <header className="flex h-14 shrink-0 items-center border-b px-4">
-          <TabsList className="shrink-0 w-full">
+          <TabsList className="shrink-0 w-full" variant="transparent">
             <TabsTrigger
               value="chat"
               disabled={preparing}
@@ -184,14 +208,6 @@ export const AgentPanel = ({
             >
               <CollapsibleContent className="h-(--collapsible-panel-height) overflow-hidden transition-[height,opacity] duration-200 data-starting-style:h-0 data-starting-style:opacity-0 data-ending-style:h-0 data-ending-style:opacity-0 motion-reduce:transition-none">
                 <header className="flex flex-col gap-3 p-4 pb-0">
-                  {workflow.state.data && (
-                    <UsagePopover
-                      usage={workflow.state.data.usage}
-                      policy={workflow.state.data.policy}
-                      onAction={workflow.act}
-                      onOpenSettings={() => onOpenSettings?.("usage")}
-                    />
-                  )}
                   <div className="flex gap-2">
                     <Button
                       className="min-w-0 flex-1 text-base"
@@ -245,6 +261,14 @@ export const AgentPanel = ({
                         </LoadingSwap>
                       </Button>
                     )}
+                    {workflow.state.data && (
+                      <UsagePopover
+                        usage={workflow.state.data.usage}
+                        policy={workflow.state.data.policy}
+                        onAction={workflow.act}
+                        onOpenSettings={() => onOpenSettings?.("usage")}
+                      />
+                    )}
                     <TooltipWrapper content="Saved reviews">
                       <Button
                         variant="ghost"
@@ -255,6 +279,15 @@ export const AgentPanel = ({
                         <History aria-hidden="true" className="size-4" />
                       </Button>
                     </TooltipWrapper>
+                    <ReviewOptionsPopover
+                      policy={workflow.state.data?.policy}
+                      instructions={intent.state.data?.instructions}
+                      loading={intent.state.isPending}
+                      error={intent.state.error?.message}
+                      onAction={workflow.act}
+                      onBrief={() => setBriefOpen(true)}
+                      onRules={() => setRulesOpen(true)}
+                    />
                   </div>
                   {(stale || freshnessUnknown) && (
                     <p role="status" className="text-muted-foreground">
@@ -309,12 +342,11 @@ export const AgentPanel = ({
                               />
                             )}
                             <span className="min-w-0 wrap-break-word">
-                              {statusLabel}
                               {running &&
                               latest.progress &&
                               latest.progress !== statusLabel
-                                ? `: ${latest.progress}`
-                                : ""}
+                                ? latest.progress
+                                : statusLabel}
                             </span>
                           </span>
                         ) : (
@@ -336,63 +368,124 @@ export const AgentPanel = ({
                 </TooltipWrapper>
               </div>
             </Collapsible>
-            <section
-              aria-label="Review findings"
-              className="min-h-0 flex-1 overflow-y-auto"
+            <ExpandingTabs
+              aria-label="Review results"
+              variant="transparent"
+              items={[
+                {
+                  value: "findings",
+                  label: "Findings",
+                  icon: <ListChecks />,
+                  detail: workflow.state.data?.findings.length ?? 0,
+                },
+                {
+                  value: "requirements",
+                  label: "Requirements",
+                  icon: <ClipboardList />,
+                  detail: intent.state.data?.briefs[0]?.criteria.length ?? 0,
+                },
+              ]}
+              className="min-h-0 flex-1 gap-0"
+              listClassName="mx-4 my-2 w-auto"
             >
-              {displayed?.status === "completed" ? (
-                <>
-                  <p className="px-4 pt-4 font-mono font-semibold text-muted-foreground">
-                    {formatReviewName(displayed)}
-                    <span className="block">{formatJobModel(displayed)}</span>
-                  </p>
-                  {olderResult && (
-                    <p
-                      role="status"
-                      className="px-4 pt-4 text-muted-foreground"
-                    >
-                      Older round. Open original evidence from a finding to
-                      inspect its captured source.
+              <ExpandingTabsPanel
+                value="findings"
+                className="flex min-h-0 flex-1 flex-col"
+              >
+                <section
+                  aria-label="Review findings"
+                  className="min-h-0 flex-1 overflow-y-auto"
+                >
+                  {displayed?.status === "completed" ? (
+                    <>
+                      <p className="px-4 font-mono font-semibold text-muted-foreground">
+                        {formatReviewName(displayed)}
+                        <span className="block">
+                          {formatJobModel(displayed)}
+                        </span>
+                      </p>
+                      {olderResult && (
+                        <p
+                          role="status"
+                          className="px-4 pt-4 text-muted-foreground"
+                        >
+                          Older round. Open original evidence from a finding to
+                          inspect its captured source.
+                        </p>
+                      )}
+                      <ReviewResults
+                        job={displayed}
+                        includeTracked={!selectedRun}
+                        snapshot={snapshot}
+                        onEvidence={olderResult ? undefined : onEvidence}
+                        trackedFindings={workflow.state.data?.findings}
+                        onAction={workflow.act}
+                        onFix={
+                          savedSnapshot.success
+                            ? (ids) => setFixIds(ids)
+                            : undefined
+                        }
+                        groups={agents.state.data?.jobs
+                          .flatMap((job) =>
+                            job.kind === "grouping" &&
+                            job.result &&
+                            "groups" in job.result
+                              ? job.result.groups
+                              : [],
+                          )
+                          .slice(0, 32)}
+                      />
+                    </>
+                  ) : workflow.state.data?.findings.length ? (
+                    <ReviewResults
+                      snapshot={snapshot}
+                      trackedFindings={workflow.state.data.findings}
+                      includeTracked
+                      onAction={workflow.act}
+                      onFix={(ids) => setFixIds(ids)}
+                      className="pt-0"
+                    />
+                  ) : (
+                    <p className="px-4 pb-4 text-muted-foreground">
+                      Run a review to check the selected changes using codebase
+                      context.
                     </p>
                   )}
-                  <ReviewResults
-                    job={displayed}
-                    includeTracked={!selectedRun}
-                    snapshot={snapshot}
-                    onEvidence={olderResult ? undefined : onEvidence}
-                    trackedFindings={workflow.state.data?.findings}
-                    onAction={workflow.act}
-                    onFix={
-                      savedSnapshot.success
-                        ? (ids) => setFixIds(ids)
-                        : undefined
-                    }
-                    groups={agents.state.data?.jobs
-                      .flatMap((job) =>
-                        job.kind === "grouping" &&
-                        job.result &&
-                        "groups" in job.result
-                          ? job.result.groups
-                          : [],
-                      )
-                      .slice(0, 32)}
-                  />
-                </>
-              ) : workflow.state.data?.findings.length ? (
-                <ReviewResults
-                  snapshot={snapshot}
-                  trackedFindings={workflow.state.data.findings}
-                  includeTracked
-                  onAction={workflow.act}
-                  onFix={(ids) => setFixIds(ids)}
+                </section>
+              </ExpandingTabsPanel>
+              <ExpandingTabsPanel
+                value="requirements"
+                className="flex min-h-0 flex-1 flex-col"
+              >
+                <RequirementsView
+                  brief={intent.state.data?.briefs[0]}
+                  coverage={
+                    displayed?.result && "findings" in displayed.result
+                      ? displayed.result.requirements
+                      : undefined
+                  }
+                  stale={
+                    !!olderResult ||
+                    !!(
+                      displayed &&
+                      displayed.reviewIntent?.brief?.version !==
+                        intent.state.data?.briefs[0]?.version
+                    )
+                  }
+                  onEvidence={(evidence) =>
+                    onEvidence({
+                      ...evidence,
+                      title: "Requirement evidence",
+                      severity: "informational",
+                      problem: "Evidence for the selected requirement.",
+                      fixPrompt: "",
+                    })
+                  }
+                  onEdit={() => setBriefOpen(true)}
+                  className="pt-0"
                 />
-              ) : (
-                <p className="p-5 text-muted-foreground">
-                  Run a review to check the selected changes using codebase
-                  context.
-                </p>
-              )}
-            </section>
+              </ExpandingTabsPanel>
+            </ExpandingTabs>
           </TabsContent>
           <TabsContent
             value="work"
@@ -413,6 +506,29 @@ export const AgentPanel = ({
             Retry
           </Button>
         </p>
+      )}
+      {briefOpen && !intent.state.isPending && (
+        <ReviewBriefForm
+          brief={intent.state.data?.briefs[0]}
+          history={intent.state.data?.briefs}
+          documents={intent.state.data?.documents ?? []}
+          checks={workflow.state.data?.checks ?? []}
+          onAction={intent.act}
+          onClose={() => setBriefOpen(false)}
+        />
+      )}
+      {rulesOpen && (
+        <Dialog open onOpenChange={setRulesOpen}>
+          <DialogContent className="max-h-[85dvh] overflow-auto text-base sm:max-w-2xl">
+            <DialogHeader>
+              <DialogTitle>Rules & profiles</DialogTitle>
+              <DialogDescription>
+                Inspect project conventions and change review coverage.
+              </DialogDescription>
+            </DialogHeader>
+            <RulesProfiles review={identity} />
+          </DialogContent>
+        </Dialog>
       )}
       <AgentReviewHistory
         key={snapshotId}

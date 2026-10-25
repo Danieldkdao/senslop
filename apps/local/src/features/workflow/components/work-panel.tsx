@@ -22,7 +22,7 @@ export const WorkPanel = ({
     defaultValue="tasks"
     className="flex min-h-0 flex-1 flex-col gap-3 p-4 text-base"
   >
-    <TabsList className="w-full">
+    <TabsList className="w-full" variant="transparent">
       <TabsTrigger value="tasks" className="text-base">
         <ClipboardList aria-hidden="true" className="size-4" />
         Fix tasks

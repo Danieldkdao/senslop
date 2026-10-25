@@ -1,5 +1,6 @@
 "use client";
 
+import { formatReviewProfile } from "../../precision/lib/formatters";
 import { cn } from "@/lib/utils";
 import { ChevronDown, Wrench, ScanSearch, X } from "lucide-react";
 import { useState } from "react";
@@ -43,6 +44,7 @@ export const ReviewResults = ({
   onFix,
   groups = [],
   includeTracked = false,
+  className,
 }: {
   job?: JobSchema;
   includeTracked?: boolean;
@@ -52,6 +54,7 @@ export const ReviewResults = ({
   onAction?: (operation: WorkflowActionSchema) => Promise<unknown>;
   onFix?: (ids: string[]) => void;
   groups?: { title: string; files: { path: string }[] }[];
+  className?: string;
 }) => {
   const [filters, setFilters] = useState(emptyFindingFilters);
   const [selected, setSelected] = useState<string[]>([]);
@@ -117,7 +120,7 @@ export const ReviewResults = ({
       ? snapshot.files
       : [];
   return (
-    <div className="flex flex-col gap-6 p-4">
+    <div className={cn("flex flex-col gap-6 p-4", className)}>
       <FindingFilters
         values={filters}
         onChange={setFilters}
@@ -213,6 +216,75 @@ export const ReviewResults = ({
                   <CollapsibleContent>
                     <div className="flex min-w-0 flex-col gap-3 px-4 pb-4 text-foreground">
                       <AgentMarkdown>{finding.problem}</AgentMarkdown>
+                      {!!finding.profiles?.length && (
+                        <div className="flex flex-wrap gap-3 text-muted-foreground">
+                          {finding.profiles.map((profile) => {
+                            const display = formatReviewProfile(profile);
+                            return (
+                              <span
+                                key={profile}
+                                className="inline-flex items-center gap-2"
+                              >
+                                <display.Icon className="size-4" />
+                                {display.label}
+                              </span>
+                            );
+                          })}
+                        </div>
+                      )}
+                      {!!finding.ruleIds?.length && (
+                        <Collapsible>
+                          <CollapsibleTrigger
+                            render={
+                              <Button
+                                variant="ghost"
+                                className="w-full justify-between text-base"
+                              />
+                            }
+                          >
+                            Cited review rules ({finding.ruleIds.length})
+                            <ChevronDown className="size-4" />
+                          </CollapsibleTrigger>
+                          <CollapsibleContent>
+                            <div className="flex flex-col gap-3 py-2">
+                              {finding.ruleIds.map((id) => {
+                                const rule =
+                                  job?.reviewIntent?.instructions.rules
+                                    .filter(
+                                      (candidate) =>
+                                        candidate.id === id &&
+                                        finding.path.startsWith(
+                                          candidate.scope,
+                                        ),
+                                    )
+                                    .at(-1);
+                                return (
+                                  <div key={id} className="flex flex-col gap-1">
+                                    <span className="font-medium">{id}</span>
+                                    {rule ? (
+                                      <>
+                                        <span className="font-mono break-all text-muted-foreground">
+                                          {rule.source}:{" "}
+                                          {rule.scope || "project"}
+                                        </span>
+                                        <p className="whitespace-pre-wrap">
+                                          {rule.text}
+                                        </p>
+                                      </>
+                                    ) : (
+                                      <span className="text-muted-foreground">
+                                        Captured rule provenance is unavailable
+                                        for this observation.
+                                      </span>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </CollapsibleContent>
+                        </Collapsible>
+                      )}
+
                       <FindingEvidence
                         finding={finding}
                         file={
