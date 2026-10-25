@@ -66,6 +66,8 @@ const prepareReview = async (
     analysis = await startJob(client, review.id, "review", {
       hash: review.hash,
       round: review.round,
+      priority: stringOption(values, "priority") as
+        "normal" | "high" | undefined,
     });
     if (values.wait) analysis = await waitForJob(client, analysis.id, timeout);
   }

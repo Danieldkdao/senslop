@@ -77,28 +77,30 @@ export const dispatchJobs = async (snapshotId: string) => {
   for (const job of agents
     .jobs(snapshotId)
     .filter((job) => job.status === "queued" && !job.dispatched)) {
+    const dispatchKey = `${job.id}:${serverEnv.SENSLOP_LOCAL_STARTED_AT ?? job.createdAt}:${job.dispatchGeneration}`;
+    const claimedJob = agents.claimDispatch(
+      job.id,
+      job.dispatchGeneration,
+      dispatchKey,
+    );
+    if (!claimedJob) continue;
+    // A failed old send must not release or modify a newer generation's claim.
+    const delivery = new AgentStore(agents.local, agents.repository, {
+      id: claimedJob.id,
+      key: dispatchKey,
+    });
     try {
-      const dispatchKey = `${job.id}:${serverEnv.SENSLOP_LOCAL_STARTED_AT ?? job.createdAt}:${job.dispatchGeneration}`;
-      agents.updateJob(job.id, { dispatchKey });
       await inngest.send({
         id: dispatchKey,
         name: "senslop/analysis.requested",
         data: {
-          jobId: job.id,
+          jobId: claimedJob.id,
           snapshotId,
-          kind: job.kind,
+          kind: claimedJob.kind,
           dispatchKey,
-          priority: job.priority,
+          priority: claimedJob.priority,
         },
       });
-      const currentJob = agents.job(job.id);
-      if (currentJob?.dispatchKey === dispatchKey)
-        agents.updateJob(job.id, {
-          dispatched: true,
-          ...(currentJob.status === "queued"
-            ? { progress: "Waiting for local worker" }
-            : {}),
-        });
       console.info("[senslop:analysis-job]", {
         event: "dispatched",
         jobId: job.id,
@@ -113,7 +115,8 @@ export const dispatchJobs = async (snapshotId: string) => {
         kind: job.kind,
         ...getAiErrorDiagnostics(error),
       });
-      agents.updateJob(job.id, {
+      delivery.updateJob(job.id, {
+        dispatched: false,
         error:
           "Local job engine is unavailable. Keep the CLI running; dispatch will retry automatically.",
       });

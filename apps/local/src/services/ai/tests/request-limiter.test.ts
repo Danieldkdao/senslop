@@ -506,3 +506,145 @@ test("shared admission holds through streaming and nested context work reuses it
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test.each(["generation", "stream"])(
+  "native %s carries its shared slot into a different Context limiter and charges Context quotas",
+  async (mode) => {
+    const directory = await mkdtemp(join(tmpdir(), "senslop-context-slot-"));
+    const coordinator = new SharedRequestCapacity(
+      join(directory, "capacity.sqlite"),
+      1,
+    );
+    const native = createRequestLimiter({
+      initialConcurrency: 1,
+      maxConcurrency: 1,
+      allowNestedRequests: true,
+      shared: { coordinator, key: "native" },
+    });
+    const context = createRequestLimiter({
+      initialConcurrency: 1,
+      maxConcurrency: 1,
+      limits: { requestsPerMinute: 2 },
+      shared: { coordinator, key: "context" },
+    });
+    const abort = new AbortController();
+    const timer = setTimeout(() => abort.abort(), 500);
+    try {
+      const retrieve = async () => {
+        await context.run(async () => "first evidence", abort.signal, {
+          inputTokens: 5,
+          outputTokens: 3,
+        });
+        return context.run(async () => "second evidence", abort.signal, {
+          inputTokens: 7,
+          outputTokens: 4,
+        });
+      };
+      if (mode === "generation") {
+        await expect(native.run(retrieve, abort.signal)).resolves.toBe(
+          "second evidence",
+        );
+      } else {
+        const result = await native.runStream(
+          async () => ({
+            stream: new ReadableStream<string>({
+              start(controller) {
+                void retrieve().then(
+                  (value) => {
+                    controller.enqueue(value);
+                    controller.close();
+                  },
+                  (error) => controller.error(error),
+                );
+              },
+            }),
+          }),
+          abort.signal,
+        );
+        const reader = result.stream.getReader();
+        await expect(reader.read()).resolves.toMatchObject({
+          value: "second evidence",
+        });
+        await reader.read();
+      }
+      const quotaAbort = new AbortController();
+      const excess = coordinator.acquire(
+        "context",
+        {
+          concurrency: 1,
+          limits: { requestsPerMinute: 2 },
+        },
+        0,
+        0,
+        quotaAbort.signal,
+      );
+      quotaAbort.abort();
+      await expect(excess).rejects.toMatchObject({ name: "AbortError" });
+      expect(native.state().active).toBe(0);
+      expect(context.state().active).toBe(0);
+    } finally {
+      clearTimeout(timer);
+      abort.abort();
+      coordinator.close();
+      await rm(directory, { recursive: true, force: true });
+    }
+  },
+);
+
+test("native Context can pass unrelated requests already waiting for the parent's shared slot", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "senslop-context-queue-"));
+  const coordinator = new SharedRequestCapacity(
+    join(directory, "capacity.sqlite"),
+    1,
+  );
+  const native = createRequestLimiter({
+    initialConcurrency: 1,
+    maxConcurrency: 1,
+    allowNestedRequests: true,
+    shared: { coordinator, key: "native" },
+  });
+  const context = createRequestLimiter({
+    initialConcurrency: 1,
+    maxConcurrency: 1,
+    shared: { coordinator, key: "context" },
+  });
+  let notifyEntered!: () => void;
+  let notifyReady!: () => void;
+  const entered = new Promise<void>((resolve) => {
+    notifyEntered = resolve;
+  });
+  const ready = new Promise<void>((resolve) => {
+    notifyReady = resolve;
+  });
+  const order: string[] = [];
+  const abort = new AbortController();
+  const timer = setTimeout(() => abort.abort(), 500);
+  let parent: Promise<unknown> | undefined;
+  let unrelated: Promise<unknown> | undefined;
+  try {
+    parent = native.run(async () => {
+      notifyEntered();
+      await ready;
+      return context.run(async () => {
+        order.push("native Context");
+      }, abort.signal);
+    }, abort.signal);
+    await entered;
+    unrelated = context.run(async () => {
+      order.push("unrelated");
+    }, abort.signal);
+    await pause(5);
+    expect(context.state().active).toBe(1);
+    notifyReady();
+    await expect(parent).resolves.toBeUndefined();
+    await unrelated;
+    expect(order).toEqual(["native Context", "unrelated"]);
+  } finally {
+    notifyReady();
+    clearTimeout(timer);
+    abort.abort();
+    await Promise.allSettled([parent, unrelated]);
+    coordinator.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});

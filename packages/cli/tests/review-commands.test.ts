@@ -65,6 +65,36 @@ const fixture = () => {
   return { request, client };
 };
 
+test.each(["create", "sync"])(
+  "%s forwards high priority to optional correctness analysis",
+  async (operation) => {
+    const { request, client } = fixture();
+    await executeReviewCommand(
+      client,
+      parseCliCommand([
+        "reviews",
+        operation,
+        ...(operation === "create" ? ["--working-tree"] : [review.id]),
+        "--run-review",
+        "--priority",
+        "high",
+      ]),
+      vi.fn(),
+    );
+    expect(request).toHaveBeenCalledWith(
+      "/api/agents",
+      expect.objectContaining({
+        action: "job",
+        snapshotId: review.id,
+        kind: "review",
+        expectedHash: review.hash,
+        expectedRound: review.round,
+        priority: "high",
+      }),
+    );
+  },
+);
+
 test("the agent handoff uses the shared workspace API, waits for matching grouping and returns a safe browser URL", async () => {
   const { request, client } = fixture();
   const open = vi.fn();

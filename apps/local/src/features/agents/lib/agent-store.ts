@@ -306,6 +306,19 @@ export class AgentStore {
       })!;
     });
 
+  claimDispatch = (id: string, generation: number, dispatchKey: string) =>
+    this.local.transaction(() => {
+      const existingJob = this.job(id);
+      if (
+        !existingJob ||
+        existingJob.status !== "queued" ||
+        existingJob.dispatched ||
+        existingJob.dispatchGeneration !== generation
+      )
+        return null;
+      return this.writeJob(id, { dispatchKey, dispatched: true });
+    });
+
   private writeJob = (
     id: string,
     patch: Partial<

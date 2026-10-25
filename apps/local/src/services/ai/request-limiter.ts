@@ -26,6 +26,12 @@ import type { ConnectionCapacitySchema } from "../../features/ai-capacity/schema
 import { capacityBounds } from "../../features/ai-capacity/constants";
 import { SharedRequestCapacity } from "./shared-request-capacity";
 
+const nativeExecution = new AsyncLocalStorage<{
+  active: boolean;
+  coordinator?: SharedRequestCapacity;
+  children: Map<RequestLimiter["run"], RequestLimiter["run"]>;
+}>();
+
 export const createRequestLimiter = (
   {
     initialConcurrency = initialProviderConcurrency,
@@ -188,6 +194,19 @@ export const createRequestLimiter = (
       queue.push(entry);
       pump();
     });
+
+  const createNestedRun = (): RequestLimiter["run"] =>
+    createRequestLimiter(
+      {
+        initialConcurrency: 1,
+        maxConcurrency: 1,
+        allowNestedRequests: true,
+        limits,
+        shared: shared ? { ...shared, reuseSlot: true } : undefined,
+      },
+      reservations,
+    ).run;
+
   const run = async <T>(
     operation: () => PromiseLike<T>,
     signal?: AbortSignal,
@@ -195,6 +214,21 @@ export const createRequestLimiter = (
   ): Promise<T> => {
     const parent = allowNestedRequests ? execution.getStore() : undefined;
     if (parent?.active) return parent.run(operation, signal, budget);
+    const sharedParent = nativeExecution.getStore();
+    if (
+      shared &&
+      !shared.reuseSlot &&
+      sharedParent?.active &&
+      sharedParent.coordinator === shared.coordinator
+    ) {
+      // Context must pass requests blocked on the shared slot held by its native parent.
+      let child = sharedParent.children.get(run);
+      if (!child) {
+        child = createNestedRun();
+        sharedParent.children.set(run, child);
+      }
+      return child(operation, signal, budget);
+    }
     const inputTokens = Math.ceil(budget.inputTokens ?? 0);
     const outputTokens = Math.ceil(budget.outputTokens ?? 0);
     const capacity = {
@@ -228,18 +262,11 @@ export const createRequestLimiter = (
     let nestedRun: typeof run | undefined;
     const scope = {
       active: true,
+      coordinator: shared?.coordinator,
+      children: new Map<RequestLimiter["run"], RequestLimiter["run"]>(),
       // Native MCP calls await Context inside the parent request; serialize children in its slot.
       run: ((operation, signal, budget) => {
-        nestedRun ??= createRequestLimiter(
-          {
-            initialConcurrency: 1,
-            maxConcurrency: 1,
-            limits,
-            allowNestedRequests: true,
-            shared: shared ? { ...shared, reuseSlot: true } : undefined,
-          },
-          reservations,
-        ).run;
+        nestedRun ??= createNestedRun();
         return nestedRun(operation, signal, budget);
       }) as typeof run,
     };
@@ -255,7 +282,12 @@ export const createRequestLimiter = (
         shared.reuseSlot,
       );
       signal?.throwIfAborted();
-      const result = await execution.run(scope, operation);
+      // Native Context tools can use another provider but still await inside this live slot.
+      const result = await execution.run(scope, () =>
+        allowNestedRequests && sharedLease
+          ? nativeExecution.run(scope, operation)
+          : operation(),
+      );
       const actualInputTokens = budget.actualInputTokens?.(result);
       if (
         actualInputTokens !== undefined &&
