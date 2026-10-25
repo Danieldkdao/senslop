@@ -73,7 +73,7 @@ senslop runs list --review current --json
 
 `groups show` reads current grouping, summaries, rationale, relationships, and order. `groups run` explicitly enables grouping for the snapshot and starts or reruns it. `runs show`, `runs watch`, `runs cancel`, and `runs retry` work with grouping and correctness jobs. Retry creates a new attempt linked by `retryOf`, retaining the original revision, settings, and priority; stale revisions require a fresh analysis. `runs list --all` lists pending workspace jobs. `runs prioritize RUN_ID --priority high` gives queued work a bounded two-minute preference, without interrupting running work. `--priority normal|high` also applies when creating or starting analysis. `runs rename` and `runs delete` manage saved correctness reviews. `runs export RUN_ID` prints combined fix guidance; `--finding N` selects one issue, and `--json` returns structured results. These commands generate instructions and never apply code changes.
 
-`--timeout SECONDS` bounds waits; default analysis timeout is 600 seconds. A timeout retains the saved job so an agent can reconnect with `runs watch`. Failed or canceled analysis returns an unsuccessful exit status; it is distinct from a completed review with no findings. AI requests may send captured code to the chosen provider and incur that provider's charges. Source access remains read-only.
+`--timeout SECONDS` bounds waits; default analysis timeout is 600 seconds. A timeout retains the saved job so an agent can reconnect with `runs watch`. Failed or canceled analysis returns an unsuccessful exit status; it is distinct from a completed review with no findings. AI requests may send captured code to the chosen provider and incur that provider's charges. AI review source tools remain read-only; task application and checks are separate explicit actions.
 
 ## Notes and settings
 
@@ -147,3 +147,32 @@ Build the local app before the CLI with the package build commands. The archive 
 For the checkout, `pnpm exec turbo run build --filter=@senslop/cli` builds through the dependency graph. Root `pnpm typecheck`/`pnpm build` also include hosted workspaces and their environment requirements; targeted local checks do not require hosted authentication setup. Verify fresh archive installation separately before claiming distribution readiness.
 
 Run the ordinary suite with `pnpm test`. `SENSLOP_AGENT_TEST=1 pnpm exec vitest run packages/cli/tests/agent-workflow.test.ts` exercises the production bundle and real local engine through independent CLI processes, using an isolated repository/data directory and deterministic loopback provider. This checks orchestration rather than real model quality. Existing opt-in development, installed-package, subscription, and OS credential tests remain available in their test files.
+
+## Fix and verify
+
+Findings retain stable IDs and original evidence across keep-mode rounds. Human decisions are `open`, `accepted`, `dismissed`, or `resolved`; model assessments and passing check evidence remain separate. Dismissal reasons and manual verification notes are optional.
+
+```sh
+senslop findings list REVIEW --json
+senslop findings decide REVIEW FINDING --status accepted --json
+senslop tasks create REVIEW --findings FINDING_IDS --workspace managed --json
+senslop tasks export TASK
+senslop tasks claim TASK --agent-name "My agent" --json
+senslop tasks return TASK --json
+senslop tasks apply TASK --paths src/example.ts --yes --json
+senslop checks run REVIEW --command "pnpm test" --findings FINDING_IDS --compare-base --json
+senslop checks watch CHECK --json
+senslop findings verify REVIEW --findings FINDING_IDS --json
+senslop verifications list REVIEW --json
+senslop findings assess REVIEW FINDING --outcome apparently-fixed --json
+senslop rounds show REVIEW --round 1 --json
+senslop usage show REVIEW --json
+```
+
+Comma-separated finding/note/file IDs select a bounded handoff. Add `--expected-hash HASH --expected-round N` for revision-sensitive automation. A managed task reproduces staged, unstaged, and untracked reviewed bytes; no task applies changes automatically. Inspect returned edits in Work before applying. Pass `--repo ORIGINAL_PROJECT` to CLI operations while editing a managed directory. The manual handoff works with external agents; stopping their independent processes remains the agent runner's responsibility.
+
+Checks execute an explicitly chosen shell command with host permissions in a Senslop-owned worktree, with a bounded environment, recorded input/dependency hashes, output, duration, exit status, cancellation, and timeout. Worktrees share Git metadata and provide no OS sandbox. Dependency installation is an explicit check command; `--reuse-check CHECK` reuses its prepared workspace only for the same exact review revision. A command that changes captured source cannot become passing evidence. Base failures and missing tools remain distinct from changed-source regressions. The browser can also record and download explicitly selected generated artifacts; newer or expired artifact bytes are not served as the recorded artifact.
+
+The project switcher discovers sibling Git worktrees and retains archived source when a folder disappears. Model assignments, review preferences, and source policy share the common Git project; reviews, reading positions, and execution tasks stay worktree-scoped. Provider credentials, machine capacity, and appearance remain shared. Source & execution settings control inclusion, local-only inference, command timeouts, and retention. Stricter policies block incompatible contexts and old conversation continuation while preserving local evidence. Data & privacy provides exports, diagnostics, history deletion, and owned-workspace cleanup.
+
+Usage records include model requests, context calls, and retries. Per-review token/request-time allowances stop new work conservatively; Quick skips delegated context and Thorough permits it. The Usage settings section contains aggregate charts. Costs stay unknown when reliable pricing is unavailable and exclude independent external-agent usage. Completed batches remain available to a compatible retry.
