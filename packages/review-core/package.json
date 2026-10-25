@@ -6,7 +6,9 @@
   "exports": {
     ".": "./src/index.ts",
     "./git": "./src/features/git/repository.ts",
-    "./storage": "./src/db/local-store.ts"
+    "./storage": "./src/db/local-store.ts",
+    "./workflow": "./src/features/workflow/workflow-store.ts",
+    "./verification": "./src/features/workflow/verification-store.ts"
   },
   "scripts": {
     "build": "tsc --noEmit",

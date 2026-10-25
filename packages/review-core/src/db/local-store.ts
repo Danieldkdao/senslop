@@ -14,6 +14,7 @@ import {
 
 export class LocalStore {
   readonly database: DatabaseSync;
+  private transactionDepth = 0;
 
   constructor(path: string) {
     mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
@@ -27,7 +28,7 @@ export class LocalStore {
         const version = Number(
           this.database.prepare("PRAGMA user_version").get()?.user_version,
         );
-        if (version > 4)
+        if (version > 6)
           throw new Error(
             "Local data was created by a newer Senslop. Upgrade the CLI to open it.",
           );
@@ -62,6 +63,23 @@ export class LocalStore {
             PRAGMA user_version = 4;
           `);
         }
+        if (version < 5) {
+          this.database.exec(`
+            CREATE TABLE review_rounds (review_id TEXT NOT NULL REFERENCES reviews(id) ON DELETE CASCADE, round INTEGER NOT NULL, body TEXT NOT NULL, context TEXT, PRIMARY KEY (review_id, round)) STRICT;
+            INSERT INTO review_rounds SELECT id, coalesce(json_extract(body, '$.round'), 1), body, NULL FROM reviews;
+            CREATE TABLE review_findings (id TEXT PRIMARY KEY, review_id TEXT NOT NULL REFERENCES reviews(id) ON DELETE CASCADE, body TEXT NOT NULL) STRICT;
+            CREATE INDEX review_findings_review ON review_findings(review_id);
+            CREATE TABLE fix_tasks (id TEXT PRIMARY KEY, review_id TEXT NOT NULL REFERENCES reviews(id) ON DELETE CASCADE, body TEXT NOT NULL) STRICT;
+            CREATE TABLE check_runs (id TEXT PRIMARY KEY, review_id TEXT NOT NULL REFERENCES reviews(id) ON DELETE CASCADE, body TEXT NOT NULL) STRICT;
+            CREATE TABLE execution_manifests (id TEXT PRIMARY KEY, review_id TEXT NOT NULL REFERENCES reviews(id) ON DELETE CASCADE, body TEXT NOT NULL) STRICT;
+            CREATE TABLE review_usage (id TEXT PRIMARY KEY, review_id TEXT NOT NULL REFERENCES reviews(id) ON DELETE CASCADE, body TEXT NOT NULL) STRICT;
+            PRAGMA user_version = 5;
+          `);
+        }
+        if (version < 6)
+          this.database.exec(
+            "CREATE TABLE finding_verifications (id TEXT PRIMARY KEY, review_id TEXT NOT NULL REFERENCES reviews(id) ON DELETE CASCADE, body TEXT NOT NULL) STRICT; PRAGMA user_version=6;",
+          );
       });
     } catch (error) {
       this.database.close();
@@ -70,14 +88,23 @@ export class LocalStore {
   }
 
   transaction = <T>(operation: () => T): T => {
-    this.database.exec("BEGIN IMMEDIATE");
+    const nested = this.transactionDepth > 0;
+    const savepoint = `senslop_${this.transactionDepth}`;
+    this.database.exec(nested ? `SAVEPOINT ${savepoint}` : "BEGIN IMMEDIATE");
+    this.transactionDepth++;
     try {
       const result = operation();
-      this.database.exec("COMMIT");
+      this.database.exec(nested ? `RELEASE SAVEPOINT ${savepoint}` : "COMMIT");
       return result;
     } catch (error) {
-      this.database.exec("ROLLBACK");
+      this.database.exec(
+        nested
+          ? `ROLLBACK TO SAVEPOINT ${savepoint}; RELEASE SAVEPOINT ${savepoint}`
+          : "ROLLBACK",
+      );
       throw error;
+    } finally {
+      this.transactionDepth--;
     }
   };
 
@@ -283,6 +310,16 @@ export class LocalStore {
       if (keep && previousReview) {
         this.database
           .prepare(
+            "UPDATE review_rounds SET body=?, context = (SELECT body FROM ai_context WHERE snapshot_id = ?) WHERE review_id = ? AND round = ?",
+          )
+          .run(
+            JSON.stringify(previousReview),
+            saved.id,
+            saved.id,
+            previousReview.round,
+          );
+        this.database
+          .prepare(
             "UPDATE ai_jobs SET body = json_set(body, '$.snapshotRound', ?) WHERE snapshot_id = ? AND json_type(body, '$.snapshotRound') IS NULL",
           )
           .run(previousReview.round, saved.id);
@@ -307,6 +344,11 @@ export class LocalStore {
           .prepare("INSERT INTO reviews VALUES (?, ?, ?)")
           .run(saved.id, repository, JSON.stringify(saved));
       }
+      this.database
+        .prepare(
+          "INSERT OR IGNORE INTO review_rounds (review_id, round, body) VALUES (?, ?, ?)",
+        )
+        .run(saved.id, saved.round, JSON.stringify(saved));
       const reviewCount = Number(
         this.database
           .prepare("SELECT count(*) AS count FROM reviews WHERE repository = ?")
