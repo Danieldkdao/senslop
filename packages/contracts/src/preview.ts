@@ -19,7 +19,26 @@ export const previewSourceSchema = z.object({
 });
 export type PreviewSourceSchema = z.infer<typeof previewSourceSchema>;
 
+export const previewImageMimes = [
+  "image/png",
+  "image/jpeg",
+  "image/webp",
+] as const;
+export type PreviewImageMime = (typeof previewImageMimes)[number];
+export const previewImageAssetSchema = z.object({
+  mime: z.enum(previewImageMimes),
+  base64: z.string().max(3 * 1024 * 1024),
+});
+export type PreviewImageAssetSchema = z.infer<typeof previewImageAssetSchema>;
+export const previewImageSchema = z.object({
+  before: previewImageAssetSchema.nullable(),
+  after: previewImageAssetSchema.nullable(),
+  unavailableReason: z.string().optional(),
+});
+export type PreviewImageSchema = z.infer<typeof previewImageSchema>;
+
 export const previewFileSchema = z.object({
+  imagePreview: previewImageSchema.optional(),
   path: z.string().min(1).max(4096),
   oldPath: z.string().min(1).max(4096).nullable(),
   status: z.string().regex(/^[AMDRCTU][0-9]*$/),

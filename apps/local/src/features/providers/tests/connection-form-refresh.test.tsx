@@ -86,7 +86,7 @@ test("LM Studio exposes and saves the context length actually loaded by the serv
   const user = userEvent.setup();
   render(<ConnectionForm provider="lm-studio" />);
   await user.type(screen.getByLabelText("Context window"), "32768");
-  await user.click(screen.getByRole("button", { name: "Save connection" }));
+  await user.tab();
   await waitFor(() =>
     expect(state.save).toHaveBeenCalledWith(
       expect.objectContaining({

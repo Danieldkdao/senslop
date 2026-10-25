@@ -1,6 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useRef } from "react";
+import {
+  clearSettingsSaveStatus,
+  setSettingsSaveStatus,
+} from "../../settings/lib/settings-save-store";
+import { useCallback, useRef } from "react";
+import { useDebouncer } from "@tanstack/react-pacer/debouncer";
 import type { z } from "zod";
 import {
   Select,
@@ -60,32 +65,26 @@ export const AiSettings = ({
   });
   const promptField = register("prompt");
   const promptDraft = useRef<string | null>(null);
-  const promptTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const savePrompt = useCallback(() => {
-    if (promptTimer.current) clearTimeout(promptTimer.current);
     if (promptDraft.current === null) return;
     const parsed = aiSettingsSchema.shape.prompt.safeParse(promptDraft.current);
     if (!parsed.success) {
+      setSettingsSaveStatus("ai-prompt-draft", { status: "invalid" });
       void trigger("prompt");
       return;
     }
     promptDraft.current = null;
+    clearSettingsSaveStatus("ai-prompt-draft");
     resetField("prompt", { defaultValue: parsed.data });
     save({ prompt: parsed.data });
   }, [resetField, save, trigger]);
-  useEffect(
-    () => () => {
-      if (promptTimer.current) clearTimeout(promptTimer.current);
-      // Closing settings must not discard a valid draft waiting for its debounce.
-      if (promptDraft.current !== null) {
-        const parsed = aiSettingsSchema.shape.prompt.safeParse(
-          promptDraft.current,
-        );
-        if (parsed.success) save({ prompt: parsed.data });
-      }
+  const promptDebouncer = useDebouncer(savePrompt, {
+    wait: 500,
+    onUnmount: (debouncer) => {
+      debouncer.flush();
+      clearSettingsSaveStatus("ai-prompt-draft");
     },
-    [save],
-  );
+  });
   const separate = useWatch({ control, name: "separate" });
   const shared = useWatch({ control, name: "shared" });
   const roles = useWatch({ control, name: "roles" });
@@ -99,7 +98,7 @@ export const AiSettings = ({
         noValidate
         onSubmit={(event) => {
           event.preventDefault();
-          savePrompt();
+          promptDebouncer.flush();
         }}
         className="flex flex-col gap-5"
       >
@@ -274,12 +273,12 @@ export const AiSettings = ({
             onChange={(event) => {
               void promptField.onChange(event);
               promptDraft.current = event.target.value;
-              if (promptTimer.current) clearTimeout(promptTimer.current);
-              promptTimer.current = setTimeout(savePrompt, 500);
+              setSettingsSaveStatus("ai-prompt-draft", { status: "waiting" });
+              promptDebouncer.maybeExecute();
             }}
             onBlur={(event) => {
               void promptField.onBlur(event);
-              savePrompt();
+              promptDebouncer.flush();
             }}
             aria-invalid={!!errors.prompt}
             aria-describedby="grouping-error"

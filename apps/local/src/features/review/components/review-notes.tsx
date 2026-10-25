@@ -56,10 +56,10 @@ export const ReviewNotes = ({
       >
         <div className="flex flex-col">
           {!matches.length && (
-            <p className="p-1 text-muted-foreground">
+            <p className="px-4 py-5 text-muted-foreground">
               {query
                 ? "No notes match your search."
-                : "No notes yet. Add a note from the header or select lines in the diff."}
+                : "No notes yet; add one from the header or select lines in the diff."}
             </p>
           )}
           {matches.map((note) => (

@@ -81,7 +81,7 @@ The CLI and browser share the [Git collector](../packages/review-core/src/featur
 
 Supported sources are working tree, single-commit first-parent delta, validated endpoint range, and local branch comparison with an optional base. Read operations do not fetch, pull, check out, or mutate repository state.
 
-Captured files retain repository-relative path, original path where applicable, status, before/after text and hashes, diff, and binary metadata. Source identities and fingerprints detect changes around capture and re-sync. Filesystem handling enforces path/realpath boundaries and secret exclusions.
+Captured files retain repository-relative path, original path where applicable, status, before/after text and hashes, diff, and binary metadata. PNG/JPEG/WebP previews freeze verified magic bytes with a 2 MiB per-side bound and count base64 toward the snapshot bound; other binaries and unavailable images retain explicit fallbacks. Only the explicit `.senslop/review.json` path is exempted from the private-state directory exclusion. Source identities and fingerprints detect changes around capture and re-sync. Filesystem handling enforces path/realpath boundaries and secret exclusions.
 
 Current contract/capture bounds include a 1 MiB limit for selected text file contents, a 20 MiB serialized snapshot including metadata/diffs, and at most 2,000 files. Refer to implementation constants for exact enforcement and captured-context limits. Oversized selections fail explicitly rather than silently truncating review content. Binary contents are not provided as text to analysis.
 
@@ -89,7 +89,7 @@ Ordinary saved-review inspection accepts small changes. Legacy standalone `inspe
 
 ## Persistence and migrations
 
-The [LocalStore](../packages/review-core/src/db/local-store.ts) uses SQLite WAL, a busy timeout, foreign keys, explicit transactions, and restrictive filesystem permissions. The current user_version is 6; newer unsupported data versions are rejected.
+The [LocalStore](../packages/review-core/src/db/local-store.ts) uses SQLite WAL, a busy timeout, foreign keys, explicit transactions, and restrictive filesystem permissions. The current user_version is 7; newer unsupported data versions are rejected.
 
 | Table                | Responsibility                                                                      |
 | -------------------- | ----------------------------------------------------------------------------------- |
@@ -224,7 +224,25 @@ Model middleware applies current source/local-only policy before every supported
 
 The browser adds finding filters/decisions/history, round comparison, task/change review, command logs/artifacts, verification history, context/routing inspection, project switching, source/privacy/usage settings, and shadcn/Recharts usage charts. Notes are contiguous padded rows. The Pierre 1.5.2 React adapter reapplies controlled selection after `onPostRender`; a parent layout effect reapplies `activeLineSide` after that synchronization so split selection stays on its initiating side. Real-renderer tests cover pointer-down, multi-line drag, release, and rerender on both columns.
 
-The bundled agent skill and CLI support explicit finding/task/check/verification/round/usage operations. External-agent launch adapters remain optional; the implemented integration is copy/export plus claim/return/apply through the authenticated original project. The initial evaluation fixture pair and metric harness measure deterministic reporting behavior; live-model quality remains unmeasured until the later evaluation work.
+The bundled agent skill and CLI support explicit finding/task/check/verification/round/usage operations. External-agent launch adapters remain optional; the implemented integration is copy/export plus claim/return/apply through the authenticated original project. The expanded precision corpus and comparison harness separate deterministic contracts from opt-in live findings/grouping judgments. Real-provider diagnosis quality remains unmeasured in this delivery.
+
+## Review with precision architecture
+
+`packages/contracts/src/precision.ts` defines units/ranges/flows, organization actions, briefs, criteria/evidence, rules/profiles/provenance, language capabilities, and relationships. SQLite v7 adds round-keyed `review_precision` and append-only `review_briefs` with review foreign-key cleanup. Shared arrays define enum values. Existing file completion and unit completion synchronize atomically; organization writes guard both source identity and organization version.
+
+`PrecisionStore` lazily derives exact diff regions, migrates matching saved file grouping/completion, validates unique ownership, and supports manual organization. Reconciliation retains only unambiguous source matches, including manually split/combined unchanged ranges; changed or ambiguous ownership requires review. Model region grouping runs after existing file summaries, validates supplied region IDs, and falls back with visible limitations. Publishing and persistence share the existing job transaction; manual organization survives ordinary regrouping until explicitly reset.
+
+`ReviewIntent` stores brief versions and validates exact source excerpts. Criteria become verified only through their explicitly linked passing changed-side checks for the same hash/round, with source-changing checks excluded. The job captures its brief and effective instructions after frozen context loads; retries retain that capture. Rule precedence is built-in, root, nested subtree, local project, then one-review override. Per-path profile scopes and rule provenance are passed as explicit instructions, separate from untrusted source/documents.
+
+Frozen analysis version 4 retains TypeScript compiler facts/callers and composes Python/Go Tree-sitter adapters. Parser/runtime/grammar native files are included in standalone tracing. Optional bounded stdio LSP processes analyze temporary copies, reject outside-root reference URIs, isolate failures by language, and stop/clean up after completion. Capability labels distinguish semantic, parsing, and text support. Settings hashes invalidate cached analysis. Before-side exploration analyzes the frozen before map; archived rounds never substitute current disk.
+
+`/api/precision`, `/api/review-intent`, `/api/source-explorer`, and `/api/review-quality` share protected local-session boundaries. Feature hooks keep their TanStack configuration together. `ExpandingTabs` is exported by `@senslop/ui`, composes installed Base UI Tabs and tooltips, animates active/inactive widths, supports keyboard and reduced motion, and exposes controlled/uncontrolled items with icons/details/disabled states. Region browser/editor, requirements, rules, impact, search, image/JSON readers, and settings compose shadcn primitives.
+
+The per-tab reading trail stores revision/path/side/region/context/scroll and bounds history to 100 entries. Region/full-file and incremental unchanged-context controls retain original coordinates. Whitespace controls affect rendering only. Attention uses visible reasons, generated/repetitive collapse preserves completion totals, renamed paths remain explicit, and supporting source is read-only.
+
+Quality reports persist the latest 20 synthetic-corpus runs under a common-Git project preference key. Reports retain model/instruction identity, expected outcomes/provenance, exact findings/group ownership, contract results, diagnosis/evidence/grouping metrics, latency, and available token/cost data. Live runs require explicit opt-in and obey the local-inference route plus token/time limits; deterministic cases do not call providers. Model-level judgments presently cover findings and grouping; requirement/round/fix checks are deterministic. Promotion thresholds and real-provider evidence remain open.
+
+CLI `regions`, `brief`, `rules`, `source`, and `quality` operations use the same APIs and exact identities. Version flags protect stale organization/brief editors. Live CLI automation requires `--live --yes`; default quality runs are deterministic. The bundled agent instructions describe these boundaries without authorizing unrelated source changes or paid runs.
 
 ## Separate hosted services
 
@@ -236,4 +254,4 @@ Hosted development uses its own configured environment and services. Local revie
 
 See [checklist.md](checklist.md) for the current verification ledger and [README](../README.md) for commands. Local source/fixture tests, typechecks, opt-in process/package tests, real provider checks, and human browser exploration are different evidence.
 
-Future completion notifications, hunk grouping, general Git mutations, and report generation are described in the [roadmap](local-review-roadmap.md). Group 1 finding decisions, verification, task application, and explicit check execution are committed on `feat/fix-verify`. Further implementation must extend the existing identities, storage, and lifecycle rather than silently substituting the old hosted design.
+Future completion notifications, general Git mutations, and report generation are described in the [roadmap](local-review-roadmap.md). Group 1 finding decisions, verification, task application, and explicit check execution are committed on `feat/fix-verify`. Further implementation must extend the existing identities, storage, and lifecycle rather than silently substituting the old hosted design.

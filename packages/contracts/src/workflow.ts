@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { reviewProfiles } from "./lib/constants";
 
 export const findingDecisions = [
   "open",
@@ -39,6 +40,8 @@ export const reviewIdentitySchema = z.object({
 });
 export type ReviewIdentitySchema = z.infer<typeof reviewIdentitySchema>;
 export const findingEvidenceSchema = z.object({
+  ruleIds: z.array(z.string()).optional(),
+  profiles: z.array(z.enum(reviewProfiles)).optional(),
   title: z.string().min(1),
   severity: z.enum(workflowSeverities),
   problem: z.string(),

@@ -7,10 +7,14 @@ export const evaluateFindings = (
   const matched = new Set<string>();
   let evidenceMatches = 0;
   let falsePositives = 0;
+  let duplicates = 0;
   for (const finding of output.findings) {
-    const source = fixture.source[finding.side];
+    const file = [fixture.source, ...(fixture.sources ?? [])].find(
+      (source) => source.path === finding.path,
+    );
+    const source = file?.[finding.side] ?? "";
     const evidence =
-      finding.path === fixture.source.path &&
+      !!file &&
       source
         .split("\n")
         .slice(finding.start - 1, finding.end)
@@ -20,19 +24,21 @@ export const evaluateFindings = (
       evidence &&
       fixture.expected.find(
         (issue) =>
-          !matched.has(issue.id) &&
+          (issue.path ?? fixture.source.path) === finding.path &&
           issue.side === finding.side &&
           finding.start <= issue.line &&
           finding.end >= issue.line &&
           issue.description.test(`${finding.title} ${finding.problem}`),
       );
-    if (expected) matched.add(expected.id);
+    if (expected && matched.has(expected.id)) duplicates++;
+    else if (expected) matched.add(expected.id);
     else falsePositives++;
   }
   return {
     caseId: fixture.id,
     truePositives: matched.size,
     falsePositives,
+    duplicates,
     missed: fixture.expected.length - matched.size,
     precision: output.findings.length
       ? matched.size / output.findings.length

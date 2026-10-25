@@ -1,5 +1,8 @@
 import type { UIMessage } from "ai";
 import { randomUUID } from "node:crypto";
+import { PrecisionStore } from "@senslop/review-core/precision";
+import { ReviewIntent } from "@senslop/review-core/review-intent";
+import { readReviewInstructions } from "@senslop/review-core/review-rules";
 import { isDeepStrictEqual } from "node:util";
 import { storedConnectionSchema } from "@senslop/contracts";
 import type { LocalStore } from "@senslop/review-core/storage";
@@ -327,6 +330,17 @@ export class AgentStore {
           readReviewPolicy(this.local, this.repository, snapshotId).mode,
         generation: (jobs[0]?.generation ?? 0) + 1,
         settings: previousJob?.settings ?? this.runSettings(),
+        reviewIntent: previousJob?.reviewIntent ?? {
+          brief:
+            new ReviewIntent(this.local, this.repository).briefs(
+              snapshotId,
+            )[0] ?? null,
+          instructions: readReviewInstructions(
+            this.local,
+            this.repository,
+            snapshotId,
+          ),
+        },
         priority: options.priority ?? previousJob?.priority ?? "normal",
         retryOf: previousJob?.id ?? null,
         status: "queued",
@@ -540,6 +554,13 @@ export class AgentStore {
         error: null,
         result: jobSchema.shape.result.parse(result),
       });
+      const parsed = jobSchema.shape.result.parse(result);
+      if (job.kind === "grouping" && parsed && "groups" in parsed)
+        new PrecisionStore(this.local, this.repository).applyGrouping(
+          this.snapshot(job.snapshotId),
+          parsed.groups,
+          parsed.unitGroups,
+        );
       return true;
     });
 

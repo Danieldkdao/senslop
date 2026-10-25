@@ -34,7 +34,6 @@ export const getProviderSettingsSection = (
           <CompatibleProviderForm
             connection={connection}
             onCancel={navigation.back}
-            onSaved={() => navigation.back()}
           />
         ) : (
           <ConnectionForm provider={provider} connection={connection} />

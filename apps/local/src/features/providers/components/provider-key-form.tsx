@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useRef, type BaseSyntheticEvent } from "react";
+import { useEffect, useId, useRef } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
@@ -9,6 +9,7 @@ import {
   type ProviderId,
   type PublicConnectionSchema,
 } from "@senslop/contracts";
+import { useSettingsAutosave } from "../../settings/hooks/use-settings-autosave";
 import { PasswordInput } from "@/components/ui/password-input";
 import { toast } from "@/components/ui/toast";
 import { formatProvider } from "../lib/formatters";
@@ -29,16 +30,14 @@ export const ProviderKeyForm = ({
   onStatusChange,
 }: ProviderKeyFormProps) => {
   const id = useId();
-  const pending = useRef(false);
+  const connectionRef = useRef(connection);
+  useEffect(() => {
+    connectionRef.current = connection;
+  }, [connection]);
   const info = formatProvider(provider);
-  const {
-    control,
-    handleSubmit,
-    resetField,
-    setValue,
-    formState: { errors, isSubmitting },
-  } = useForm<SaveConnectionSchema>({
+  const form = useForm<SaveConnectionSchema>({
     resolver: zodResolver(saveConnectionSchema),
+    mode: "onChange",
     resetOptions: { keepDirtyValues: true },
     values: {
       provider,
@@ -50,10 +49,17 @@ export const ProviderKeyForm = ({
       apiKey: "",
     },
   });
-  const submit = (event?: BaseSyntheticEvent) =>
-    handleSubmit(async (values) => {
-      if (!values.apiKey || pending.current) return;
-      pending.current = true;
+  const {
+    control,
+    resetField,
+    setValue,
+    formState: { errors },
+  } = form;
+  const autosave = useSettingsAutosave({
+    form,
+    schema: saveConnectionSchema,
+    save: async (values) => {
+      if (!values.apiKey) return;
       let failureMessage: string | null = null;
       onStatusChange?.({ busy: true, error: null });
       try {
@@ -62,30 +68,41 @@ export const ProviderKeyForm = ({
           warning?: string | null;
         }>({
           action: "save",
-          connection: values,
+          connection: { ...values, id: connectionRef.current?.id ?? values.id },
         });
+        connectionRef.current = saved.connection;
         setValue("id", saved.connection.id);
-        resetField("apiKey", { defaultValue: "" });
+        if (form.getValues("apiKey") === values.apiKey) {
+          form.reset(
+            { ...values, id: saved.connection.id, apiKey: "" },
+            { keepValues: true },
+          );
+          resetField("apiKey", { defaultValue: "" });
+        }
         if (saved.warning) toast.error(saved.warning);
-        else toast.success(`${info.label} API key saved securely.`);
         await onSaved();
       } catch (failure) {
         failureMessage = (failure as Error).message;
-        toast.error((failure as Error).message);
+        toast.error(failureMessage);
+        throw failure;
       } finally {
-        pending.current = false;
         onStatusChange?.({ busy: false, error: failureMessage });
       }
-    })(event);
+    },
+  });
   return (
     <form
       noValidate
-      onSubmit={submit}
+      onSubmit={(event) => {
+        event.preventDefault();
+        void autosave.flush();
+      }}
       onBlur={(event) => {
-        if (!event.currentTarget.contains(event.relatedTarget)) void submit();
+        if (!event.currentTarget.contains(event.relatedTarget))
+          void autosave.flush();
       }}
       className="flex flex-col gap-2"
-      aria-busy={isSubmitting}
+      aria-busy={autosave.saving}
     >
       <label className="sr-only" htmlFor={id}>
         {info.label} API key
@@ -109,16 +126,15 @@ export const ProviderKeyForm = ({
             aria-describedby={
               errors.apiKey ? `${id}-help ${id}-error` : `${id}-help`
             }
-            disabled={isSubmitting}
           />
         )}
       />
       <p id={`${id}-help`} className="text-muted-foreground">
-        {isSubmitting
+        {autosave.saving
           ? "Saving securely…"
           : connection?.configured
             ? "API key configured in your OS credential store."
-            : "Press Enter or leave the field to save securely."}
+            : "Your key saves automatically in your OS credential store."}
       </p>
       {errors.apiKey && (
         <p id={`${id}-error`} role="alert" className="text-destructive">

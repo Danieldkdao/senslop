@@ -63,7 +63,8 @@ next-env.d.ts
 *.pfx
 id_rsa
 id_ed25519
-.senslop/
+**/.senslop/*
+!**/.senslop/review.json
 
 # Local caches, reports, and exports
 **/out/

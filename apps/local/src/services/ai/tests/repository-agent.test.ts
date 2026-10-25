@@ -73,6 +73,15 @@ const localFixture = {
 
 const resultAgent = (signal = new AbortController().signal) =>
   createRepositoryAgent({
+    reviewIntent: {
+      brief: null,
+      instructions: {
+        profiles: ["correctness"],
+        rules: [],
+        sources: [],
+        limitations: [],
+      },
+    },
     local: localFixture,
     snapshot: {
       id: "snapshot",
@@ -294,6 +303,15 @@ test("a malformed file summary preserves valid files and requests only the defec
   });
   state.resolved = { model };
   const agent = await createRepositoryAgent({
+    reviewIntent: {
+      brief: null,
+      instructions: {
+        profiles: ["correctness"],
+        rules: [],
+        sources: [],
+        limitations: [],
+      },
+    },
     local: localFixture,
     snapshot: { id: "snapshot", source: {}, files } as never,
     settings: defaultAiSettings,
@@ -634,6 +652,15 @@ test("concurrent batches keep context quotas and parent request IDs isolated", a
     name: "Model",
   };
   const agent = await createRepositoryAgent({
+    reviewIntent: {
+      brief: null,
+      instructions: {
+        profiles: ["correctness"],
+        rules: [],
+        sources: [],
+        limitations: [],
+      },
+    },
     local: localFixture,
     snapshot: { id: "snapshot", source: {}, files } as never,
     settings: {
@@ -768,6 +795,15 @@ test.each([
       model: new MockLanguageModelV4({ doGenerate: generate }),
     };
     const agent = await createRepositoryAgent({
+      reviewIntent: {
+        brief: null,
+        instructions: {
+          profiles: ["correctness"],
+          rules: [],
+          sources: [],
+          limitations: [],
+        },
+      },
       local: localFixture,
       snapshot: {
         id: "snapshot",
@@ -834,6 +870,15 @@ test("grouping consumes validated structured model output and rejects incomplete
     }),
   };
   const agent = await createRepositoryAgent({
+    reviewIntent: {
+      brief: null,
+      instructions: {
+        profiles: ["correctness"],
+        rules: [],
+        sources: [],
+        limitations: [],
+      },
+    },
     local: localFixture,
     snapshot: {
       id: "snapshot",
@@ -931,6 +976,15 @@ test("Context retrieval reserves a final answer after repository tools instead o
     name: "Model",
   };
   const agent = await createRepositoryAgent({
+    reviewIntent: {
+      brief: null,
+      instructions: {
+        profiles: ["correctness"],
+        rules: [],
+        sources: [],
+        limitations: [],
+      },
+    },
     local: localFixture,
     snapshot: {
       id: "snapshot",

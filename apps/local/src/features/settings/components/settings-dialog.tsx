@@ -1,5 +1,6 @@
 "use client";
 
+import { useKeyboardShortcuts } from "@senslop/ui/hooks/use-keyboard-shortcuts";
 import { useEffect, useId, useRef, useState } from "react";
 import { ArrowLeft, ChevronRight, Search, Settings } from "lucide-react";
 import { TooltipWrapper } from "@/components/ui/tooltip-wrapper";
@@ -13,6 +14,7 @@ import {
   DialogDescription,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import { SettingsSaveIndicator } from "./settings-save-indicator";
 import { SettingsContentsItem } from "./settings-contents-item";
 import { SettingsScreenHeader } from "./settings-screen-header";
 import { cn } from "@/lib/utils";
@@ -56,7 +58,32 @@ export const SettingsDialog = ({
       }),
     back: () => setScreens((current) => current.slice(0, -1)),
   };
-  const sections = children(navigation, search);
+  const sections = [...children(navigation, search)]
+    .map((section) => ({
+      ...section,
+      links: section.links
+        ?.slice()
+        .sort((a, b) =>
+          a.label.localeCompare(b.label, "en", { sensitivity: "base" }),
+        ),
+    }))
+    .sort((a, b) =>
+      a.label.localeCompare(b.label, "en", { sensitivity: "base" }),
+    );
+  useKeyboardShortcuts(
+    hideTrigger
+      ? []
+      : [
+          {
+            hotkey: "S",
+            callback: () => {
+              if (controlledOpen === undefined) setOpen(true);
+              onOpenChange?.(true);
+            },
+          },
+        ],
+    { enabled: !hideTrigger && !open },
+  );
   const current = screens.at(-1);
   const jump = (sectionId: string, anchor = false) => {
     setScreens([]);
@@ -111,10 +138,15 @@ export const SettingsDialog = ({
       }}
     >
       {!hideTrigger && (
-        <TooltipWrapper content="Settings">
+        <TooltipWrapper content="Settings (S)">
           <DialogTrigger
             render={
-              <Button variant="ghost" size="icon" aria-label="Settings" />
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label="Settings"
+                aria-keyshortcuts="s"
+              />
             }
           >
             <Settings aria-hidden="true" className="size-5" />
@@ -134,7 +166,7 @@ export const SettingsDialog = ({
             aria-label="Settings contents"
             className="shrink-0 border-b sm:border-b-0 sm:border-r sm:w-56 bg-sidebar p-4 flex flex-col gap-4 min-h-0"
           >
-            <div className="relative">
+            <div className="relative shrink-0">
               <Search
                 aria-hidden="true"
                 className="absolute left-2 top-2.5 size-4 text-muted-foreground"
@@ -153,7 +185,7 @@ export const SettingsDialog = ({
             </div>
             <nav
               aria-label="Settings sections"
-              className="flex sm:flex-col gap-1 overflow-auto min-h-0 max-h-40 sm:max-h-none"
+              className="flex sm:flex-1 sm:flex-col gap-1 overflow-auto min-h-0 max-h-40 sm:max-h-none"
             >
               {sections
                 .filter((section) => section.visible !== false)
@@ -166,6 +198,7 @@ export const SettingsDialog = ({
                   />
                 ))}
             </nav>
+            <SettingsSaveIndicator />
           </aside>
           <div className="flex flex-1 min-w-0 min-h-0 flex-col">
             <nav

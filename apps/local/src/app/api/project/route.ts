@@ -155,7 +155,14 @@ export const POST = async (request: Request) => {
       return Response.json({ deleted: true });
     }
     return Response.json(
-      saveProjectPolicy(workspace.store, root, projectPolicySchema.parse(body)),
+      saveProjectPolicy(
+        workspace.store,
+        root,
+        projectPolicySchema.parse({
+          ...readProjectPolicy(workspace.store, root),
+          ...z.record(z.string(), z.unknown()).parse(body),
+        }),
+      ),
     );
   } catch (error) {
     return Response.json(

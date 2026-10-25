@@ -70,13 +70,11 @@ const ReviewFileGroup = ({
   const [state, setState] = useState({
     complete,
     selectedPath,
-    open: !complete && selected,
+    open: selected,
   });
   let open = state.open;
   if (state.complete !== complete || state.selectedPath !== selectedPath) {
-    // Completion wins over selection so finishing the active file closes its group.
-    open =
-      state.complete !== complete ? !complete : selected ? true : state.open;
+    open = state.selectedPath !== selectedPath && selected ? true : state.open;
     setState({ complete, selectedPath, open });
   }
   if (!files.length) return null;
@@ -88,14 +86,14 @@ const ReviewFileGroup = ({
     >
       <CollapsibleTrigger
         className={cn(
-          "flex w-full items-center gap-2 rounded-lg px-3 py-3 text-left text-base hover:bg-sidebar-accent",
+          "flex w-full items-start gap-2 leading-6 rounded-lg px-3 py-3 text-left text-base hover:bg-sidebar-accent",
           complete && "bg-success/10 text-success",
         )}
       >
         {complete ? (
-          <Check aria-hidden="true" className="size-4 shrink-0" />
+          <Check aria-hidden="true" className="h-lh w-4 shrink-0" />
         ) : (
-          <ChevronDown aria-hidden="true" className="size-4 shrink-0" />
+          <ChevronDown aria-hidden="true" className="h-lh w-4 shrink-0" />
         )}
         <span className="min-w-0 flex-1">
           <span className="block font-medium">{group.title}</span>

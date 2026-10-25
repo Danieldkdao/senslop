@@ -86,7 +86,7 @@ export const AgentForm = ({
           id={`${id}-content`}
           {...field}
           disabled={busy || isSubmitting || !model}
-          className="min-h-24 h-32 resize-none bg-transparent! border-none shadow-none text-base md:text-base focus-visible:outline-0 focus-visible:ring-0 aria-invalid:ring-0"
+          className="min-h-32 bg-transparent! border-none shadow-none text-base md:text-base focus-visible:outline-0 focus-visible:ring-0 aria-invalid:ring-0"
           placeholder={
             model
               ? "Ask about these changes…"

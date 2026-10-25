@@ -3,6 +3,8 @@ import {
   MAX_FILE_BYTES,
   MAX_SNAPSHOT_BYTES,
   type SourceSelectionSchema,
+  type PreviewImageSchema,
+  type PreviewImageAssetSchema,
 } from "@senslop/contracts";
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -13,6 +15,7 @@ import { promisify } from "node:util";
 
 import { simpleGit } from "simple-git";
 import { frozenDiff } from "./frozen-diff";
+import { freezeImagePreview } from "./image-preview";
 
 const execute = promisify(execFile);
 
@@ -32,6 +35,7 @@ const checkFileSize = (size: number, path: string, limit: number) => {
 
 export type GitSource = SourceSelectionSchema;
 export type SnapshotFile = {
+  imagePreview?: PreviewImageSchema;
   path: string;
   oldPath: string | null;
   status: string;
@@ -115,7 +119,12 @@ const revision = async (cwd: string, input: string) => {
   ).trim();
 };
 export const secretReason = (path: string): string | null => {
-  const name = path.split("/").at(-1)!;
+  const parts = path.split("/");
+  const name = parts.at(-1)!;
+  const reviewConfig =
+    name === "review.json" &&
+    parts.at(-2) === ".senslop" &&
+    parts.filter((part) => part === ".senslop").length === 1;
   if (
     (/^\.env(?:\.|$)/i.test(name) &&
       !/^\.env\.(example|sample|template)$/i.test(name)) ||
@@ -123,7 +132,8 @@ export const secretReason = (path: string): string | null => {
       name,
     ) ||
     /\.(pem|p12|pfx|key)$/i.test(name) ||
-    /(^|\/)(\.aws|\.ssh|\.senslop)(\/|$)/.test(path)
+    /(^|\/)(\.aws|\.ssh)(\/|$)/.test(path) ||
+    (/(^|\/)\.senslop(\/|$)/.test(path) && !reviewConfig)
   )
     return "credential-like path; excluded without reading contents";
   return null;
@@ -454,6 +464,13 @@ export const collectSnapshot = async ({
     const binary =
       (before.bytes !== null && beforeText === null) ||
       (after.bytes !== null && afterText === null);
+    const imagePreview = binary
+      ? freezeImagePreview(change.path, before.bytes, after.bytes)
+      : undefined;
+    if (imagePreview)
+      total +=
+        (imagePreview.before?.base64.length ?? 0) +
+        (imagePreview.after?.base64.length ?? 0);
     // Binary contents are hashed locally; only retained text counts toward the payload budget.
     if (!binary)
       total += (before.bytes?.length ?? 0) + (after.bytes?.length ?? 0);
@@ -462,6 +479,7 @@ export const collectSnapshot = async ({
         "Selected before/after contents exceed the 20 MiB snapshot limit; nothing was truncated.",
       );
     files.push({
+      ...(imagePreview ? { imagePreview } : {}),
       ...change,
       before: binary ? null : beforeText,
       after: binary ? null : afterText,
@@ -543,7 +561,12 @@ export const resyncSnapshot = async (
   const states = (files: SnapshotFile[]) => {
     const contents = new Map<
       string,
-      { text: string | null; hash: string | null; binary: boolean }
+      {
+        text: string | null;
+        hash: string | null;
+        binary: boolean;
+        image?: PreviewImageAssetSchema | null;
+      }
     >();
     for (const file of files) {
       if (
@@ -556,6 +579,7 @@ export const resyncSnapshot = async (
         text: file.after,
         hash: file.afterHash,
         binary: file.binary,
+        image: file.imagePreview?.after,
       });
     }
     return contents;
@@ -569,6 +593,7 @@ export const resyncSnapshot = async (
       text: file.before,
       hash: file.beforeHash,
       binary: file.binary,
+      image: file.imagePreview?.before,
     });
     if (path !== file.path)
       before.set(file.path, { text: null, hash: null, binary: false });
@@ -586,6 +611,7 @@ export const resyncSnapshot = async (
       text: null as string | null,
       hash: null as string | null,
       binary: false,
+      image: null as PreviewImageAssetSchema | null,
     };
     if (!before.has(path) || !after.has(path)) {
       const result = await blob(
@@ -605,6 +631,8 @@ export const resyncSnapshot = async (
         text,
         hash: result.bytes ? digest(result.bytes) : null,
         binary: result.bytes !== null && text === null,
+        image:
+          freezeImagePreview(path, result.bytes, result.bytes)?.before ?? null,
       };
     }
     const previous = before.get(path) ?? original;
@@ -620,6 +648,14 @@ export const resyncSnapshot = async (
       beforeHash: previous.hash,
       afterHash: latest.hash,
       binary,
+      ...(/\.(?:png|jpe?g|webp)$/i.test(path) && binary
+        ? {
+            imagePreview: {
+              before: previous.image ?? null,
+              after: latest.image ?? null,
+            },
+          }
+        : {}),
       added: 0,
       deleted: 0,
       diff: "",

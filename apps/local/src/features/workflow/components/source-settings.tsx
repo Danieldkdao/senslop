@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { TooltipWrapper } from "@/components/ui/tooltip-wrapper";
-import { LoadingSwap } from "@/components/ui/loading-swap";
+import { useSettingsAutosave } from "../../settings/hooks/use-settings-autosave";
 import {
   Select,
   SelectTrigger,
@@ -40,6 +40,8 @@ export const SourceSettings = () => {
   } | null>(null);
   const form = useForm<SourceFormSchema>({
     resolver: zodResolver(sourceFormSchema),
+    mode: "onChange",
+    resetOptions: { keepDirtyValues: true },
     values: {
       include: policy.include.join("\n"),
       exclude: policy.exclude.join("\n"),
@@ -51,7 +53,6 @@ export const SourceSettings = () => {
     },
   });
   const build = (values: SourceFormSchema) => ({
-    ...policy,
     ...values,
     historyRetentionDays: values.historyRetentionDays || null,
     include: values.include
@@ -63,16 +64,26 @@ export const SourceSettings = () => {
       .map((value) => value.trim())
       .filter(Boolean),
   });
+  const autosave = useSettingsAutosave({
+    form,
+    schema: sourceFormSchema,
+    enabled: !!settings.state.data && !settings.state.isPending,
+    save: async (values) => {
+      await settings.save(build(values));
+    },
+  });
   return (
     <form
       noValidate
       className="flex w-full min-w-0 flex-col gap-4 text-base"
-      onSubmit={form.handleSubmit(async (values) => {
-        try {
-          await settings.save(build(values));
-          toast.success("Project policy saved.");
-        } catch {}
-      })}
+      onSubmit={(event) => {
+        event.preventDefault();
+        void autosave.flush();
+      }}
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget))
+          void autosave.flush();
+      }}
     >
       <div className="flex items-center gap-2">
         <Shield aria-hidden="true" className="size-5 text-muted-foreground" />
@@ -189,15 +200,6 @@ export const SourceSettings = () => {
             <Eye aria-hidden="true" className="size-5" />
           </Button>
         </TooltipWrapper>
-        <Button
-          type="submit"
-          className="flex-1"
-          disabled={form.formState.isSubmitting || settings.state.isPending}
-        >
-          <LoadingSwap isLoading={form.formState.isSubmitting}>
-            Save policy
-          </LoadingSwap>
-        </Button>
       </div>
       {preview && (
         <div className="flex min-w-0 flex-col gap-2">

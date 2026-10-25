@@ -85,3 +85,29 @@ export const claudeSubscriptionEnvironment = (): NodeJS.ProcessEnv => {
   for (const name of allowed) environment[name] = process.env[name];
   return environment;
 };
+
+export const analysisToolEnvironment = (
+  directory: string,
+): NodeJS.ProcessEnv => {
+  const environment: NodeJS.ProcessEnv = {
+    NODE_ENV: serverEnv.NODE_ENV,
+    HOME: directory,
+    USERPROFILE: directory,
+    GOPROXY: "off",
+    GOSUMDB: "off",
+    GOTOOLCHAIN: "local",
+    GOTELEMETRY: "off",
+    PYTHONNOUSERSITE: "1",
+  };
+  for (const name of [
+    "PATH",
+    "SystemRoot",
+    "COMSPEC",
+    "PATHEXT",
+    "TMPDIR",
+    "TEMP",
+    "TMP",
+  ])
+    environment[name] = process.env[name];
+  return environment;
+};

@@ -13,7 +13,7 @@ Senslop helps developers understand changes and find problems locally before pus
 
 This document describes the implementation at the recorded baseline. It replaces the previously interleaved hosted-upload plan and local follow-up notes. The [roadmap](local-review-roadmap.md) separately records proposed features; those are not presented here as delivered behavior.
 
-The recorded commit is the foundation. Feature 1 and the Fix and verify group update the behavior below. Group 1 is committed on `feat/fix-verify`; implementation evidence and verification limits are recorded in the roadmap. Completion notifications remain deferred.
+The recorded commit is the foundation. Feature 1 and the Fix and verify group update the behavior below. Group 1 is committed on `feat/fix-verify`; implementation evidence and verification limits are recorded in the roadmap. The Review with precision group is implemented locally on `feat/review-precision` and remains uncommitted. Completion notifications remain deferred.
 
 ## Local setup and ownership
 
@@ -35,7 +35,7 @@ Users can create a review through the browser or CLI from exactly one source:
 | Endpoint range    | Compares BASE..HEAD endpoints, subject to the collector's revision validation |
 | Branch comparison | Compares a local branch against HEAD or an explicitly selected base           |
 
-Inspection stays within the opened repository and reads Git state. It does not fetch, check out, or mutate source. Deleted/renamed files retain original identity and coordinates; binary changes are metadata-only. Excluded files and capture limits receive explicit feedback.
+Inspection stays within the opened repository and reads Git state. It does not fetch, check out, or mutate source. Deleted/renamed files retain original identity and coordinates; binary changes keep exact hashes and metadata; captured PNG, JPEG, and WebP images within the preview bound also have before/after previews. Excluded files and capture limits receive explicit feedback.
 
 Ordinary saved reviews accept small changes. The legacy standalone JSON inspection's eligibility report is not a minimum-size gate for the local workspace.
 
@@ -47,7 +47,7 @@ Each saved review has an ID, content hash, source metadata, and review round. CL
 - Explicitly requesting grouping requires a configured grouping model; failure to configure it is actionable.
 - A shared task model or separate Grouping, Context, Review, and Explain models can be selected.
 - Grouping produces behavior-based titles, rationales, file summaries, related-file references, and a suggested reading order.
-- Every selected changed file belongs to one group. The intended order introduces prerequisites before consumers and keeps tests last.
+- Exact changed regions each belong to one flow. One file can appear in several flows. The intended order introduces prerequisites before consumers and keeps tests last. Users can rename/reorder flows, move/split/combine regions, combine flows, and explicitly reset manual organization.
 - Users can search grouped files by path or group title and jump freely between files.
 - Preparation displays progress and supports stopping, retrying, discarding, and opening AI settings. Retry/fallback feedback distinguishes interrupted or failed work from completed grouping.
 - Terminal grouping failure can fall back to the original file review without AI ordering. The snapshot remains saved; failing to group does not make its original diff disappear.
@@ -61,7 +61,7 @@ The reader supports:
 
 - Split and unified diffs, syntax highlighting, inline word/character changes, context, line numbers, wrapping, and selectable appearance.
 - Monospace file paths in file lists, search results, note/evidence references, and the selected-file header.
-- Previous/next navigation, file completion, a file-search dialog, and a review preference to advance automatically after completion.
+- Previous/next region navigation, per-region completion, explicit whole-file completion, frozen file/symbol/content search, and optional automatic advance. Files are complete only when all their regions are reviewed.
 - Persistent completion, notes, and configured panel/editor preferences. Each tab retains its own review and selected file, including through reload. Background reviews preserve the existing reader, note draft, focus, and position.
 - A file summary where a matching grouping result is available, and access to original evidence for saved AI findings.
 
@@ -70,13 +70,29 @@ Application shortcuts use the shared TanStack Hotkeys hook:
 | Key                 | Action                                                 |
 | ------------------- | ------------------------------------------------------ |
 | K                   | Open file search                                       |
-| D                   | Toggle completion of the selected file                 |
-| Left / Right arrows | Navigate files when applicable                         |
+| D                   | Toggle completion of the selected region               |
+| Left / Right arrows | Navigate regions when applicable                       |
 | R                   | Open saved-review history when enabled                 |
 | [ / ]               | Open adjacent saved reviews when enabled               |
 | Mod+B               | Toggle the shared sidebar where that component is used |
 
 Input editing, composition, handled events, and open overlays retain their keyboard behavior. Repetition is allowed for file-arrow navigation, while one-shot actions suppress held-key repetition. The history shortcut preference can disable its shortcuts without disabling the UI button.
+
+## Review with precision
+
+Flows/Files, Findings/Requirements, and search modes use shared expanding tabs: the selected tab grows to available width and shows its label/count; inactive tabs show icons with accessible names and tooltips. Arrow/Home/End keys, disabled items, controlled/uncontrolled selection, and reduced-motion preferences are supported. Disclosures use shadcn Collapsible. The Impact trigger retains its height when expanded and has no unrelated file action.
+
+Region ownership covers changed lines exactly once, including binary/metadata fallback units. Legacy file groups seed region flows and file completion carries into units. Later rounds preserve unambiguous unchanged/moved regions and manual boundaries; changed or ambiguous source remains unreviewed. Generated/repetitive regions can collapse without changing totals. Reading-order and attention-order views remain separate; attention is explained by concrete impact reasons rather than a score.
+
+A versioned review brief stores the original request, selected captured Markdown/text documents, optional issue links, and editable/reordered acceptance criteria. Model-suggested criteria remain editable. Requirement assessments distinguish Implemented, Verified, Missing, and Unclear, with frozen evidence, explicit questions, and unexpected scope changes. Verified requires source evidence plus explicitly linked passing checks for the exact changed revision; a model label alone is insufficient. Editing a brief or changing rounds marks older conclusions outdated.
+
+Explicit `.senslop/review.json` configuration can select profiles, scoped rules, and instruction documents. Nested configuration applies within its subtree, followed by local project and single-review overrides. Correctness, security, performance, accessibility, API compatibility, migrations, combined selections, and custom profiles are supported. Unknown fields, unavailable sources, and overridden conflicting rule IDs remain inspectable. Saved runs capture effective instructions and cite applicable rules/profiles; repository text never becomes controlling instructions implicitly.
+
+Impact links captured definitions, references, callers, dependencies, test candidates, exported interfaces, configuration, permissions, and persistence changes, with resolved/parsed/inferred/unresolved provenance. Search and navigation open exact before/after frozen source, maintain a per-tab back/forward trail, and return to the region's reading position. Regions can expand unchanged context or open the full file. Whitespace filtering is visible and does not change ownership/completion. Renamed paths, moved regions, JSON structure, and bounded image previews have explicit fallbacks.
+
+JavaScript/TypeScript retains compiler support. Python and Go include real Tree-sitter parsing and import/test conventions. Optional configured Pyright/gopls-compatible stdio language servers provide semantic symbols/references/diagnostics against temporary frozen copies; missing tools or dependencies leave explicit per-language limitations. Unsupported files remain reviewable as text. Installed real-language-server behavior and additional operating systems remain verification limits.
+
+Settings → Review quality runs the declared synthetic corpus, stores the latest 20 reports per project, compares regressions, and exports inspectable JSON. Reports include missed issues, false positives, duplicates, evidence accuracy, grouping coverage and declared structural usefulness, latency, and available usage/cost. Deterministic contracts cover region ownership, rounds, requirements, rules, parsing, misleading source text, and independent assessments. Live findings/grouping evaluation explicitly opts into the selected Review model plus saved grouping instructions; ordinary tests make no paid requests. Unknown usage/pricing remains unknown, and semantic grouping judgments still need inspection.
 
 ## Notes, explanations, and chat
 
@@ -196,6 +212,6 @@ The repo retains hosted signup/login, email verification, device authorization, 
 
 ## Current omissions and next work
 
-The [roadmap](local-review-roadmap.md) is authoritative for proposed next-stage behavior. Current omissions include completion notifications, automatic external-agent launch adapters, hunk-level grouping, in-app stage/commit/fetch/pull/push, and consolidated review reports. The initial deterministic evaluation corpus is a starting harness; it does not establish live-model diagnosis quality.
+The [roadmap](local-review-roadmap.md) is authoritative for proposed next-stage behavior. Current omissions include completion notifications, automatic external-agent launch adapters, in-app stage/commit/fetch/pull/push, and consolidated review reports. The precision corpus and saved comparison reports are implemented. Real-provider diagnosis quality and model-promotion thresholds remain unestablished.
 
 Git push/pull conveniences are accepted future direction. Hosted PR ingestion and team approval workflows are outside the current roadmap. Do not convert those future directions into claims about today's application.

@@ -2,6 +2,9 @@ packages:
   - apps/*
   - packages/*
 allowBuilds:
+  tree-sitter: true
+  tree-sitter-python: true
+  tree-sitter-go: true
   sharp: false
   unrs-resolver: false
   esbuild: true

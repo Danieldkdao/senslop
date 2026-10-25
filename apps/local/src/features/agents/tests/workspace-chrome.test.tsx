@@ -12,6 +12,27 @@ import { AgentPanel } from "../components/agent-panel";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { NoteControls } from "../../review/components/note-controls";
 import userEvent from "@testing-library/user-event";
+vi.mock("../../precision/hooks/use-review-intent", () => ({
+  useReviewIntent: () => ({
+    state: {
+      data: {
+        briefs: [
+          {
+            version: 1,
+            request: "Keyboard support",
+            documents: [],
+            links: [],
+            criteria: [
+              { id: "keys", text: "Keyboard navigation", checkIds: [] },
+            ],
+          },
+        ],
+      },
+    },
+    act: vi.fn(),
+    pending: false,
+  }),
+}));
 vi.mock("../../workflow/hooks/use-review-workflow", () => ({
   useReviewWorkflow: () => ({ state: {}, act: vi.fn() }),
 }));
@@ -141,9 +162,7 @@ test.each([
       const statusText = within(toggle).getByRole("status");
       expect(screen.getAllByText(statusText.textContent!)).toHaveLength(1);
       if (status === "running")
-        expect(statusText.textContent).toContain(
-          "Analyzing changes: Checking startup callers",
-        );
+        expect(statusText.textContent).toContain("Checking startup callers");
     }
     expect(screen.getByRole("button", { name: "Run review" })).toBeTruthy();
     const results = screen.getByRole("region", { name: "Review findings" });
@@ -559,6 +578,28 @@ test.each([
       createdAt: "2026-10-14T20:00:00Z",
       settings: { separate: false, shared: { name: "Model" } },
       result: {
+        requirements: {
+          criteria: [
+            {
+              criterionId: "keys",
+              status: "implemented",
+              explanation: "Previous keyboard handler",
+              evidence: [
+                {
+                  path: "requirement.ts",
+                  side: "after",
+                  start: 999,
+                  end: 999,
+                  code: "old",
+                },
+              ],
+              questions: [],
+              checkIds: [],
+            },
+          ],
+          unexpectedChanges: [],
+          limitations: [],
+        },
         findings: [
           {
             severity: "high",
@@ -594,6 +635,12 @@ test.each([
     const evidence = screen.getByRole("button", { name: /a.ts/ });
     expect(evidence.hasAttribute("disabled")).toBe(true);
     await user.click(evidence);
+    await user.click(screen.getByRole("tab", { name: /Requirements/ }));
+    const requirementEvidence = screen.getByRole("button", {
+      name: /requirement.ts/,
+    });
+    expect(requirementEvidence.hasAttribute("disabled")).toBe(true);
+    await user.click(requirementEvidence);
     expect(onEvidence).not.toHaveBeenCalled();
   },
 );

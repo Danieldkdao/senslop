@@ -3,6 +3,10 @@ import {
   analysisModes,
   workflowSeverities,
   findingCategories,
+  unitGroupsSchema,
+  capturedReviewIntentSchema,
+  requirementCoverageSchema,
+  reviewProfiles,
 } from "@senslop/contracts";
 import { modelSelectionSchema } from "../providers/model-schemas";
 import { aiCapacitySchema } from "../ai-capacity/schemas";
@@ -79,6 +83,8 @@ export const aiSettingsPatchSchema = aiSettingsSchema
   .strict();
 export type AiSettingsPatchSchema = z.infer<typeof aiSettingsPatchSchema>;
 export const groupingSchema = z.object({
+  unitGroups: unitGroupsSchema.shape.flows.optional(),
+  organizationLimitations: z.array(z.string()).optional(),
   groups: z
     .array(
       z.object({
@@ -217,6 +223,8 @@ export type EvidenceSide = (typeof evidenceSides)[number];
 export const messageRoles = ["user", "assistant"] as const;
 export type MessageRole = (typeof messageRoles)[number];
 export const findingSchema = z.object({
+  ruleIds: z.array(z.string()).optional(),
+  profiles: z.array(z.enum(reviewProfiles)).optional(),
   category: z
     .enum(findingCategories)
     .optional()
@@ -283,6 +291,7 @@ export const findingSchema = z.object({
 });
 export type FindingSchema = z.infer<typeof findingSchema>;
 export const correctnessSchema = z.object({
+  requirements: requirementCoverageSchema.optional(),
   summary: z
     .string()
     .trim()
@@ -341,6 +350,7 @@ export type JobStatus = (typeof jobStatuses)[number];
 export const jobPriorities = ["normal", "high"] as const;
 export type JobPriority = (typeof jobPriorities)[number];
 export const jobSchema = z.object({
+  reviewIntent: capturedReviewIntentSchema.optional(),
   analysisMode: z.enum(analysisModes).default("thorough"),
   priority: z.enum(jobPriorities).default("normal"),
   retryOf: z.uuid().nullable().default(null),

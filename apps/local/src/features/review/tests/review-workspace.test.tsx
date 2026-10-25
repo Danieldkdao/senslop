@@ -13,6 +13,7 @@ import {
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
+import { organizationSchema } from "@senslop/contracts";
 import { defaultUiPreferences } from "../../settings/constants";
 import { mergeUiPreferences } from "../../settings/lib/ui-preferences";
 import { defaultAiSettings } from "../../agents/constants";
@@ -60,6 +61,10 @@ vi.mock("../../agents/components/agent-panel", () => ({
     </aside>
   ),
 }));
+const scrollToDescriptor = Object.getOwnPropertyDescriptor(
+  Element.prototype,
+  "scrollTo",
+);
 const scrollIntoViewDescriptor = Object.getOwnPropertyDescriptor(
   Element.prototype,
   "scrollIntoView",
@@ -259,6 +264,10 @@ beforeEach(() => {
     configurable: true,
     value: vi.fn(),
   });
+  Object.defineProperty(Element.prototype, "scrollTo", {
+    configurable: true,
+    value: vi.fn(),
+  });
   vi.resetAllMocks();
   localStorage.clear();
   state.autoAdvance = false;
@@ -412,6 +421,9 @@ afterEach(() => {
       scrollIntoViewDescriptor,
     );
   else Reflect.deleteProperty(Element.prototype, "scrollIntoView");
+  if (scrollToDescriptor)
+    Object.defineProperty(Element.prototype, "scrollTo", scrollToDescriptor);
+  else Reflect.deleteProperty(Element.prototype, "scrollTo");
 });
 
 test("dashboard layout surrounds its content with honest empty review panels", () => {
@@ -646,7 +658,10 @@ test("d toggles persisted completion with header/sidebar indicators, without int
       .getByRole("button", { name: "Mark incomplete" })
       .getAttribute("aria-pressed"),
   ).toBe("true");
-  expect(canvas.classList.contains("ring-primary/40")).toBe(true);
+  expect(canvas.classList.contains("ring-primary/40")).toBe(false);
+  expect(
+    canvas.querySelector("header")?.classList.contains("bg-success/10"),
+  ).toBe(true);
   expect(
     screen
       .getByRole("button", { name: /src\/first.ts: Completed/ })
@@ -1305,4 +1320,135 @@ test("a fresh manual grouping attempt supersedes an old fallback deadline", asyn
   } finally {
     vi.useRealTimers();
   }
+});
+
+test.each([false, true])(
+  "region impact includes removed-side consumers with replacement %s",
+  async (replacement) => {
+    setNavigationPreview();
+    state.preview = {
+      ...state.preview!,
+      id: crypto.randomUUID(),
+      hash: "a".repeat(64),
+      round: 1,
+    };
+    const path = state.preview.files[0]!.path;
+    const organization = organizationSchema.parse({
+      version: 1,
+      manual: false,
+      units: [
+        {
+          id: "removed",
+          path,
+          fingerprint: "removed",
+          label: "Removed declaration",
+          kind: "text",
+          ranges: [
+            { side: "before", start: 1, end: 1, code: "one" },
+            ...(replacement
+              ? [{ side: "after", start: 1, end: 1, code: "two" }]
+              : []),
+          ],
+        },
+      ],
+      flows: [{ id: "flow", title: "Declaration", unitIds: ["removed"] }],
+    });
+    const request = vi.fn(async (url: string) => {
+      if (url.startsWith("/api/precision?")) return Response.json(organization);
+      if (url.startsWith("/api/source-explorer?")) {
+        const params = new URL(url, "http://localhost").searchParams;
+        if (params.has("path"))
+          return Response.json({
+            path: params.get("path"),
+            side: params.get("side"),
+            contents: "one",
+            capability: {
+              language: "typescript",
+              level: "text",
+              tool: null,
+              limitations: [],
+            },
+          });
+        return Response.json({
+          files: [path],
+          symbols: [],
+          capabilities: {},
+          languageSettings: {},
+          limitations: [],
+          impact: [
+            {
+              unitId: "removed",
+              path,
+              reasons: [],
+              limitations: [],
+              relationships:
+                params.get("side") === "before"
+                  ? [
+                      {
+                        side: "before",
+                        path: "consumer.ts",
+                        start: 1,
+                        end: 1,
+                        name: "removed",
+                        kind: "reference",
+                        provenance: "compiler-resolved",
+                        explanation: "Uses the removed declaration",
+                      },
+                    ]
+                  : [],
+            },
+          ],
+        });
+      }
+      return Response.json(defaultUiPreferences);
+    });
+    vi.stubGlobal("fetch", request);
+    render(<ReviewWorkspace>Setup</ReviewWorkspace>);
+    await waitFor(() =>
+      expect(
+        request.mock.calls.some(([url]) => url.includes("side=before")),
+      ).toBe(true),
+    );
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /^Impact/ }));
+    await user.click(await screen.findByRole("button", { name: /References/ }));
+    await user.click(screen.getByRole("button", { name: /consumer.ts/ }));
+    await waitFor(() =>
+      expect(
+        request.mock.calls.some(
+          ([url]) =>
+            url.includes("side=before") && url.includes("path=consumer.ts"),
+        ),
+      ).toBe(true),
+    );
+  },
+);
+
+test("unavailable precision organization explains the full-file fallback", async () => {
+  setNavigationPreview();
+  state.preview = {
+    ...state.preview!,
+    id: crypto.randomUUID(),
+    hash: "a".repeat(64),
+    round: 1,
+  };
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string) =>
+      url.startsWith("/api/precision?")
+        ? Response.json(
+            {
+              message:
+                "Review organization exceeds supported limits; use full-file review.",
+            },
+            { status: 400 },
+          )
+        : Response.json(defaultUiPreferences),
+    ),
+  );
+  render(<ReviewWorkspace>Setup</ReviewWorkspace>);
+  expect(
+    await screen.findByText(/organization exceeds supported limits/),
+  ).toBeTruthy();
+  expect(screen.getByText("Diff for src/first.ts")).toBeTruthy();
 });

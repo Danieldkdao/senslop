@@ -29,6 +29,8 @@ import { parsePreviewFile } from "../lib/parse-preview-file";
 import { getDiffOptions, getDiffStyle } from "../lib/diff-options";
 import { useDiffHighlighter } from "../hooks/use-diff-highlighter";
 import { DiffRenderState } from "./diff-render-state";
+import { ImageDiffPreview } from "../../precision/components/image-diff-preview";
+import { findingDiff } from "../../agents/lib/finding-diff";
 
 type PreviewDiffProps = {
   file: PreviewFileSchema;
@@ -39,6 +41,8 @@ type PreviewDiffProps = {
   snapshotId?: string;
   readOnly?: boolean;
   evidence?: { side: "before" | "after"; start: number; end: number } | null;
+  contextLines?: number;
+  regions?: readonly { side: "before" | "after"; start: number; end: number }[];
   onDeleteNote: (id: string) => void | Promise<void>;
 };
 
@@ -61,6 +65,8 @@ export const PreviewDiff = ({
   snapshotId,
   readOnly = false,
   evidence,
+  regions,
+  contextLines = 0,
 }: PreviewDiffProps) => {
   const { systemTheme } = useTheme();
   const [commentTarget, setCommentTarget] = useState<CommentTarget | null>(
@@ -124,7 +130,19 @@ export const PreviewDiff = ({
     }),
     [file.after, file.before],
   );
-  const patch = useMemo(() => parsePreviewFile(file), [file]);
+  const patch = useMemo(
+    () =>
+      regions?.length
+        ? findingDiff(
+            file,
+            regions[0]!,
+            regions,
+            settings.whitespace,
+            contextLines,
+          )
+        : parsePreviewFile(file, settings.whitespace),
+    [file, regions, settings.whitespace, contextLines],
+  );
   const highlighter = useDiffHighlighter(
     file.binary ? null : file.path,
     file.oldPath ?? undefined,
@@ -307,7 +325,7 @@ export const PreviewDiff = ({
       onGutterUtilityClick: ({ start, side }) =>
         openComment({ lineNumber: start, side: side ?? "additions" }),
       loadDiffFiles:
-        file.before !== null && file.after !== null
+        !regions && file.before !== null && file.after !== null
           ? async () => ({
               oldFile: {
                 name: file.oldPath ?? file.path,
@@ -319,6 +337,7 @@ export const PreviewDiff = ({
     }),
     [
       file,
+      regions,
       view,
       systemTheme,
       settings,
@@ -332,6 +351,7 @@ export const PreviewDiff = ({
       readOnly,
     ],
   );
+  if (file.binary && file.imagePreview) return <ImageDiffPreview file={file} />;
   if (file.binary)
     return (
       <div className="m-6 rounded-xl border bg-card p-8">
@@ -341,6 +361,18 @@ export const PreviewDiff = ({
           metadata. Binary contents are not uploaded.
         </p>
       </div>
+    );
+  if (
+    file.before !== file.after &&
+    (!patch || !patch.hunks.length) &&
+    settings.whitespace &&
+    settings.whitespace !== "all"
+  )
+    return (
+      <p className="p-5 text-base text-muted-foreground">
+        No visible changes with the current whitespace filter. Original changes
+        remain unreviewed until you mark them reviewed.
+      </p>
     );
   if (file.before !== file.after && !patch)
     return (

@@ -1,5 +1,6 @@
 "use client";
 
+import { trackSettingsSave } from "../../settings/lib/settings-save-store";
 import { useMemo } from "react";
 import {
   useMutation,
@@ -56,26 +57,27 @@ export const useAiSettings = ({
     mutationKey: ["ai-settings"],
     scope: { id: "ai-settings" },
     onMutate: () => client.cancelQueries({ queryKey: ["ai-settings"] }),
-    mutationFn: async (patch: AiSettingsPatchSchema) => {
-      const response = await fetch("/api/agents/settings", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(patch),
-        keepalive: true,
-      });
-      if (!response.ok) {
-        const error: unknown = await response.json().catch(() => null);
-        throw new Error(
-          error &&
-            typeof error === "object" &&
-            "message" in error &&
-            typeof error.message === "string"
-            ? error.message
-            : "AI settings could not be saved. Retry.",
-        );
-      }
-      return aiSettingsSchema.parse(await response.json());
-    },
+    mutationFn: (patch: AiSettingsPatchSchema) =>
+      trackSettingsSave("ai-settings", async () => {
+        const response = await fetch("/api/agents/settings", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(patch),
+          keepalive: true,
+        });
+        if (!response.ok) {
+          const error: unknown = await response.json().catch(() => null);
+          throw new Error(
+            error &&
+              typeof error === "object" &&
+              "message" in error &&
+              typeof error.message === "string"
+              ? error.message
+              : "AI settings could not be saved. Retry.",
+          );
+        }
+        return aiSettingsSchema.parse(await response.json());
+      }),
     onSuccess: (updatedSettings) =>
       client.setQueryData(["ai-settings"], updatedSettings),
     onError: (error) => {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useForm, useFieldArray, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import type { PublicConnectionSchema } from "@senslop/contracts";
@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { PasswordInput } from "@/components/ui/password-input";
 import { Button } from "@/components/ui/button";
 import { FieldError } from "@/components/ui/field";
-import { LoadingSwap } from "@/components/ui/loading-swap";
+import { useSettingsAutosave } from "../../settings/hooks/use-settings-autosave";
 import { toast } from "@/components/ui/toast";
 import { useProviderModels } from "../hooks/use-provider-models";
 import { providerRequest } from "../lib/requests";
@@ -22,7 +22,7 @@ import { CompatibleModelFields } from "./compatible-model-fields";
 type CompatibleProviderFormProps = {
   connection?: PublicConnectionSchema;
   onCancel: () => void;
-  onSaved: (connection: PublicConnectionSchema) => void;
+  onSaved?: (connection: PublicConnectionSchema) => void;
 };
 
 export const CompatibleProviderForm = ({
@@ -38,8 +38,44 @@ export const CompatibleProviderForm = ({
   );
   const connection =
     (latest?.revision ?? -1) > (saved?.revision ?? -1) ? latest : saved;
+  const connectionRef = useRef(connection);
+  useEffect(() => {
+    connectionRef.current = connection;
+  }, [connection]);
+  const schema = compatibleProviderFormSchema.superRefine((values, context) => {
+    if (
+      settings.data?.connections.some(
+        (entry) =>
+          entry.id !== connection?.id &&
+          entry.name.trim().toLowerCase() === values.name.toLowerCase(),
+      )
+    )
+      context.addIssue({
+        code: "custom",
+        path: ["name"],
+        message: "This provider name is already in use. Choose a unique name.",
+      });
+    if (!values.apiKey && !connection?.configured)
+      context.addIssue({
+        code: "custom",
+        path: ["apiKey"],
+        message: "Enter an API key for this provider.",
+      });
+    if (
+      connection?.configured &&
+      !values.apiKey &&
+      values.baseURL.replace(/\/$/, "") !==
+        connection.baseURL.replace(/\/$/, "")
+    )
+      context.addIssue({
+        code: "custom",
+        path: ["apiKey"],
+        message: "Enter a new API key when changing the API URL.",
+      });
+  });
   const form = useForm<CompatibleProviderFormSchema>({
-    resolver: zodResolver(compatibleProviderFormSchema),
+    resolver: zodResolver(schema),
+    mode: "onChange",
     resetOptions: { keepDirtyValues: true },
     values: {
       provider: "openai-compatible",
@@ -57,78 +93,72 @@ export const CompatibleProviderForm = ({
     control: form.control,
     name: "models",
   });
-  const { errors, isSubmitting } = form.formState;
-  const submit = form.handleSubmit(async (values) => {
-    if (
-      settings.data?.connections.some(
-        (entry) =>
-          entry.id !== connection?.id &&
-          entry.name.trim().toLowerCase() === values.name.toLowerCase(),
-      )
-    ) {
-      form.setError("name", {
-        message: "This provider name is already in use. Choose a unique name.",
-      });
-      return;
-    }
-    if (!values.apiKey && !connection?.configured) {
-      form.setError("apiKey", {
-        message: "Enter an API key for this provider.",
-      });
-      return;
-    }
-    if (
-      connection?.configured &&
-      !values.apiKey &&
-      values.baseURL.replace(/\/$/, "") !==
-        connection.baseURL.replace(/\/$/, "")
-    ) {
-      form.setError("apiKey", {
-        message: "Enter a new API key when changing the API URL.",
-      });
-      return;
-    }
-    try {
-      const result = await providerRequest<{
-        connection: PublicConnectionSchema;
-        warning: string | null;
-      }>({ action: "save", connection: values });
-      setSaved(result.connection);
-      form.reset(
-        { ...values, id: result.connection.id, apiKey: "" },
-        { keepDirtyValues: false },
-      );
-      if (result.warning) toast.error(result.warning);
-      else toast.success("Provider saved locally.");
-      await refresh();
+  const { errors } = form.formState;
+  const autosave = useSettingsAutosave({
+    form,
+    schema,
+    save: async (values) => {
       try {
-        await providerRequest({ action: "test", id: result.connection.id });
+        const result = await providerRequest<{
+          connection: PublicConnectionSchema;
+          warning: string | null;
+        }>({
+          action: "save",
+          connection: { ...values, id: connectionRef.current?.id ?? values.id },
+        });
+        const current = schema.safeParse(form.getValues());
+        const unchanged =
+          current.success &&
+          JSON.stringify(current.data) === JSON.stringify(values);
+        connectionRef.current = result.connection;
+        setSaved(result.connection);
+        if (unchanged)
+          form.reset(
+            { ...values, id: result.connection.id, apiKey: "" },
+            { keepValues: true },
+          );
+        form.setValue("id", result.connection.id);
+        if (form.getValues("apiKey") === values.apiKey)
+          form.resetField("apiKey", { defaultValue: "" });
+        if (result.warning) toast.error(result.warning);
+        await refresh();
+        try {
+          await providerRequest({ action: "test", id: result.connection.id });
+        } catch (error) {
+          toast.error(
+            `Provider saved, but its connection check failed. ${(error as Error).message}`,
+          );
+        }
+        onSaved?.(result.connection);
       } catch (error) {
-        toast.error(
-          `Provider saved, but its connection check failed. ${(error as Error).message}`,
+        const message = (error as Error).message;
+        form.setError(
+          message.startsWith("This provider name") ? "name" : "root",
+          { message },
         );
+        toast.error(message);
+        throw error;
       }
-      onSaved(result.connection);
-    } catch (error) {
-      const message = (error as Error).message;
-      form.setError(
-        message.startsWith("This provider name") ? "name" : "root",
-        { message },
-      );
-      toast.error(message);
-    }
+    },
   });
   return (
     <form
       noValidate
       className="flex flex-col gap-6 text-base"
-      onSubmit={submit}
+      onSubmit={(event) => {
+        event.preventDefault();
+        void autosave.flush();
+      }}
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget))
+          void autosave.flush();
+      }}
     >
       <p className="text-muted-foreground">
         This provider will use an OpenAI-compatible API. Its models will be
         available in AI settings and chat.
       </p>
-      <fieldset disabled={isSubmitting} className="flex min-w-0 flex-col gap-6">
+      <fieldset className="flex min-w-0 flex-col gap-6">
         <div className="flex flex-col gap-2">
           <label htmlFor={`${id}-name`}>Provider name</label>
           <p className="text-muted-foreground">
@@ -227,17 +257,8 @@ export const CompatibleProviderForm = ({
           className="text-base"
           variant="outline"
           onClick={onCancel}
-          disabled={isSubmitting}
         >
-          Cancel
-        </Button>
-        <Button
-          type="submit"
-          className="text-base"
-          disabled={isSubmitting}
-          aria-busy={isSubmitting}
-        >
-          <LoadingSwap isLoading={isSubmitting}>Save provider</LoadingSwap>
+          Done
         </Button>
       </div>
     </form>

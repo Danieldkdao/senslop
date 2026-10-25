@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import {
   cleanup,
+  fireEvent,
   render as renderView,
   screen,
   waitFor,
@@ -19,6 +20,13 @@ import { parseDiffFromFile } from "@pierre/diffs";
 import type { MultiFileDiffProps } from "@pierre/diffs/react";
 import type { ProviderId, PublicConnectionSchema } from "@senslop/contracts";
 
+vi.mock("../../evaluations/hooks/use-review-quality", () => ({
+  useReviewQuality: () => ({
+    state: { data: [] },
+    run: { isPending: false, mutate: vi.fn() },
+    cancel: vi.fn(),
+  }),
+}));
 vi.mock("../../workflow/hooks/use-project-settings", async () => {
   const { projectPolicySchema } = await import("@senslop/contracts");
   return {
@@ -105,7 +113,7 @@ const render = (element: ReactNode) => {
   );
 };
 
-test("compatible providers open a nested form inside the same settings dialog and cancel returns", async () => {
+test("compatible providers open a nested form inside the same settings dialog and Done returns", async () => {
   HTMLElement.prototype.scrollTo = vi.fn();
   vi.stubGlobal(
     "fetch",
@@ -138,7 +146,7 @@ test("compatible providers open a nested form inside the same settings dialog an
   expect(
     screen.getByRole("navigation", { name: "Settings breadcrumb" }).textContent,
   ).toContain("Add OpenAI-Compatible Provider");
-  await user.click(screen.getByRole("button", { name: "Cancel" }));
+  await user.click(screen.getByRole("button", { name: "Done" }));
   expect(screen.queryByLabelText("Provider name")).toBeNull();
   expect(screen.getByRole("button", { name: "Add provider" })).toBeTruthy();
 });
@@ -413,7 +421,9 @@ test.each([
     await user.click(
       await screen.findByRole("button", { name: `Configure ${label}` }),
     );
-    await user.click(screen.getByRole("button", { name: "Save connection" }));
+    expect(
+      screen.queryByRole("button", { name: "Save connection" }),
+    ).toBeNull();
     const failed = await screen.findByRole("button", {
       name: `${label}: model check failed`,
     });
@@ -568,12 +578,15 @@ test("one settings dialog orders appearance/editor/AI, search navigates nested l
     .getAllByRole("heading", { level: 2 })
     .map((heading) => heading.textContent);
   expect(headings.slice(1)).toEqual([
-    "Appearance",
-    "Review Preferences",
-    "Editor",
     "AI",
-    "Source & execution",
+    "Appearance",
     "Data & privacy",
+    "Editor",
+    "Language support",
+    "Review Preferences",
+    "Review quality",
+    "Rules & profiles",
+    "Source & execution",
     "Usage",
   ]);
   const sidebar = within(
@@ -693,4 +706,49 @@ test("only nested contents collapse; provider touch targets toggle without jumpi
   );
   await user.type(screen.getByLabelText("Search settings"), "ollama");
   expect(screen.getByRole("button", { name: "Ollama" })).toBeTruthy();
+});
+
+test("settings sections are alphabetical and S opens settings", async () => {
+  render(
+    <SettingsDialog>
+      {() => [
+        {
+          id: "zebra",
+          label: "Zebra",
+          keywords: "zebra",
+          content: <p>Zebra preferences</p>,
+        },
+        {
+          id: "appearance",
+          label: "Appearance",
+          keywords: "appearance",
+          content: <p>Theme preferences</p>,
+        },
+        {
+          id: "ai",
+          label: "AI",
+          keywords: "ai",
+          content: <p>AI preferences</p>,
+        },
+      ]}
+    </SettingsDialog>,
+  );
+  fireEvent.keyDown(document, { key: "s", code: "KeyS" });
+  const sidebar = await screen.findByRole("navigation", {
+    name: "Settings sections",
+  });
+  expect(
+    within(sidebar)
+      .getAllByRole("button")
+      .map((button) => button.textContent),
+  ).toEqual(["AI", "Appearance", "Zebra"]);
+  const content = screen.getByRole("dialog");
+  expect(
+    within(content)
+      .getAllByRole("heading")
+      .filter((heading) =>
+        ["AI", "Appearance", "Zebra"].includes(heading.textContent ?? ""),
+      )
+      .map((heading) => heading.textContent),
+  ).toEqual(["AI", "Appearance", "Zebra"]);
 });

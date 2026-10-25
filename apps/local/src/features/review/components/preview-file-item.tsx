@@ -23,12 +23,12 @@ export const PreviewFileItem = ({
     aria-current={selected ? "true" : undefined}
     onClick={() => onSelect(file.path)}
     className={cn(
-      "cursor-pointer preview-file-enter flex w-full shrink-0 border border-transparent items-start gap-3 rounded-lg px-3 py-3 text-left text-base transition-colors hover:bg-sidebar-accent focus-visible:outline-2 focus-visible:outline-ring",
+      "cursor-pointer preview-file-enter flex w-full shrink-0 border border-transparent items-start gap-3 leading-6 rounded-lg px-3 py-3 text-left text-base transition-colors hover:bg-sidebar-accent focus-visible:outline-2 focus-visible:outline-ring",
       selected && "bg-sidebar-accent",
       completed && "border-success/40 bg-success/10 hover:bg-success/15",
     )}
   >
-    <span className="mt-0.5 shrink-0">
+    <span className="flex h-lh shrink-0 items-center">
       {completed ? (
         <Check aria-hidden="true" className="size-5 text-success" />
       ) : (

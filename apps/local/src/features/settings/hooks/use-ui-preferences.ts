@@ -1,5 +1,6 @@
 "use client";
 
+import { trackSettingsSave } from "../lib/settings-save-store";
 import {
   useMutation,
   useMutationState,
@@ -34,19 +35,20 @@ export const useUiPreferences = () => {
     mutationKey: ["ui-preferences"],
     scope: { id: "ui-preferences" },
     onMutate: () => client.cancelQueries({ queryKey: ["ui-preferences"] }),
-    mutationFn: async (patch: UiPreferencesPatchSchema) => {
-      const response = await fetch("/api/ui-preferences", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(patch),
-        keepalive: true,
-      });
-      if (!response.ok)
-        throw new Error(
-          "Could not save editor and appearance settings. Your last saved settings were restored. Retry.",
-        );
-      return uiPreferencesSchema.parse(await response.json());
-    },
+    mutationFn: (patch: UiPreferencesPatchSchema) =>
+      trackSettingsSave("ui-preferences", async () => {
+        const response = await fetch("/api/ui-preferences", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(patch),
+          keepalive: true,
+        });
+        if (!response.ok)
+          throw new Error(
+            "Could not save editor and appearance settings. Your last saved settings were restored. Retry.",
+          );
+        return uiPreferencesSchema.parse(await response.json());
+      }),
     onSuccess: (updatedPreferences) =>
       client.setQueryData(["ui-preferences"], updatedPreferences),
     onError: (error) => toast.error(error.message),

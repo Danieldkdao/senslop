@@ -1,4 +1,10 @@
 import ts from "typescript";
+import {
+  languageSettingsSchema,
+  type LanguageSettingsSchema,
+} from "@senslop/contracts";
+import { analyzeSemanticSources } from "./language-server";
+import { analyzeLanguageSources } from "./language-adapters";
 import { cruise } from "dependency-cruiser";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -13,7 +19,7 @@ import type {
 
 import { frozenCompiler } from "./frozen-compiler";
 
-export const snapshotAnalysisVersion = 3;
+export const snapshotAnalysisVersion = 4;
 
 const scriptPath = (path: string) => /\.[cm]?[jt]sx?$/.test(path);
 const virtualRoot = "/senslop-frozen/";
@@ -66,6 +72,7 @@ const components = (edges: DependencyEdge[]) => {
 export const analyzeSources = async (
   sources: SourceMap,
   changed: string[],
+  languageSettings: LanguageSettingsSchema = languageSettingsSchema.parse({}),
 ): Promise<Analysis> => {
   if (Object.keys(sources).some((path) => !validPath(path)))
     throw new Error("Invalid frozen source path.");
@@ -86,6 +93,7 @@ export const analyzeSources = async (
   const symbols: SourceSymbol[] = [];
   const references = new Map<ts.Symbol, { path: string; line: number }[]>();
   const declarations = new Map<SourceSymbol, ts.Symbol>();
+  const calls = new Map<ts.Symbol, { path: string; line: number }[]>();
   for (const path of files) {
     const source = program.getSourceFile(virtualRoot + path)!;
     const visit = (node: ts.Node) => {
@@ -131,6 +139,22 @@ export const analyzeSources = async (
                 source.getLineAndCharacterOfPosition(node.getStart()).line + 1,
             });
           references.set(symbol, rows);
+          if (
+            (ts.isCallExpression(node.parent) &&
+              node.parent.expression === node) ||
+            (ts.isPropertyAccessExpression(node.parent) &&
+              node.parent.name === node &&
+              ts.isCallExpression(node.parent.parent) &&
+              node.parent.parent.expression === node.parent)
+          ) {
+            const callers = calls.get(symbol) ?? [];
+            callers.push({
+              path,
+              line:
+                source.getLineAndCharacterOfPosition(node.getStart()).line + 1,
+            });
+            calls.set(symbol, callers);
+          }
         }
         if (
           node.parent &&
@@ -165,7 +189,11 @@ export const analyzeSources = async (
   }
   for (const symbol of symbols) {
     const resolved = declarations.get(symbol);
-    if (resolved) symbol.references = references.get(resolved) ?? [];
+    if (resolved) {
+      symbol.references = references.get(resolved) ?? [];
+      symbol.callers = calls.get(resolved) ?? [];
+      symbol.provenance = "compiler-resolved";
+    }
   }
   const projects = new Map<string, string[]>();
   for (const path of files) {
@@ -261,13 +289,42 @@ export const analyzeSources = async (
   } finally {
     await rm(staging, { recursive: true, force: true });
   }
-  const textOnly = changed.filter((path) => !scriptPath(path));
+  const additional = await analyzeLanguageSources(sources);
+  edges.push(...additional.edges);
+  symbols.push(...additional.symbols);
+  diagnostics.push(...additional.diagnostics);
+  limitations.push(...additional.limitations);
+  const capabilities = additional.capabilities;
+  const semantic = await analyzeSemanticSources(sources, languageSettings);
+  const resolvedPaths = new Set(Object.keys(semantic.capabilities));
+  for (let index = symbols.length - 1; index >= 0; index--)
+    if (resolvedPaths.has(symbols[index]!.path)) symbols.splice(index, 1);
+  symbols.push(
+    ...semantic.symbols.filter((symbol) => resolvedPaths.has(symbol.path)),
+  );
+  diagnostics.push(...semantic.diagnostics);
+  Object.assign(capabilities, semantic.capabilities);
+  limitations.push(...semantic.limitations);
+  for (const path of files)
+    capabilities[path] = {
+      language:
+        path.endsWith(".ts") || path.endsWith(".tsx")
+          ? "TypeScript"
+          : "JavaScript",
+      level: "semantic",
+      tool: "TypeScript 5.9.3",
+      limitations: [...compiler.limitations],
+    };
+  const textOnly = changed.filter(
+    (path) => !scriptPath(path) && capabilities[path]?.level === "text",
+  );
   if (textOnly.length)
     limitations.push(
-      `Non-JavaScript/TypeScript files receive text-only review, without compiler diagnostics (${textOnly.length} files).`,
+      `Unsupported files receive text-only review, without semantic diagnostics (${textOnly.length} files).`,
     );
   limitations.push(...compiler.limitations);
   return {
+    capabilities,
     version: snapshotAnalysisVersion,
     edges,
     symbols,

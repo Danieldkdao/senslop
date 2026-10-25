@@ -1,3 +1,4 @@
+import type { WhitespaceMode } from "../constants";
 import type { JobSchema } from "../../agents/schemas";
 import type { PreviewSourceKind } from "@senslop/contracts";
 import type {
@@ -205,5 +206,16 @@ export const formatReviewOperation = (mode: ReviewOperation["mode"]) => {
       return "Re-sync finished. Your new changes are ready to explore.";
     case "inspect":
       return "Your changes are ready to explore.";
+  }
+};
+
+export const formatWhitespaceMode = (mode: WhitespaceMode) => {
+  switch (mode) {
+    case "all":
+      return "Show all changes";
+    case "ignore-trailing":
+      return "Ignore trailing whitespace";
+    case "ignore-all":
+      return "Ignore whitespace changes";
   }
 };

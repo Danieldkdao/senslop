@@ -11,11 +11,11 @@ implementation-baseline: 0860767
 
 This document preserves the owner's product direction, the implementation inspected during the discussion, and the full 20-feature roadmap. Read this section, the product direction, and the selected feature before planning implementation. Consult the code map and acceptance criteria for that feature as needed.
 
-The owner requested this roadmap after discussing existing functionality and multiple simultaneous CLI clients. They then explicitly requested that it be saved as Markdown for future chats. **Feature 1 and Group 1 are implemented for their approved scopes: 8 of 20 features; 12 remain. Group 1 is committed on `feat/fix-verify`, with automated evidence below and owner visual review pending. The owner approved the three delivery groups and their order on October 24, 2026.** This file is the single source of truth for that decision. Group 2 is next. Its feature 20 evaluation baseline started in Group 1; its full quality milestone remains unfinished. Recheck current code and the evidence below before continuing.
+The owner requested this roadmap after discussing existing functionality and multiple simultaneous CLI clients. They then explicitly requested that it be saved as Markdown for future chats. **Feature 1 and Groups 1–2 are implemented for their approved scopes: 15 of 20 features; 5 remain. Group 1 is committed on `feat/fix-verify`; Group 2 is local and uncommitted on `feat/review-precision`. Evidence and remaining verification limits are recorded below. The owner approved the three delivery groups and their order on October 24, 2026.** This file is the single source of truth for that decision. Group 3 is next. The quality harness supports explicit live runs; real-provider diagnosis quality and model-promotion thresholds remain unestablished. Recheck current code and the evidence below before continuing.
 
 To resume, a useful request is:
 
-> Read devpost/local-review-roadmap.md and the repository instructions. Feature 1 and Group 1 are implemented. Review the October 25 evidence and disclosed visual/provider limits, then continue Group 2 in the approved order. Extend the initial evaluation corpus alongside precise review units. Preserve the local review direction and distinguish implemented behavior from planned behavior.
+> Read devpost/local-review-roadmap.md and the repository instructions. Feature 1 and Groups 1–2 are implemented. Review the October 25 evidence and disclosed platform/provider limits, inspect the uncommitted precision changes, then continue Group 3 in the approved order. Keep the evaluation corpus current. Preserve the local review direction and distinguish implemented behavior from planned behavior.
 
 Before changing application code:
 
@@ -116,7 +116,7 @@ Cross-feature invariants:
 
 ## Feature overview
 
-“Extend” means a foundation exists, not that the feature's acceptance criteria already pass. **Progress: 8 of 20 implemented for their approved scopes; 12 remain.** Every remaining feature has exactly one primary delivery group. Shared foundations may start earlier, as explained in the delivery sequence; that does not mark the parent feature complete.
+“Extend” means a foundation exists, not that the feature's acceptance criteria already pass. **Progress: 15 of 20 implemented for their approved scopes; 5 remain.** Every remaining feature has exactly one primary delivery group. Shared foundations may start earlier, as explained in the delivery sequence; that does not mark the parent feature complete.
 
 | ID  | Feature                                         | Starting point                                        | Approved delivery group              |
 | --- | ----------------------------------------------- | ----------------------------------------------------- | ------------------------------------ |
@@ -125,12 +125,12 @@ Cross-feature invariants:
 | 3   | Review rounds and fix verification              | Implemented rounds and verification                   | 1: Fix and verify                    |
 | 4   | Agent workflow for fixing findings              | Implemented persistent manual handoff                 | 1: Fix and verify                    |
 | 5   | Local tests and verification results            | Implemented exact-source command execution            | 1: Fix and verify                    |
-| 6   | Hunk-level groups and completion                | Extend file grouping and progress                     | 2: Review with precision             |
-| 7   | Review against the original request             | New requirement-evidence workflow                     | 2: Review with precision             |
-| 8   | Repository rules and review profiles            | Extend existing task instructions                     | 2: Review with precision             |
-| 9   | Change impact and risk guidance                 | Extend context/dependency analysis                    | 2: Review with precision             |
-| 10  | Deeper navigation and diff tools                | Extend reading workspace                              | 2: Review with precision             |
-| 11  | Broader language understanding                  | Extend semantic analysis                              | 2: Review with precision             |
+| 6   | Hunk-level groups and completion                | Implemented exact regions and progress                | 2: Review with precision             |
+| 7   | Review against the original request             | Implemented versioned requirement evidence            | 2: Review with precision             |
+| 8   | Repository rules and review profiles            | Implemented scoped rules and profiles                 | 2: Review with precision             |
+| 9   | Change impact and risk guidance                 | Implemented evidence-backed impact                    | 2: Review with precision             |
+| 10  | Deeper navigation and diff tools                | Implemented frozen navigation and previews            | 2: Review with precision             |
+| 11  | Broader language understanding                  | Implemented Python/Go parsing and optional LSP        | 2: Review with precision             |
 | 12  | Git operations inside the app                   | New user-triggered mutation workflow                  | 3: Finish the daily workflow         |
 | 13  | Optional checkpoint before pushing              | New workflow using review/verification identity       | 3: Finish the daily workflow         |
 | 14  | Multiple projects and worktrees                 | Implemented project/worktree workspace                | 1: Fix and verify                    |
@@ -249,7 +249,7 @@ Extend [CLI app startup](../packages/cli/src/features/workspace/local-app.ts), [
 
 ## 6. Hunk-level groups and completion
 
-**Delivery group:** [Group 2: Review with precision](#group-2-review-with-precision). **Status:** not started.
+**Delivery group:** [Group 2: Review with precision](#group-2-review-with-precision). **Status:** implemented locally in Group 2; see dated evidence and limitations below.
 
 **Outcome:** review related behavior even when one file contains several independent changes.
 
@@ -261,11 +261,11 @@ Extend [CLI app startup](../packages/cli/src/features/workspace/local-app.ts), [
 
 **Dependencies:** feature 3's identity/round rules; compatible migration for saved grouping results. Start with [grouping contracts](../apps/local/src/features/agents/schemas.ts), [grouping validation](../apps/local/src/features/agents/lib/validate-results.ts), [group presentation](../apps/local/src/features/agents/components/grouped-files.tsx), and [diff renderer](../apps/local/src/features/review/components/preview-diff.tsx).
 
-**Open decisions:** unit boundaries, overlapping explanations versus unique completion ownership, note-to-unit links, and how users override model output.
+**Resolved for this delivery:** contiguous changed blocks own exact before/after ranges; cross-references can explain shared context without sharing completion ownership. Notes retain their original file/range anchors. Manual rename/reorder/move/split/combine actions survive unambiguous source matches and require explicit reset before replacement.
 
 ## 7. Review against the original request
 
-**Delivery group:** [Group 2: Review with precision](#group-2-review-with-precision). **Status:** not started.
+**Delivery group:** [Group 2: Review with precision](#group-2-review-with-precision). **Status:** implemented locally in Group 2; see dated evidence and limitations below.
 
 **Outcome:** determine whether the implementation delivers the behavior the user requested.
 
@@ -275,11 +275,11 @@ Extend [CLI app startup](../packages/cli/src/features/workspace/local-app.ts), [
 
 **Dependencies:** features 1 and 5; shared criterion/evidence contracts coordinated with feature 18; feature 8 for reusable project policy. Build requirement evidence before the complete report UI/export; feature 18 consumes that evidence rather than blocking this feature. Extend the existing context and agent contracts after searching for equivalent request/document attachment behavior.
 
-**Open decisions:** supported input formats, criterion editing, and treatment of conflicting requirements.
+**Resolved for this delivery:** plain request text, captured Markdown/text documents, and optional stored HTTP/HTTPS links; editable/reordered criteria preserve source quotes. Conflicting or ambiguous outcomes remain Unclear with explicit questions. Links are context and are not fetched automatically.
 
 ## 8. Repository rules and review profiles
 
-**Delivery group:** [Group 2: Review with precision](#group-2-review-with-precision). **Status:** not started.
+**Delivery group:** [Group 2: Review with precision](#group-2-review-with-precision). **Status:** implemented locally in Group 2; see dated evidence and limitations below.
 
 **Outcome:** reviews reflect the project's standards and the user's chosen concerns.
 
@@ -289,11 +289,11 @@ Extend [CLI app startup](../packages/cli/src/features/workspace/local-app.ts), [
 
 **Dependencies:** existing role/task settings; shared criterion contracts from feature 7 and early evaluation fixtures from feature 20. These are design dependencies, not a requirement to finish both features before starting profiles. Current editable grouping instructions are a starting point, not a complete reusable profile system.
 
-**Open decisions:** repository configuration format, precedence, inheritance for nested projects, and how unfamiliar or conflicting rules are reported.
+**Resolved for this delivery:** explicit `.senslop/review.json`, nested subtree scope, local project overrides, then review overrides. Unknown fields and unavailable sources produce inspectable limitations; differing definitions of the same applicable rule ID report the override. Semantic conflicts remain review questions.
 
 ## 9. Change impact and risk guidance
 
-**Delivery group:** [Group 2: Review with precision](#group-2-review-with-precision). **Status:** not started.
+**Delivery group:** [Group 2: Review with precision](#group-2-review-with-precision). **Status:** implemented locally in Group 2; see dated evidence and limitations below.
 
 **Outcome:** direct attention to consequential changes with concrete explanations.
 
@@ -305,7 +305,7 @@ Extend [CLI app startup](../packages/cli/src/features/workspace/local-app.ts), [
 
 ## 10. Deeper navigation and diff tools
 
-**Delivery group:** [Group 2: Review with precision](#group-2-review-with-precision). **Status:** not started.
+**Delivery group:** [Group 2: Review with precision](#group-2-review-with-precision). **Status:** implemented locally in Group 2; see dated evidence and limitations below.
 
 **Outcome:** explore large changes and supporting code without losing the review's place.
 
@@ -317,7 +317,7 @@ Extend [CLI app startup](../packages/cli/src/features/workspace/local-app.ts), [
 
 ## 11. Broader language understanding
 
-**Delivery group:** [Group 2: Review with precision](#group-2-review-with-precision). **Status:** not started.
+**Delivery group:** [Group 2: Review with precision](#group-2-review-with-precision). **Status:** implemented locally in Group 2; see dated evidence and limitations below.
 
 **Outcome:** more languages receive context quality comparable to JavaScript/TypeScript.
 
@@ -327,7 +327,7 @@ Extend [CLI app startup](../packages/cli/src/features/workspace/local-app.ts), [
 
 **Dependencies:** the current [analysis types](../apps/local/src/services/analysis/types.ts), [frozen compiler](../apps/local/src/services/analysis/frozen-compiler.ts), and [source capture](../apps/local/src/services/analysis/frozen-context.ts); feature 20 for per-language evaluation.
 
-**Open decisions:** first additional languages, process/tool dependencies, distribution footprint, and adapter API.
+**Resolved for this delivery:** Python/Go grammars use packaged Tree-sitter runtime/adapters; optional configured local language servers run against temporary frozen copies. Capability/settings contracts expose support and failures. Cross-platform packaging and real Pyright/gopls installations still require additional evidence.
 
 ## 12. Git operations inside the application
 
@@ -435,7 +435,7 @@ Extend [CLI app startup](../packages/cli/src/features/workspace/local-app.ts), [
 
 ## 20. Measured review quality
 
-**Delivery group:** [Group 2: Review with precision](#group-2-review-with-precision). **Status:** initial deterministic corpus/metric harness implemented in Group 1; full scope pending Group 2.
+**Delivery group:** [Group 2: Review with precision](#group-2-review-with-precision). **Status:** expanded corpus, deterministic contracts, saved comparisons, and opt-in live findings/grouping harness implemented locally in Group 2. Real-provider quality evidence and promotion thresholds remain open.
 
 **Outcome:** demonstrate improvements in useful review results as capabilities grow.
 
@@ -449,7 +449,7 @@ Extend [CLI app startup](../packages/cli/src/features/workspace/local-app.ts), [
 
 **Owner decision — October 24, 2026:** deliver the remaining **19 features in three groups, in order: 7 + 7 + 5**. This replaces the earlier five-stage suggestion and obsolete feature 1 implementation plan. Group membership and delivery order are approved; the internal implementation order below is guidance to refine against current code. Counts do not imply equal effort or deadlines.
 
-**Current handoff:** feature 1 and Group 1 are implemented. The Group 1 changes are committed on `feat/fix-verify`; the pre-implementation baseline is `290b0a6`. Begin Group 2 after the owner reviews this delivery. Browser visual verification and real-provider limits are disclosed below. Check off a feature only after its agreed scope, acceptance criteria, and applicable definition of done are satisfied and evidence is recorded. A group is complete when every feature in its checklist is complete and its exit check passes. Preserve the group assignments below unless the owner changes them.
+**Current handoff:** feature 1 and Groups 1–2 are implemented. Group 1 is committed on `feat/fix-verify`; Group 2 remains uncommitted on `feat/review-precision` as requested. Review this delivery before beginning Group 3. Verification and remaining platform/provider limits are disclosed below. Check off a feature only after its agreed scope, acceptance criteria, and applicable definition of done are satisfied and evidence is recorded. A group is complete when every feature in its checklist is complete and its exit check passes. Preserve the group assignments below unless the owner changes them.
 
 When recording progress, update the feature's status, its group checklist/status, this handoff, and the progress record together. Early shared work, such as feature 20's evaluation baseline in group 1, keeps its original group assignment and leaves its completion checkbox open until its full scope is verified.
 
@@ -485,15 +485,15 @@ When recording progress, update the feature's status, its group checklist/status
 
 ### Group 2: Review with precision
 
-**Status:** not started. **Owned features:**
+**Status:** implemented locally and uncommitted on `feat/review-precision`; verification evidence follows below. **Owned features:**
 
-- [ ] [Feature 6: Hunk-level groups and completion](#6-hunk-level-groups-and-completion)
-- [ ] [Feature 7: Review against the original request](#7-review-against-the-original-request)
-- [ ] [Feature 8: Repository rules and review profiles](#8-repository-rules-and-review-profiles)
-- [ ] [Feature 9: Change impact and risk guidance](#9-change-impact-and-risk-guidance)
-- [ ] [Feature 10: Deeper navigation and diff tools](#10-deeper-navigation-and-diff-tools)
-- [ ] [Feature 11: Broader language understanding](#11-broader-language-understanding)
-- [ ] [Feature 20: Measured review quality](#20-measured-review-quality)
+- [x] [Feature 6: Hunk-level groups and completion](#6-hunk-level-groups-and-completion)
+- [x] [Feature 7: Review against the original request](#7-review-against-the-original-request)
+- [x] [Feature 8: Repository rules and review profiles](#8-repository-rules-and-review-profiles)
+- [x] [Feature 9: Change impact and risk guidance](#9-change-impact-and-risk-guidance)
+- [x] [Feature 10: Deeper navigation and diff tools](#10-deeper-navigation-and-diff-tools)
+- [x] [Feature 11: Broader language understanding](#11-broader-language-understanding)
+- [x] [Feature 20: Measured review quality](#20-measured-review-quality)
 
 **Why these belong together:** hunks, symbols, references, requirements, and rules should point to the same frozen evidence. Language adapters supply context used by impact and navigation. Evaluations establish whether finer grouping and additional review instructions improve useful results.
 
@@ -648,6 +648,25 @@ Follow-up corrections to the committed Group 1 delivery address the ten reported
 - [x] Issue 10: the owner-approved transparent ghost Button remains unchanged. `AGENTS.md` documents a narrow shared-primitive exception, including regeneration guidance, while retaining the default preservation rule for other generated variants.
 
 **Verification:** 1,203 ordinary tests passed with zero failures and 13 opt-in tests skipped. The focused regression suite passed 73 tests. Repository typechecking, lint, and all eight production build tasks passed; existing shared-UI lint warnings remain. The packaged CLI/real-engine fix-and-verify process test passed against a deterministic loopback provider, including actual failed-check exit code 4. All services started by that test were stopped. No dedicated schema tests were added or run. These checks do not establish real-provider diagnosis quality or a fresh browser visual pass.
+
+### Group 2 implementation evidence — October 25, 2026
+
+Implemented features **6, 7, 8, 9, 10, 11, and 20** on `feat/review-precision` against `3fad84c`. All changes remain local and uncommitted at the owner's request. Existing PRD/spec and CLI/agent guidance now describe the implemented behavior; no separate planning document was created.
+
+- [x] Exact changed regions have unique ownership across flows, per-region completion, derived file completion, binary/metadata fallbacks, matching legacy grouping migration, manual flow/region editing, and stale-organization guards. Manual splits and individual progress survive unambiguous unchanged/moved source; repeated identical regions remain explicitly ambiguous. Existing file-completion clients update all corresponding units.
+- [x] The reusable expanding tab component exposes typed item/root/panel props, controlled/uncontrolled values, icons/details/counts, disabled items, tooltips, keyboard behavior and reduced motion. Active tabs fill the available width; inactive tabs become icons. Flows/Files, Findings/Requirements, source-search modes and JSON/text views use it.
+- [x] Versioned requests, captured Markdown/text attachments, optional links, editable/suggested criteria and linked checks produce source-validated Implemented/Verified/Missing/Unclear conclusions, questions and unexpected-scope evidence. Old brief/round results are visibly outdated. Deletion removes brief history and temporary review instructions.
+- [x] Explicit root/nested repository configuration, local project overrides, review overrides, built-in/custom combined profiles, per-path scope, captured run instructions and finding provenance are implemented. Unknown fields/unavailable sources and differing same-ID rules are inspectable. Only `.senslop/review.json` is allowed inside the otherwise excluded private state directory.
+- [x] Impact explains interface, consumer, permission, configuration, persistence and test concerns with resolved/parsed/inferred/unresolved links. Frozen before/after source, symbol/content search, definition/reference/caller/test navigation, bounded per-tab history, reading-position restoration and region context expansion are implemented. Attention ordering and generated/repetitive collapse preserve ownership and completion totals.
+- [x] Whitespace controls visibly filter rendering only. Renamed paths and moved-region status remain explicit. Bounded frozen PNG/JPEG/WebP comparisons provide dimensions/zoom; JSON structure exposes actual added/removed/changed values and retains text/failure fallbacks. Unsupported binaries remain honest metadata units.
+- [x] Python/Go use packaged Tree-sitter parsing, symbols/import candidates/test conventions and syntax diagnostics. Optional local stdio semantic tools run against bounded temporary frozen copies with outside-root reference rejection and process cleanup. Capability labels/settings hashes preserve TypeScript behavior and distinguish semantic/parsing/text support.
+- [x] The declared synthetic corpus covers known bugs/clean changes, large mixed changes, independent regions, moved rounds, requirements, scoped rules, additional languages, misleading source and independent fix assessments. Saved reports separate deterministic contracts from explicit live findings/grouping judgments, record provenance/model/instructions, expose missed/false-positive/duplicate/evidence/grouping metrics, compare regressions, and retain latency plus available usage/cost. Failed live requests retain conservative budget reservations; ordinary checks make no paid calls.
+- [x] CLI `regions`, `brief`, `rules`, `source` and `quality` operations share the browser APIs and exact source/version guards. Existing completion commands stay consistent. Live quality automation requires explicit `--live --yes`. Authenticated route boundaries and local-only inference policy remain in force.
+- [x] All new disclosures use shadcn Collapsible. The reported Impact header compression/shift is fixed with a stable trigger layout; its unused right-hand file action was removed. Existing Chrome visual checks confirmed both disclosure states and both expanding organization tabs.
+
+**Automated evidence:** the ordinary suite passed **1,247 tests with zero failures and 13 opt-in checks skipped**. Repository TypeScript checks, lint and all eight production build tasks passed; lint retains only the two existing shared-UI warnings. The two selected packaged app/real-engine integration tests passed against an isolated deterministic loopback provider. They exercise captured `.senslop` rules and a text attachment, packaged Python parsing, region/file completion, a missing requirement through the real review worker, concurrent readers, and the original exact-round fix/check/verification workflow. Test cleanup stopped every service it started. CLI help smoke checks, diff whitespace, semantic lockfile equivalence and authored filename checks passed. No dedicated schema tests were added or run. The installed Inngest native executable was restored through its official existing postinstall before the packaged rerun.
+
+**Limits:** no paid-provider diagnosis run, real installed Pyright/gopls verification, cross-platform execution, or fresh archive installation is claimed. Live semantic grouping usefulness and model promotion thresholds still require human judgments and real-provider evidence. Requirement/round/fix-quality cases currently establish deterministic contracts rather than live-model accuracy. Unknown pricing/usage remains unknown. Browser checks cover the existing desktop Impact/organization interaction; full narrow-layout, form and preview visual acceptance remains for owner review. The running user app was reused; it was not started or stopped by this task.
 
 ## Primary references
 
