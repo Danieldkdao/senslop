@@ -6,7 +6,7 @@ import {
   CollapsibleContent,
 } from "@/components/ui/collapsible";
 import { ChevronDown } from "lucide-react";
-import { ClipboardList, Pencil } from "lucide-react";
+import { Pencil } from "lucide-react";
 import { useState } from "react";
 import {
   criterionStatuses,
@@ -38,7 +38,7 @@ export const RequirementsView = ({
   brief?: ReviewBriefSchema | null;
   coverage?: RequirementCoverageSchema;
   stale: boolean;
-  onEvidence: (evidence: RequirementEvidenceSchema) => void;
+  onEvidence?: (evidence: RequirementEvidenceSchema) => void;
   onEdit: () => void;
   className?: string;
 }) => {
@@ -189,7 +189,13 @@ export const RequirementsView = ({
                             key={evidenceIndex}
                             variant="link"
                             className="h-auto justify-start whitespace-normal p-0 text-left font-mono text-base"
-                            onClick={() => onEvidence(evidence)}
+                            disabled={!onEvidence}
+                            title={
+                              !onEvidence
+                                ? "Evidence belongs to an older review round."
+                                : undefined
+                            }
+                            onClick={() => onEvidence?.(evidence)}
                           >
                             {evidence.path}:{evidence.start}–{evidence.end} (
                             {evidence.side})

@@ -127,7 +127,6 @@ export const ReviewWorkspace = ({ children }: ReviewWorkspaceProps) => {
     contextLocation?.revisionKey === `${preview?.hash}:${preview?.round}`
       ? contextLocation
       : null;
-  const explorer = useSourceExplorer(identity, activeContext?.side ?? "after");
   const frozenSource = useFrozenSource(identity, activeContext);
   const readingScroll = useRef<HTMLDivElement>(null);
 
@@ -250,6 +249,53 @@ export const ReviewWorkspace = ({ children }: ReviewWorkspaceProps) => {
       (unit) =>
         unit.path === selectedFile?.path && unit.id === selection?.unitId,
     ) ?? organization?.units.find((unit) => unit.path === selectedFile?.path);
+  const explorerSide =
+    activeContext?.side ??
+    (selectedUnit?.ranges.some((range) => range.side === "before") &&
+    !selectedUnit.ranges.some((range) => range.side === "after")
+      ? "before"
+      : "after");
+  const explorer = useSourceExplorer(identity, explorerSide);
+  const otherSide = explorerSide === "after" ? "before" : "after";
+  const otherExplorer = useSourceExplorer(
+    organization?.units.some((unit) =>
+      unit.ranges.some((range) => range.side === otherSide),
+    )
+      ? identity
+      : null,
+    otherSide,
+  );
+  const impacts = useMemo(() => {
+    const combined = new Map(
+      (explorer.data?.impact ?? []).map((impact) => [impact.unitId, impact]),
+    );
+    for (const impact of otherExplorer.data?.impact ?? []) {
+      const existing = combined.get(impact.unitId);
+      combined.set(
+        impact.unitId,
+        existing
+          ? {
+              ...existing,
+              reasons: [...new Set([...existing.reasons, ...impact.reasons])],
+              limitations: [
+                ...new Set([...existing.limitations, ...impact.limitations]),
+              ],
+              relationships: [
+                ...new Map(
+                  [...existing.relationships, ...impact.relationships].map(
+                    (relationship) => [
+                      JSON.stringify(relationship),
+                      relationship,
+                    ],
+                  ),
+                ).values(),
+              ],
+            }
+          : impact,
+      );
+    }
+    return [...combined.values()];
+  }, [explorer.data?.impact, otherExplorer.data?.impact]);
   const orderedUnits = useMemo(
     () =>
       organization?.flows.flatMap((flow) =>
@@ -507,7 +553,7 @@ export const ReviewWorkspace = ({ children }: ReviewWorkspaceProps) => {
             selectedPath={selectedFile?.path}
             onSelect={selectFile}
             organization={organization}
-            impact={explorer.data?.impact}
+            impact={impacts}
             selectedUnitId={selectedUnit?.id}
             onSelectUnit={selectUnit}
             onOrganizationAction={precision.act}
@@ -780,6 +826,14 @@ export const ReviewWorkspace = ({ children }: ReviewWorkspaceProps) => {
           </Button>
         </p>
       )}
+      {precision.state.error && !organization && (
+        <p
+          role="status"
+          className="border-b p-4 text-base text-muted-foreground"
+        >
+          {precision.state.error.message}
+        </p>
+      )}
       {activeContext && (
         <div className="flex items-center gap-2 border-b px-4 py-2 text-base">
           <span className="min-w-0 flex-1 text-muted-foreground">
@@ -805,10 +859,8 @@ export const ReviewWorkspace = ({ children }: ReviewWorkspaceProps) => {
       )}
       {!preparing && selectedFile && (
         <ChangeImpactPanel
-          side={activeContext?.side ?? "after"}
-          impact={explorer.data?.impact.find(
-            (item) => item.unitId === selectedUnit?.id,
-          )}
+          side={explorerSide}
+          impact={impacts.find((item) => item.unitId === selectedUnit?.id)}
           capability={
             explorer.data?.capabilities[
               activeContext?.path ?? selectedFile.path

@@ -126,12 +126,17 @@ export class PrecisionStore {
   };
 
   save = (identity: ReviewIdentitySchema, organization: OrganizationSchema) => {
-    validateOrganization(organization);
+    const parsed = organizationSchema.safeParse(organization);
+    if (!parsed.success)
+      throw new Error(
+        "Review organization exceeds supported limits; use full-file review.",
+      );
+    validateOrganization(parsed.data);
     this.store.database
       .prepare(
         "INSERT INTO review_precision VALUES (?,?,?) ON CONFLICT(review_id,round) DO UPDATE SET body=excluded.body",
       )
-      .run(identity.id, identity.round, JSON.stringify(organization));
+      .run(identity.id, identity.round, JSON.stringify(parsed.data));
   };
 
   private syncCompletion = (

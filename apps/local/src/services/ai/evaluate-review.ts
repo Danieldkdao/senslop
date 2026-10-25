@@ -39,6 +39,9 @@ export const evaluateReviewModel = async (
     resolved.connection,
     resolved.secret,
     selection.modelId,
+    undefined,
+    settings.capacity?.[selection.connectionId],
+    settings.machineConcurrency,
   );
   const schema = z.object({
     findings: z.array(findingSchema).max(30),

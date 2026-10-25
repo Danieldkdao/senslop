@@ -12,16 +12,25 @@ import type { SnapshotChange } from "./types";
 
 export const batchSnapshotChanges = (
   changes: SnapshotChange[],
-  maxTokens: number,
+  maxTokens: number | ((batch: SnapshotChange[]) => number),
   maxFiles = 24,
 ) => {
   const batches: SnapshotChange[][] = [];
   let batch: SnapshotChange[] = [];
+  const budget = (candidate: SnapshotChange[]) =>
+    typeof maxTokens === "number" ? maxTokens : maxTokens(candidate);
+  const fits = (candidate: SnapshotChange[]) => {
+    try {
+      return estimateTokens(candidate) <= budget(candidate);
+    } catch (error) {
+      if (error instanceof AiContextBudgetError) return false;
+      throw error;
+    }
+  };
   const append = (change: SnapshotChange) => {
     if (
       batch.length &&
-      (batch.length >= maxFiles ||
-        estimateTokens([...batch, change]) > maxTokens)
+      (batch.length >= maxFiles || !fits([...batch, change]))
     ) {
       batches.push(batch);
       batch = [];
@@ -29,7 +38,8 @@ export const batchSnapshotChanges = (
     batch.push(change);
   };
   for (const change of changes) {
-    if (estimateTokens([change]) <= maxTokens) {
+    const availableTokens = budget([change]);
+    if (estimateTokens([change]) <= availableTokens) {
       append(change);
       continue;
     }
@@ -38,7 +48,7 @@ export const batchSnapshotChanges = (
       let low = offset + 1;
       let high = Math.min(
         change.diff.length,
-        offset + Math.floor(maxTokens * 3),
+        offset + Math.floor(availableTokens * 3),
       );
       let end = offset;
       while (low <= high) {
@@ -49,7 +59,7 @@ export const batchSnapshotChanges = (
           offset: (change.offset ?? 0) + offset,
           total: change.total ?? change.diff.length,
         };
-        if (estimateTokens([part]) <= maxTokens) {
+        if (estimateTokens([part]) <= availableTokens) {
           end = middle;
           low = middle + 1;
         } else high = middle - 1;

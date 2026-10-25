@@ -35,10 +35,18 @@ export const executePrecisionCommand = async (
         values,
         "Run the synthetic corpus against your Review model? Provider charges may apply.",
       );
-    return client.request("/api/review-quality", {
-      mode: values.live ? "live" : "deterministic",
-      allowLive: !!values.live,
-    });
+    return client.request(
+      "/api/review-quality",
+      {
+        mode: values.live ? "live" : "deterministic",
+        allowLive: !!values.live,
+      },
+      "POST",
+      AbortSignal.timeout(
+        integerOption(values, "timeout", values.live ? 3600 : 600, 1, 3600) *
+          1000,
+      ),
+    );
   }
   const saved = await readReview(client, args[0]);
   const hash = stringOption(values, "expected-hash");

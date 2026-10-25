@@ -56,7 +56,7 @@ const reviewBriefFormSchema = reviewBriefInputSchema
       "Enter one valid URL per line.",
     ),
   });
-type ReviewBriefFormSchema = z.infer<typeof reviewBriefFormSchema>;
+export type ReviewBriefFormSchema = z.infer<typeof reviewBriefFormSchema>;
 
 export const ReviewBriefForm = ({
   brief,

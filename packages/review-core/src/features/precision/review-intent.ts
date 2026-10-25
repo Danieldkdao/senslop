@@ -39,13 +39,14 @@ export const validateRequirementCoverage = (
         evidence.side === "before"
           ? context.before?.[evidence.path]
           : context.sources[evidence.path];
+      const lines = source?.split("\n");
       if (
-        source === undefined ||
+        !lines ||
         evidence.end < evidence.start ||
-        source
-          .split("\n")
-          .slice(evidence.start - 1, evidence.end)
-          .join("\n") !== evidence.code
+        evidence.start > lines.length ||
+        evidence.end > lines.length ||
+        lines.slice(evidence.start - 1, evidence.end).join("\n") !==
+          evidence.code
       )
         throw new Error("Requirement evidence does not match frozen source.");
     }

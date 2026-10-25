@@ -334,3 +334,59 @@ test("legacy file completion updates its regions while a single-region reversal 
     store.close();
   }
 });
+
+test("oversized organizations never replace readable saved progress", () => {
+  const directory = mkdtempSync(join(tmpdir(), "senslop-region-limit-"));
+  paths.push(directory);
+  const store = new LocalStore(join(directory, "reviews.sqlite"));
+  try {
+    const review = store.saveReview(
+      "/repo",
+      {
+        id: randomUUID(),
+        protocolVersion: 1,
+        source: {
+          kind: "working-tree",
+          base: "a".repeat(40),
+          head: null,
+          firstParent: false,
+        },
+        files: [file(before, after)],
+        excluded: [],
+      },
+      null,
+      false,
+    );
+    const precision = new PrecisionStore(store, "/repo");
+    const original = precision.organization(review);
+    const units = Array.from({ length: 20001 }, (_, index) => ({
+      ...original.units[0]!,
+      id: `unit-${index}`,
+      ranges: [],
+    }));
+    expect(() =>
+      precision.save(review, {
+        ...original,
+        units,
+        flows: [
+          {
+            id: "all",
+            title: "All",
+            rationale: "",
+            unitIds: units.map((unit) => unit.id),
+          },
+        ],
+      }),
+    ).toThrow(/full-file review/);
+    expect(precision.organization(review)).toEqual(original);
+    expect(() =>
+      store.changeReview("/repo", review.id, {
+        action: "complete",
+        path: "toolbar.ts",
+        complete: true,
+      }),
+    ).not.toThrow();
+  } finally {
+    store.close();
+  }
+});

@@ -29,10 +29,15 @@ test("deterministic quality runs need no paid opt-in, while live JSON requires e
   const request = vi.fn(async () => ({}));
   const client = { request } as unknown as WorkspaceClient;
   await executeReviewCommand(client, parseCliCommand(["quality", "run"]));
-  expect(request).toHaveBeenCalledWith("/api/review-quality", {
-    mode: "deterministic",
-    allowLive: false,
-  });
+  expect(request).toHaveBeenCalledWith(
+    "/api/review-quality",
+    {
+      mode: "deterministic",
+      allowLive: false,
+    },
+    "POST",
+    expect.any(AbortSignal),
+  );
   await expect(
     executeReviewCommand(
       client,
@@ -43,10 +48,15 @@ test("deterministic quality runs need no paid opt-in, while live JSON requires e
     client,
     parseCliCommand(["quality", "run", "--live", "--yes", "--json"]),
   );
-  expect(request).toHaveBeenLastCalledWith("/api/review-quality", {
-    mode: "live",
-    allowLive: true,
-  });
+  expect(request).toHaveBeenLastCalledWith(
+    "/api/review-quality",
+    {
+      mode: "live",
+      allowLive: true,
+    },
+    "POST",
+    expect.any(AbortSignal),
+  );
 });
 
 test("precision writes reject a stale supplied source identity before requesting a mutation", async () => {
@@ -66,4 +76,31 @@ test("precision writes reject a stale supplied source identity before requesting
     ),
   ).rejects.toThrow(/changed/);
   expect(request).toHaveBeenCalledTimes(1);
+});
+
+test("live corpus runs support a longer configurable request timeout", async () => {
+  const request = vi.fn(async () => ({}));
+  const timeout = vi.spyOn(AbortSignal, "timeout");
+  try {
+    await executeReviewCommand(
+      { request } as unknown as WorkspaceClient,
+      parseCliCommand([
+        "quality",
+        "run",
+        "--live",
+        "--yes",
+        "--timeout",
+        "1800",
+      ]),
+    );
+    expect(timeout).toHaveBeenLastCalledWith(1800000);
+    expect(request).toHaveBeenLastCalledWith(
+      "/api/review-quality",
+      { mode: "live", allowLive: true },
+      "POST",
+      expect.any(AbortSignal),
+    );
+  } finally {
+    timeout.mockRestore();
+  }
 });

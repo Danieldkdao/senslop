@@ -33,7 +33,7 @@ import { useReviewIntent } from "../hooks/use-review-intent";
 import { EffectiveReviewRules } from "./effective-review-rules";
 import { formatReviewProfile } from "../lib/formatters";
 
-type ReviewRulesFormSchema = z.infer<typeof reviewRulesSchema>;
+export type ReviewRulesFormSchema = z.infer<typeof reviewRulesSchema>;
 
 export const RulesProfiles = ({
   review,
@@ -104,14 +104,25 @@ const RulesProfilesForm = ({
     control,
     register,
     reset,
-    formState: { errors },
+    formState: { errors, dirtyFields },
   } = form;
   const autosave = useSettingsAutosave({
     form,
     schema: reviewRulesSchema,
     enabled: !!review && !!intent.state.data && !intent.state.isPending,
     save: async (rules) => {
-      await intent.act({ action: "save-rules", scope, rules });
+      await intent.act({
+        action: "save-rules",
+        scope,
+        rules: {
+          ...overrides,
+          ...Object.fromEntries(
+            Object.keys(dirtyFields)
+              .filter((key) => dirtyFields[key as keyof ReviewRulesFormSchema])
+              .map((key) => [key, rules[key as keyof ReviewRulesFormSchema]]),
+          ),
+        },
+      });
     },
   });
   const rules = useFieldArray({ control, name: "rules", keyName: "fieldId" });

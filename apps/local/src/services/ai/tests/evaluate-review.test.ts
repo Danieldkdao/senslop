@@ -1,4 +1,5 @@
 import { expect, test, vi } from "vitest";
+import { resolveLanguageModel } from "../provider-runtime";
 import { evaluateReviewModel } from "../evaluate-review";
 
 vi.mock("server-only", () => ({}));
@@ -16,6 +17,8 @@ vi.mock("../../../features/agents/lib/agent-store", () => ({
       separate: false,
       shared: { connectionId: "fixture", modelId: "fixture" },
       prompt: "Group by behavior.",
+      machineConcurrency: 2,
+      capacity: { fixture: { concurrency: 1, requestsPerMinute: 3 } },
     });
   },
 }));
@@ -25,7 +28,9 @@ vi.mock("../provider-connection", () => ({
     secret: null,
   }),
 }));
-vi.mock("../provider-runtime", () => ({ resolveLanguageModel: () => ({}) }));
+vi.mock("../provider-runtime", () => ({
+  resolveLanguageModel: vi.fn(() => ({})),
+}));
 vi.mock("@senslop/review-core/policy", async (original) => ({
   ...(await original<typeof import("@senslop/review-core/policy")>()),
   readProjectPolicy: () => ({
@@ -52,4 +57,20 @@ test("failed live requests retain their reservation instead of spending the allo
     ),
   ).toBe(true);
   expect(run.totals.inputTokens).toBeNull();
+});
+
+test("live evaluation passes saved connection capacity and machine concurrency to the runtime", async () => {
+  await evaluateReviewModel(
+    {} as never,
+    "/fixture",
+    new AbortController().signal,
+  );
+  expect(resolveLanguageModel).toHaveBeenLastCalledWith(
+    expect.anything(),
+    null,
+    "fixture",
+    undefined,
+    { concurrency: 1, requestsPerMinute: 3 },
+    2,
+  );
 });

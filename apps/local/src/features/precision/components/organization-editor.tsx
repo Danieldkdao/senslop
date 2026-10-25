@@ -33,11 +33,11 @@ import {
 const flowNameSchema = z.object({
   title: z.string().trim().min(1, "Enter a flow name.").max(200),
 });
-type FlowNameSchema = z.infer<typeof flowNameSchema>;
+export type FlowNameSchema = z.infer<typeof flowNameSchema>;
 const splitRegionSchema = z.object({
   line: z.coerce.number().int().positive(),
 });
-type SplitRegionSchema = z.infer<typeof splitRegionSchema>;
+export type SplitRegionSchema = z.infer<typeof splitRegionSchema>;
 
 const SplitRegion = ({
   unit,

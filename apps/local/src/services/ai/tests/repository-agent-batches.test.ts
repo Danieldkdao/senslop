@@ -80,9 +80,10 @@ const agent = (
     batchConcurrency: 1,
   },
   groupingSeed?: Parameters<typeof createRepositoryAgent>[0]["groupingSeed"],
+  intent?: Parameters<typeof createRepositoryAgent>[0]["reviewIntent"],
 ) =>
   createRepositoryAgent({
-    reviewIntent: {
+    reviewIntent: intent ?? {
       brief: null,
       instructions: {
         profiles: ["correctness"],
@@ -2376,4 +2377,69 @@ test("malformed final ordering JSON retains validated groups after bounded forma
     result.groups.flatMap((group) => group.files.map((file) => file.path)),
   ).toEqual(["0.ts", "1.ts", "2.ts"]);
   expect(requests).toHaveLength(5);
+});
+
+test("review batches share rule text once and include only their own path assignments", async () => {
+  const sharedText = "SHARED-RULE-TEXT-" + "x".repeat(12000);
+  const selected = Array.from({ length: 60 }, (_, index) => ({
+    ...files[0]!,
+    path: `file-${index}.ts`,
+    diff: "@@ -1 +1 @@\n-old\n+new\n",
+  }));
+  state.model = new MockLanguageModelV4({
+    doGenerate: async (options) => {
+      requests.push(options);
+      const prompt = options.prompt
+        .filter((message) => message.role === "user")
+        .flatMap((message) => message.content)
+        .filter((part) => part.type === "text")
+        .map((part) => part.text)
+        .join("\n");
+      const directions = JSON.parse(
+        prompt.match(
+          /Explicit selected review coverage and rules:\n([^\n]+)/,
+        )![1]!,
+      );
+      const members = batch(options).changes.map((file) => file.path);
+      expect(
+        directions.files.map((file: { path: string }) => file.path),
+      ).toEqual([...new Set(members)]);
+      expect(directions.rules).toHaveLength(1);
+      expect(prompt.split("SHARED-RULE-TEXT-")).toHaveLength(2);
+      return response({
+        files: members.map((path) => ({ path, findings: [] })),
+        limitations: [],
+      });
+    },
+  });
+  const instance = await agent(
+    selected,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    {
+      brief: null,
+      instructions: {
+        profiles: ["correctness"],
+        sources: [],
+        limitations: [],
+        rules: [
+          {
+            id: "shared",
+            text: sharedText,
+            paths: ["**/*"],
+            enabled: true,
+            source: "guide.md",
+            scope: "",
+            precedence: 1,
+          },
+        ],
+      },
+    },
+  );
+  expect((await instance.review()).findings).toEqual([]);
+  expect(requests.length).toBeGreaterThan(1);
 });

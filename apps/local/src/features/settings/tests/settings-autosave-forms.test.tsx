@@ -5,6 +5,7 @@ import userEvent from "@testing-library/user-event";
 import {
   languageSettingsSchema,
   projectPolicySchema,
+  type ReviewRulesPatchSchema,
 } from "@senslop/contracts";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { SourceSettings } from "../../workflow/components/source-settings";
@@ -16,6 +17,8 @@ const state = vi.hoisted(() => ({
   project: vi.fn(async () => {}),
   language: vi.fn(async () => {}),
   rules: vi.fn(async () => {}),
+  projectOverrides: {} as ReviewRulesPatchSchema,
+  reviewOverrides: {} as ReviewRulesPatchSchema,
 }));
 vi.mock("../../workflow/hooks/use-project-settings", () => ({
   useProjectSettings: () => ({
@@ -37,6 +40,8 @@ vi.mock("../../precision/hooks/use-review-intent", () => ({
   useReviewIntent: () => ({
     state: {
       data: {
+        projectOverrides: state.projectOverrides,
+        reviewOverrides: state.reviewOverrides,
         projectDefaults: ["correctness"],
         reviewDefaults: ["correctness"],
         instructions: {
@@ -52,7 +57,11 @@ vi.mock("../../precision/hooks/use-review-intent", () => ({
   }),
 }));
 const review = { id: crypto.randomUUID(), hash: "hash", round: 1 };
-beforeEach(() => vi.clearAllMocks());
+beforeEach(() => {
+  vi.clearAllMocks();
+  state.projectOverrides = {};
+  state.reviewOverrides = {};
+});
 afterEach(cleanup);
 
 test("source policy changes save automatically without writing untouched defaults", async () => {
@@ -150,4 +159,58 @@ test("review budget fields save automatically and preserve the chosen depth", as
     }),
   );
   expect(screen.queryByRole("button", { name: "Save limits" })).toBeNull();
+});
+
+test.each(["project", "review"] as const)(
+  "editing a %s rule keeps inherited dimensions out of the saved override",
+  async (scope) => {
+    render(
+      <TooltipProvider>
+        <RulesProfiles review={review} />
+      </TooltipProvider>,
+    );
+    const user = userEvent.setup();
+    if (scope === "review") {
+      await user.click(screen.getByRole("combobox", { name: "Rules scope" }));
+      await user.click(
+        await screen.findByRole("option", { name: "This review only" }),
+      );
+    }
+    await user.click(screen.getByRole("button", { name: "Add rule" }));
+    await user.type(
+      screen.getByLabelText("Instruction"),
+      "Check authorization",
+    );
+    await waitFor(() =>
+      expect(state.rules).toHaveBeenLastCalledWith({
+        action: "save-rules",
+        scope,
+        rules: {
+          rules: [expect.objectContaining({ text: "Check authorization" })],
+        },
+      }),
+    );
+  },
+);
+
+test("rule edits preserve dimensions already explicitly overridden", async () => {
+  state.projectOverrides = { profiles: ["security"] };
+  render(
+    <TooltipProvider>
+      <RulesProfiles review={review} />
+    </TooltipProvider>,
+  );
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Add rule" }));
+  await user.type(screen.getByLabelText("Instruction"), "Check authorization");
+  await waitFor(() =>
+    expect(state.rules).toHaveBeenLastCalledWith({
+      action: "save-rules",
+      scope: "project",
+      rules: {
+        profiles: ["security"],
+        rules: [expect.objectContaining({ text: "Check authorization" })],
+      },
+    }),
+  );
 });

@@ -115,3 +115,35 @@ test("focused regions expand unchanged frozen context without exposing another c
   expect(renderedLines(diff, "after")).toEqual([7, 8, 9, 10, 11, 12, 13]);
   expect(diff.additionLines.join("")).not.toContain("updated 25");
 });
+
+test.each([
+  { before: null, after: "one\ntwo\nthree\nfour\n", side: "after" as const },
+  { before: "one\ntwo\nthree\nfour\n", after: null, side: "before" as const },
+])(
+  "split $side regions clip the original added or deleted block",
+  ({ before, after, side }) => {
+    const ranges = [{ side, start: 2, end: 3 }];
+    const diff = findingDiff(file(before, after), ranges[0]!, ranges)!;
+    expect(renderedLines(diff, side)).toEqual([2, 3]);
+    expect(
+      (side === "after" ? diff.additionLines : diff.deletionLines).join(""),
+    ).toBe("two\nthree\n");
+  },
+);
+
+test("combined split regions retain separate side coordinates and omit gaps", () => {
+  const ranges = [
+    { side: "before" as const, start: 2, end: 2 },
+    { side: "after" as const, start: 1, end: 1 },
+    { side: "after" as const, start: 4, end: 4 },
+  ];
+  const diff = findingDiff(
+    file("old1\nold2\nold3\n", "new1\nnew2\nnew3\nnew4\n"),
+    ranges[0]!,
+    ranges,
+  )!;
+  expect(renderedLines(diff, "before")).toEqual([2]);
+  expect(renderedLines(diff, "after")).toEqual([1, 4]);
+  expect(diff.deletionLines.join("")).toBe("old2\n");
+  expect(diff.additionLines.join("")).toBe("new1\nnew4\n");
+});

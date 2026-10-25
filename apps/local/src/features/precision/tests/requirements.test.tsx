@@ -74,3 +74,37 @@ test("editing a brief makes the previous conclusions visibly outdated", () => {
   expect(screen.getByRole("status")).toBeTruthy();
   expect(screen.queryByText("Verified")).toBeNull();
 });
+
+test("historical requirement evidence stays visible without navigating to current source", () => {
+  render(
+    <RequirementsView
+      brief={brief}
+      stale
+      coverage={{
+        criteria: [
+          {
+            criterionId: "keys",
+            status: "implemented",
+            explanation: "Previous implementation",
+            evidence: [
+              {
+                path: "tabs.tsx",
+                side: "after",
+                start: 4,
+                end: 4,
+                code: "button",
+              },
+            ],
+            questions: [],
+            checkIds: [],
+          },
+        ],
+        unexpectedChanges: [],
+        limitations: [],
+      }}
+      onEdit={vi.fn()}
+    />,
+  );
+  const link = screen.getByRole("button", { name: /tabs.tsx/ });
+  expect((link as HTMLButtonElement).disabled).toBe(true);
+});

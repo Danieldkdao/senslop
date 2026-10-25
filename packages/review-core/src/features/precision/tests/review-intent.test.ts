@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { LocalStore } from "../../../db/local-store";
-import { ReviewIntent } from "../review-intent";
+import { ReviewIntent, validateRequirementCoverage } from "../review-intent";
 import {
   resolveReviewInstructions,
   applicableReviewProfiles,
@@ -228,3 +228,32 @@ test("nested profiles only affect their subtree and local review overrides take 
     ),
   ).toEqual(["performance"]);
 });
+
+test.each([
+  { start: 999, end: 999, code: "" },
+  { start: 1, end: 999, code: "one" },
+])(
+  "requirement evidence must use existing source coordinates: $start–$end",
+  (evidence) => {
+    expect(() =>
+      validateRequirementCoverage(
+        {
+          criteria: [
+            {
+              criterionId: "one",
+              status: "implemented",
+              explanation: "Claim",
+              evidence: [{ path: "one.ts", side: "after", ...evidence }],
+              questions: [],
+            },
+          ],
+          unexpectedChanges: [],
+          limitations: [],
+        },
+        [{ id: "one", text: "Implement one", sourceQuote: "", checkIds: [] }],
+        { sources: { "one.ts": "one" } },
+        [],
+      ),
+    ).toThrow(/evidence/);
+  },
+);

@@ -23,7 +23,7 @@ import {
 } from "../hooks/use-source-explorer";
 import { formatLanguageLevel } from "../lib/formatters";
 
-type LanguageSupportFormSchema = z.infer<typeof languageSettingsSchema>;
+export type LanguageSupportFormSchema = z.infer<typeof languageSettingsSchema>;
 
 export const LanguageSupportSettings = ({
   review,

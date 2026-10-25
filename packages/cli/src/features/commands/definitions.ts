@@ -394,8 +394,8 @@ export const commandDefinitions: CommandDefinition[] = [
   {
     name: "quality run",
     description:
-      "Run deterministic contracts, or --live for opt-in Review model inference. Live automation requires --yes.",
-    options: ["live", "yes"],
+      "Run deterministic contracts, or --live for opt-in Review model inference. Live automation requires --yes; --timeout defaults to 3600 seconds for live runs and 600 otherwise.",
+    options: ["live", "yes", "timeout"],
   },
   ...[
     {

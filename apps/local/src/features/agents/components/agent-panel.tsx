@@ -472,14 +472,17 @@ export const AgentPanel = ({
                         intent.state.data?.briefs[0]?.version
                     )
                   }
-                  onEvidence={(evidence) =>
-                    onEvidence({
-                      ...evidence,
-                      title: "Requirement evidence",
-                      severity: "informational",
-                      problem: "Evidence for the selected requirement.",
-                      fixPrompt: "",
-                    })
+                  onEvidence={
+                    olderResult
+                      ? undefined
+                      : (evidence) =>
+                          onEvidence({
+                            ...evidence,
+                            title: "Requirement evidence",
+                            severity: "informational",
+                            problem: "Evidence for the selected requirement.",
+                            fixPrompt: "",
+                          })
                   }
                   onEdit={() => setBriefOpen(true)}
                   className="pt-0"

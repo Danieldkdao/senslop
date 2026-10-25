@@ -63,8 +63,8 @@ export const useSettingsAutosave = <
     valid: true,
     mounted: true,
   });
-  const drain = useCallback(
-    async function saveQueued(): Promise<void> {
+  const drain = useCallback(() => {
+    const saveQueued = async (): Promise<void> => {
       const state = runtime.current;
       if (state.running) return state.running.then(() => saveQueued());
       if (!state.ready) return;
@@ -99,9 +99,9 @@ export const useSettingsAutosave = <
         }
       })();
       return state.running.then(() => saveQueued());
-    },
-    [id],
-  );
+    };
+    return saveQueued();
+  }, [id]);
   const debouncer = useDebouncer(
     () => {
       runtime.current.ready = true;
