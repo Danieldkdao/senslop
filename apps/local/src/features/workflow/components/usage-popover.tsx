@@ -1,4 +1,5 @@
 "use client";
+import { useEffect, useRef } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -15,7 +16,7 @@ import type {
 } from "@senslop/contracts";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { LoadingSwap } from "@/components/ui/loading-swap";
+import { useSettingsAutosave } from "../../settings/hooks/use-settings-autosave";
 import { TooltipWrapper } from "@/components/ui/tooltip-wrapper";
 import {
   Popover,
@@ -58,17 +59,39 @@ export const UsagePopover = ({
   onAction: (operation: WorkflowActionSchema) => Promise<unknown>;
   onOpenSettings?: () => void;
 }) => {
+  const currentPolicy = useRef(policy);
+  useEffect(() => {
+    currentPolicy.current = policy;
+  }, [policy]);
   const summary = summarizeUsage(usage);
   const ratio = policy.tokenBudget
     ? Math.min(100, (summary.tokens / policy.tokenBudget) * 100)
     : 0;
   const form = useForm<BudgetSchema>({
     resolver: zodResolver(budgetSchema),
+    mode: "onChange",
+    resetOptions: { keepDirtyValues: true },
     values: {
       tokenBudget:
         policy.tokenBudget === null ? "" : String(policy.tokenBudget),
       timeLimitSeconds:
         policy.timeLimitSeconds === null ? "" : String(policy.timeLimitSeconds),
+    },
+  });
+  const autosave = useSettingsAutosave({
+    form,
+    schema: budgetSchema,
+    save: async (values) => {
+      await onAction({
+        action: "save-review-limits",
+        limits: {
+          mode: currentPolicy.current.mode,
+          tokenBudget: values.tokenBudget ? Number(values.tokenBudget) : null,
+          timeLimitSeconds: values.timeLimitSeconds
+            ? Number(values.timeLimitSeconds)
+            : null,
+        },
+      });
     },
   });
   return (
@@ -165,22 +188,14 @@ export const UsagePopover = ({
         <form
           noValidate
           className="flex w-full flex-col gap-3"
-          onSubmit={form.handleSubmit(async (values) => {
-            try {
-              await onAction({
-                action: "save-review-limits",
-                limits: {
-                  mode: policy.mode,
-                  tokenBudget: values.tokenBudget
-                    ? Number(values.tokenBudget)
-                    : null,
-                  timeLimitSeconds: values.timeLimitSeconds
-                    ? Number(values.timeLimitSeconds)
-                    : null,
-                },
-              });
-            } catch {}
-          })}
+          onSubmit={(event) => {
+            event.preventDefault();
+            void autosave.flush();
+          }}
+          onBlur={(event) => {
+            if (!event.currentTarget.contains(event.relatedTarget))
+              void autosave.flush();
+          }}
         >
           <label className="flex w-full flex-col gap-2">
             Token allowance
@@ -214,15 +229,6 @@ export const UsagePopover = ({
                 />
               </span>
             </TooltipWrapper>
-            <Button
-              type="submit"
-              className="flex-1"
-              disabled={form.formState.isSubmitting}
-            >
-              <LoadingSwap isLoading={form.formState.isSubmitting}>
-                Save limits
-              </LoadingSwap>
-            </Button>
           </div>
         </form>
       </PopoverContent>

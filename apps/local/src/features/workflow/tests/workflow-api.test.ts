@@ -27,6 +27,7 @@ vi.mock("../../../services/inngest/functions", () => ({
   getCheckRunner: vi.fn(),
 }));
 import { GET, POST } from "../../../app/api/workflow/route";
+import { POST as saveSettings } from "../../../app/api/project/route";
 
 let directory: string;
 let review: import("@senslop/contracts").SavedReviewSchema;
@@ -194,4 +195,29 @@ test("a check can be canceled after its source round has advanced", async () => 
     (await write({ action: "cancel-check", checkId: check.id })).status,
   ).toBe(200);
   expect(runner.get(check.id)?.status).toBe("canceled");
+});
+
+test("source auto-save patches preserve the latest review budgets and depth", async () => {
+  saveProjectPolicy(
+    state.store,
+    "/fixture",
+    projectPolicySchema.parse({
+      mode: "quick",
+      tokenBudget: 32000,
+      timeLimitSeconds: 120,
+    }),
+  );
+  const response = await saveSettings(
+    new Request("http://localhost/api/project", {
+      method: "POST",
+      body: JSON.stringify({ exclude: ["private/**"] }),
+    }),
+  );
+  expect(response.status).toBe(200);
+  expect(await response.json()).toMatchObject({
+    exclude: ["private/**"],
+    mode: "quick",
+    tokenBudget: 32000,
+    timeLimitSeconds: 120,
+  });
 });

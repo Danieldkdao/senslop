@@ -7,6 +7,7 @@ import {
   executionManifestSchema,
   type ProjectPolicySchema,
 } from "@senslop/contracts";
+import { trackSettingsSave } from "../../settings/lib/settings-save-store";
 import { toast } from "@/components/ui/toast";
 
 const projectSettingsSchema = z.object({
@@ -32,25 +33,37 @@ export const useProjectSettings = (enabled = true) => {
     retry: false,
     networkMode: "always",
   });
-  const save = async (policy: ProjectPolicySchema) => {
-    try {
-      const response = await fetch("/api/project", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(policy),
-      });
-      const data = await response.json();
-      if (!response.ok)
-        throw new Error(data.message ?? "Project settings could not be saved.");
-      await Promise.all([
-        client.invalidateQueries({ queryKey: ["project-settings"] }),
-        client.invalidateQueries({ queryKey: ["workflow"] }),
+  const save = (patch: Partial<ProjectPolicySchema>) =>
+    trackSettingsSave("project-settings", async () => {
+      await client.cancelQueries({ queryKey: ["project-settings"] });
+      const current = client.getQueryData<ProjectSettingsSchema>([
+        "project-settings",
       ]);
-      return projectPolicySchema.parse(data);
-    } catch (error) {
-      toast.error((error as Error).message);
-      throw error;
-    }
-  };
+      try {
+        const response = await fetch("/api/project", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(patch),
+        });
+        const data = await response.json();
+        if (!response.ok)
+          throw new Error(
+            data.message ?? "Project settings could not be saved.",
+          );
+        const savedPolicy = projectPolicySchema.parse(data);
+        client.setQueryData(["project-settings"], {
+          ...current,
+          policy: savedPolicy,
+        });
+        await Promise.all([
+          client.invalidateQueries({ queryKey: ["project-settings"] }),
+          client.invalidateQueries({ queryKey: ["workflow"] }),
+        ]);
+        return savedPolicy;
+      } catch (error) {
+        toast.error((error as Error).message);
+        throw error;
+      }
+    });
   return { state, save };
 };
