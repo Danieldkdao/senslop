@@ -113,7 +113,7 @@ const render = (element: ReactNode) => {
   );
 };
 
-test("compatible providers open a nested form inside the same settings dialog and cancel returns", async () => {
+test("compatible providers open a nested form inside the same settings dialog and Done returns", async () => {
   HTMLElement.prototype.scrollTo = vi.fn();
   vi.stubGlobal(
     "fetch",
@@ -146,7 +146,7 @@ test("compatible providers open a nested form inside the same settings dialog an
   expect(
     screen.getByRole("navigation", { name: "Settings breadcrumb" }).textContent,
   ).toContain("Add OpenAI-Compatible Provider");
-  await user.click(screen.getByRole("button", { name: "Cancel" }));
+  await user.click(screen.getByRole("button", { name: "Done" }));
   expect(screen.queryByLabelText("Provider name")).toBeNull();
   expect(screen.getByRole("button", { name: "Add provider" })).toBeTruthy();
 });
@@ -421,7 +421,9 @@ test.each([
     await user.click(
       await screen.findByRole("button", { name: `Configure ${label}` }),
     );
-    await user.click(screen.getByRole("button", { name: "Save connection" }));
+    expect(
+      screen.queryByRole("button", { name: "Save connection" }),
+    ).toBeNull();
     const failed = await screen.findByRole("button", {
       name: `${label}: model check failed`,
     });

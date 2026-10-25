@@ -35,7 +35,7 @@ beforeEach(() => {
       : {
           connection: {
             ...body.connection,
-            id: crypto.randomUUID(),
+            id: body.connection.id ?? crypto.randomUUID(),
             configured: true,
             credentialError: null,
           },
@@ -47,13 +47,7 @@ afterEach(cleanup);
 
 test("new compatible providers validate required fields before any request", async () => {
   render(<CompatibleProviderForm onCancel={vi.fn()} onSaved={vi.fn()} />);
-  await userEvent
-    .setup()
-    .click(screen.getByRole("button", { name: "Save provider" }));
-  expect(await screen.findByText("Name this connection.")).toBeTruthy();
-  expect(
-    screen.getByText("Enter the model name used by the API."),
-  ).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Save provider" })).toBeNull();
   expect(state.request).not.toHaveBeenCalled();
   expect(screen.getAllByRole("switch")).toHaveLength(7);
   expect(screen.queryByRole("checkbox")).toBeNull();
@@ -83,7 +77,7 @@ test("models can be added and removed, and valid settings save with capability t
   await user.click(
     screen.getByRole("switch", { name: "Supports prompt_cache_key" }),
   );
-  await user.click(screen.getByRole("button", { name: "Save provider" }));
+  await user.tab();
   await waitFor(() => expect(onSaved).toHaveBeenCalled());
   expect(state.request).toHaveBeenCalledWith(
     expect.objectContaining({
@@ -112,11 +106,11 @@ test("invalid numeric limits show accessible errors and a missing key never save
   const input = screen.getByLabelText("Max output tokens");
   await user.clear(input);
   await user.type(input, "9999999");
-  await user.click(screen.getByRole("button", { name: "Save provider" }));
+  await user.tab();
   expect(input.getAttribute("aria-invalid")).toBe("true");
   await user.clear(input);
   await user.type(input, "1000");
-  await user.click(screen.getByRole("button", { name: "Save provider" }));
+  await user.tab();
   expect(
     await screen.findByText("Enter an API key for this provider."),
   ).toBeTruthy();
@@ -144,7 +138,8 @@ test("editing keeps the stored key, but changing the endpoint requires a replace
     />,
   );
   const user = userEvent.setup();
-  await user.click(screen.getByRole("button", { name: "Save provider" }));
+  await user.type(screen.getByLabelText("Provider name"), " updated");
+  await user.tab();
   await waitFor(() => expect(onSaved).toHaveBeenCalled());
   expect(state.request).toHaveBeenCalledWith(
     expect.objectContaining({
@@ -164,7 +159,7 @@ test("editing keeps the stored key, but changing the endpoint requires a replace
   const url = screen.getByLabelText("API URL");
   await user.clear(url);
   await user.type(url, "https://new.test/v1");
-  await user.click(screen.getByRole("button", { name: "Save provider" }));
+  await user.tab();
   expect(
     await screen.findByText("Enter a new API key when changing the API URL."),
   ).toBeTruthy();

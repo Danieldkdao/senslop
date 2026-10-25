@@ -341,9 +341,7 @@ test("local configuration keeps inputs and refreshes the GET catalog after savin
   ).toBe("http://localhost:11434");
   expect(screen.queryByText(/inference server on this computer/)).toBeNull();
   expect(screen.queryByLabelText(/model/i)).toBeNull();
-  await userEvent
-    .setup()
-    .click(screen.getByRole("button", { name: "Save connection" }));
+  expect(screen.queryByRole("button", { name: "Save connection" })).toBeNull();
   await screen.findByRole("button", { name: "Ollama: models available" });
   expect(fixture.writes.map((value) => value.action)).toEqual(["save"]);
   expect(screen.queryByText("Model discovery")).toBeNull();
@@ -358,11 +356,16 @@ test("local optional key removal remains effective after the initial save", asyn
   const endpoint = screen.getByLabelText("API base URL");
   await user.clear(endpoint);
   await user.type(endpoint, "http://localhost:11435");
-  await user.click(screen.getByRole("button", { name: "Save connection" }));
+  await user.tab();
   await waitFor(() => expect(fixture.writes).toHaveLength(2));
   expect(fixture.writes[1]).toMatchObject({
     action: "save",
-    connection: { id, removeKey: true, baseURL: "http://localhost:11435" },
+    connection: {
+      id,
+      apiKey: "",
+      removeKey: true,
+      baseURL: "http://localhost:11435",
+    },
   });
   await waitFor(() =>
     expect(screen.queryByLabelText("Remove saved API key")).toBeNull(),
@@ -425,4 +428,18 @@ test("saved custom providers display their own name and offer configuration", as
     .setup()
     .click(screen.getByRole("button", { name: "Configure My custom server" }));
   expect(onConfigure).toHaveBeenCalledWith("openai-compatible", saved);
+});
+
+test("closing provider settings flushes a pending API key without requiring blur or Enter", async () => {
+  const fixture = setup();
+  const view = fixture.view(<ProviderSettings onConfigure={vi.fn()} />);
+  await userEvent
+    .setup()
+    .type(await screen.findByLabelText("OpenRouter API key"), "pending-key");
+  view.unmount();
+  await waitFor(() => expect(fixture.writes).toHaveLength(1));
+  expect(fixture.writes[0]).toMatchObject({
+    action: "save",
+    connection: { apiKey: "pending-key" },
+  });
 });

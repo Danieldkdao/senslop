@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useRef, useState, type BaseSyntheticEvent } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
@@ -15,7 +15,7 @@ import { formatContextWindow, formatProvider } from "../lib/formatters";
 import { providerRequest } from "../lib/requests";
 import { useProviderModels } from "../hooks/use-provider-models";
 import { ProviderModelStatus } from "./provider-model-status";
-import { LoadingSwap } from "@/components/ui/loading-swap";
+import { useSettingsAutosave } from "../../settings/hooks/use-settings-autosave";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PasswordInput } from "@/components/ui/password-input";
@@ -32,7 +32,6 @@ export const ConnectionForm = ({
 }: ConnectionFormProps) => {
   const id = useId();
   const info = formatProvider(provider);
-  const pending = useRef(false);
   const [savedConnection, setConnection] = useState(initialConnection);
   const { settings, entries, refresh } = useProviderModels();
   const existingConnection = settings?.data?.connections.find(
@@ -42,19 +41,23 @@ export const ConnectionForm = ({
     (existingConnection?.revision ?? -1) > (savedConnection?.revision ?? -1)
       ? existingConnection
       : savedConnection;
+  const connectionRef = useRef(connection);
+  useEffect(() => {
+    connectionRef.current = connection;
+  }, [connection]);
+  const schema = saveConnectionSchema.superRefine((values, context) => {
+    if (info.keyRequired && !values.apiKey && !connection?.configured)
+      context.addIssue({
+        code: "custom",
+        path: ["apiKey"],
+        message: "Enter an API key for this provider.",
+      });
+  });
   const [saveError, setSaveError] = useState<string | null>(null);
   const entry = entries.find((entry) => entry.connection.id === connection?.id);
-  const {
-    register,
-    getValues,
-    handleSubmit,
-    control,
-    setValue,
-    reset,
-    setError,
-    formState: { errors, isSubmitting },
-  } = useForm<SaveConnectionSchema>({
-    resolver: zodResolver(saveConnectionSchema),
+  const form = useForm<SaveConnectionSchema>({
+    resolver: zodResolver(schema),
+    mode: "onChange",
     resetOptions: { keepDirtyValues: true },
     values: {
       provider,
@@ -67,14 +70,19 @@ export const ConnectionForm = ({
       removeKey: false,
     },
   });
-  const submit = (event?: BaseSyntheticEvent) =>
-    handleSubmit(async (values) => {
-      if (pending.current) return;
-      if (info.keyRequired && !values.apiKey && !connection?.configured) {
-        setError("apiKey", { message: "Enter an API key for this provider." });
-        return;
-      }
-      pending.current = true;
+  const {
+    register,
+    control,
+    setValue,
+    reset,
+    resetField,
+    formState: { errors },
+  } = form;
+  const autosave = useSettingsAutosave({
+    form,
+    schema,
+    saveInitial: !info.keyRequired && !initialConnection,
+    save: async (values) => {
       setSaveError(null);
       try {
         const saved = await providerRequest<{
@@ -82,28 +90,38 @@ export const ConnectionForm = ({
           warning: string | null;
         }>({
           action: "save",
-          connection: values,
+          connection: { ...values, id: connectionRef.current?.id ?? values.id },
         });
+        const current = schema.safeParse(form.getValues());
+        const unchanged =
+          current.success &&
+          JSON.stringify(current.data) === JSON.stringify(values);
+        connectionRef.current = saved.connection;
         setConnection(saved.connection);
-        reset(
-          {
-            ...values,
-            id: saved.connection.id,
-            apiKey: "",
-            removeKey: false,
-          },
-          { keepDirtyValues: false },
-        );
+        if (unchanged)
+          reset(
+            {
+              ...values,
+              id: saved.connection.id,
+              apiKey: "",
+              removeKey: false,
+            },
+            { keepValues: true },
+          );
+        setValue("id", saved.connection.id);
+        if (form.getValues("apiKey") === values.apiKey)
+          resetField("apiKey", { defaultValue: "" });
+        if (form.getValues("removeKey") === values.removeKey)
+          resetField("removeKey", { defaultValue: false });
         if (saved.warning) toast.error(saved.warning);
-        else toast.success("Connection saved locally.");
         await refresh();
       } catch (error) {
         setSaveError((error as Error).message);
         toast.error((error as Error).message);
-      } finally {
-        pending.current = false;
+        throw error;
       }
-    })(event);
+    },
+  });
   const field = (name: "baseURL", label: string, type = "text") => (
     <div className="flex flex-col gap-2">
       <label htmlFor={`${id}-${name}`}>{label}</label>
@@ -125,9 +143,15 @@ export const ConnectionForm = ({
   return (
     <form
       noValidate
-      onSubmit={submit}
+      onSubmit={(event) => {
+        event.preventDefault();
+        void autosave.flush();
+      }}
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget))
+          void autosave.flush();
+      }}
       className="flex flex-col gap-5 text-base"
-      aria-busy={isSubmitting}
     >
       <div className="flex flex-wrap items-center gap-3">
         <ProviderIcon
@@ -143,7 +167,7 @@ export const ConnectionForm = ({
           provider={provider}
           connection={connection}
           entry={entry}
-          status={{ busy: isSubmitting, error: saveError }}
+          status={{ busy: autosave.saving, error: saveError }}
           onRefresh={async () => {
             setSaveError(null);
             if (entry) await entry.refetch();
@@ -199,16 +223,7 @@ export const ConnectionForm = ({
           </p>
         </div>
       )}
-      <div
-        className="flex flex-col gap-2"
-        onBlur={(event) => {
-          if (
-            !event.currentTarget.contains(event.relatedTarget) &&
-            getValues("apiKey")
-          )
-            void submit();
-        }}
-      >
+      <div className="flex flex-col gap-2">
         <label htmlFor={`${id}-apiKey`}>API key</label>
         <Controller
           name="apiKey"
@@ -220,7 +235,6 @@ export const ConnectionForm = ({
               className="text-base md:text-base"
               autoComplete="off"
               spellCheck={false}
-              disabled={isSubmitting}
               placeholder={
                 connection?.configured
                   ? "Saved in OS credential store, leave blank to keep"
@@ -258,14 +272,6 @@ export const ConnectionForm = ({
         Saving checks the connection automatically using metadata only; no
         repository source is sent.
       </p>
-      <Button
-        type="submit"
-        aria-label="Save connection"
-        aria-busy={isSubmitting}
-        disabled={isSubmitting}
-      >
-        <LoadingSwap isLoading={isSubmitting}>Save connection</LoadingSwap>
-      </Button>
     </form>
   );
 };
