@@ -3,27 +3,12 @@ import { randomUUID } from "node:crypto";
 import { readFileSync, unlinkSync, renameSync } from "node:fs";
 import { withWorkspaceState } from "./workspace-owner.js";
 import { join } from "node:path";
-import { z } from "zod";
+import {
+  workspaceSessionSchema,
+  type WorkspaceSessionSchema,
+} from "@senslop/contracts";
+export type { WorkspaceSessionSchema } from "@senslop/contracts";
 import { workspaceStateDirectory } from "./runtime-paths.js";
-
-const workspaceSessionSchema = z
-  .object({
-    version: z.literal(1),
-    repository: z.string().min(1),
-    origin: z.url().refine((value) => {
-      const url = new URL(value);
-      return (
-        url.protocol === "http:" &&
-        url.hostname === "127.0.0.1" &&
-        !!url.port &&
-        value === url.origin
-      );
-    }),
-    token: z.string().regex(/^[a-f0-9]{64}$/),
-    pid: z.number().int().positive(),
-  })
-  .strict();
-export type WorkspaceSessionSchema = z.infer<typeof workspaceSessionSchema>;
 
 export const workspaceSessionPath = (directory: string, repository: string) =>
   join(workspaceStateDirectory(directory, repository), "session.json");

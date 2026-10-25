@@ -14,6 +14,8 @@
     "./fix-tasks": "./src/features/workflow/fix-tasks.ts",
     "./usage": "./src/features/workflow/usage-store.ts",
     "./fix-changes": "./src/features/workflow/fix-changes.ts",
+    "./runtime-paths": "./src/features/workflow/runtime-paths.ts",
+    "./projects": "./src/features/workflow/project-registry.ts",
     "./verification": "./src/features/workflow/verification-store.ts"
   },
   "scripts": {
