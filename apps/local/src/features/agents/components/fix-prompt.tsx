@@ -40,9 +40,11 @@ const PromptContent = ({ prompt }: { prompt: string }) => {
 export const FixPrompt = ({
   prompt,
   secondary = false,
+  label = "Fix with agent prompt",
 }: {
   prompt: string;
   secondary?: boolean;
+  label?: string;
 }) => (
   <Collapsible
     className={cn(
@@ -53,7 +55,7 @@ export const FixPrompt = ({
     )}
   >
     <CollapsibleTrigger className="group/fix flex w-full items-center justify-between gap-2 px-4 py-2 text-base font-medium outline-none hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
-      <span>Fix with agent prompt</span>
+      <span>{label}</span>
       <ChevronDown
         aria-hidden="true"
         className="size-4 shrink-0 transition-transform group-data-panel-open/fix:rotate-180 motion-reduce:transition-none"

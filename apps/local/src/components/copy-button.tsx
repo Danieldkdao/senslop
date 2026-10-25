@@ -5,8 +5,15 @@ import { Check, Copy } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { LoadingSwap } from "@/components/ui/loading-swap";
 import { toast } from "@/components/ui/toast";
+import { TooltipWrapper } from "@/components/ui/tooltip-wrapper";
 
-export const CopyButton = ({ text }: { text: string }) => {
+export const CopyButton = ({
+  text,
+  label = "Copy response",
+}: {
+  text: string;
+  label?: string;
+}) => {
   const [copiedText, setCopiedText] = useState<string | null>(null);
   const [copying, setCopying] = useState(false);
   const timeout = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -31,17 +38,19 @@ export const CopyButton = ({ text }: { text: string }) => {
     }
   };
   return (
-    <Button
-      type="button"
-      variant="ghost"
-      size="icon-sm"
-      disabled={copying || !text}
-      aria-label={copied ? "Copied response" : "Copy response"}
-      onClick={copy}
-    >
-      <LoadingSwap isLoading={copying}>
-        {copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}
-      </LoadingSwap>
-    </Button>
+    <TooltipWrapper content={copied ? "Copied" : label}>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-sm"
+        disabled={copying || !text}
+        aria-label={copied ? "Copied response" : label}
+        onClick={copy}
+      >
+        <LoadingSwap isLoading={copying}>
+          {copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}
+        </LoadingSwap>
+      </Button>
+    </TooltipWrapper>
   );
 };
