@@ -62,6 +62,9 @@ Read the exact versioned docs at https://docs.expo.dev/versions/v57.0.0/ before 
 - Use exactly one blank line between imports and main code, between functions, and between unrelated definitions. Keep each Zod schema directly adjacent to its inferred type. Never add multiple blank lines; run formatting on changed authored files.
 - Use flex layouts with gap utilities for spacing in authored application UI; never use Tailwind `space-*` utilities. Preserve existing generated shadcn/ui primitive classes.
 - Use `LoadingSwap` for button loading states and `useConfirm` for confirmation dialogs.
+- Prefer icon buttons with tooltips over full text buttons whenever they make the design cleaner and simpler, even when space is available. Use full text buttons only when they have ample room and fit the layout without clutter. Give icon buttons accessible labels.
+- Keep status and informational content concise. Prefer meaningful icons with tooltips and shorter content when full text adds crowding or visual noise, or when icons make the design cleaner regardless of available space. Preserve useful details in tooltips and accessible labels.
+- Use Mobbin for design references anytime you are unsure about a layout or interaction pattern.
 - Use shadcn/ui Select for application selection controls, following the installed Base UI composition API.
 - Use a Lucide dot icon or structured spacing to separate UI metadata; avoid the literal middle-dot character in authored UI text.
 - Add shadcn components through the installed CLI using the existing `components.json`. Preserve generated primitives and the owner's theme. Follow the selected Base UI composition API in application callers.

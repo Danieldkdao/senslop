@@ -12,10 +12,15 @@ import { ReviewHistory } from "../components/review-history";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState, type ReactNode } from "react";
 import { onlineManager } from "@tanstack/react-query";
+import { TooltipProvider } from "@/components/ui/tooltip";
 
 const QueryProvider = ({ children }: { children: ReactNode }) => {
   const [client] = useState(() => new QueryClient());
-  return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
+  return (
+    <QueryClientProvider client={client}>
+      <TooltipProvider>{children}</TooltipProvider>
+    </QueryClientProvider>
+  );
 };
 
 beforeEach(() => {
@@ -374,4 +379,167 @@ test("a superseded query is aborted and its late response cannot replace search 
   finishInitial({ ok: true, json: async () => ({ history: [review] }) });
   expect(await screen.findByText("Latest result")).toBeTruthy();
   expect(screen.queryByText(review.title)).toBeNull();
+});
+
+test("history exposes compact snapshot and analysis status icons with keyboard and hover tooltips", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        history: [
+          {
+            ...review,
+            work: [
+              {
+                id: "group",
+                kind: "grouping",
+                status: "queued",
+                progress: "Waiting for capacity",
+                error: null,
+              },
+              {
+                id: "analysis",
+                kind: "review",
+                status: "failed",
+                progress: "Stopped",
+                error: "Model unavailable",
+              },
+            ],
+          },
+        ],
+      }),
+    }),
+  );
+  const user = userEvent.setup();
+  const onAction = vi.fn();
+  render(<ReviewHistory open onOpenChange={vi.fn()} onAction={onAction} />, {
+    wrapper: QueryProvider,
+  });
+  const snapshot = await screen.findByRole("img", {
+    name: "Snapshot ready to read",
+  });
+  const grouping = screen.getByRole("img", {
+    name: "Grouping: Queued — Waiting for capacity",
+  });
+  const correctness = screen.getByRole("img", {
+    name: "Correctness: Failed — Model unavailable",
+  });
+  expect(snapshot.textContent).toBe("");
+  expect(grouping.textContent).toBe("");
+  expect(correctness.textContent).toBe("");
+  await user.tab();
+  expect(document.activeElement).toBe(snapshot);
+  expect(await screen.findByText("Snapshot ready to read")).toBeTruthy();
+  await user.keyboard("{Enter}");
+  expect(onAction).not.toHaveBeenCalled();
+  await user.tab();
+  expect(document.activeElement).toBe(grouping);
+  expect(
+    await screen.findByText("Grouping: Queued — Waiting for capacity"),
+  ).toBeTruthy();
+  await user.hover(correctness);
+  expect(
+    await screen.findByText("Correctness: Failed — Model unavailable"),
+  ).toBeTruthy();
+  expect(onAction).not.toHaveBeenCalled();
+});
+
+test("queued work can be prioritized and canceled without opening its snapshot", async () => {
+  const fetcher = vi.fn(async (_url, options) =>
+    options?.method === "POST"
+      ? Response.json({ saved: true })
+      : Response.json({
+          history: [
+            {
+              ...review,
+              work: [
+                {
+                  id: "job",
+                  kind: "grouping",
+                  status: "queued",
+                  priority: "normal",
+                  progress: "Waiting",
+                  error: null,
+                },
+              ],
+            },
+          ],
+        }),
+  );
+  vi.stubGlobal("fetch", fetcher);
+  const onAction = vi.fn();
+  const user = userEvent.setup();
+  render(<ReviewHistory open onOpenChange={vi.fn()} onAction={onAction} />, {
+    wrapper: QueryProvider,
+  });
+  const prioritize = await screen.findByRole("button", {
+    name: "Prioritize grouping",
+  });
+  expect(prioritize.textContent).toBe("");
+  await user.hover(prioritize);
+  expect(await screen.findByText("Prioritize grouping")).toBeTruthy();
+  await user.click(prioritize);
+  expect(fetcher).toHaveBeenCalledWith(
+    "/api/agents",
+    expect.objectContaining({
+      body: JSON.stringify({ action: "priority", id: "job", priority: "high" }),
+    }),
+  );
+  const cancel = await screen.findByRole("button", { name: "Cancel grouping" });
+  expect(cancel.textContent).toBe("");
+  await user.hover(cancel);
+  expect(await screen.findByText("Cancel grouping")).toBeTruthy();
+  await user.click(cancel);
+  expect(fetcher).toHaveBeenCalledWith(
+    "/api/agents",
+    expect.objectContaining({
+      body: JSON.stringify({ action: "cancel", id: "job" }),
+    }),
+  );
+  expect(onAction).not.toHaveBeenCalled();
+});
+
+test("failed work retries through an icon button without opening its snapshot", async () => {
+  const fetcher = vi.fn(async (_url, options) =>
+    options?.method === "POST"
+      ? Response.json({ saved: true })
+      : Response.json({
+          history: [
+            {
+              ...review,
+              work: [
+                {
+                  id: "failed-job",
+                  kind: "review",
+                  status: "failed",
+                  priority: "normal",
+                  progress: "Stopped",
+                  error: "Model unavailable",
+                },
+              ],
+            },
+          ],
+        }),
+  );
+  vi.stubGlobal("fetch", fetcher);
+  const onAction = vi.fn();
+  const user = userEvent.setup();
+  render(<ReviewHistory open onOpenChange={vi.fn()} onAction={onAction} />, {
+    wrapper: QueryProvider,
+  });
+  const retry = await screen.findByRole("button", {
+    name: "Retry correctness",
+  });
+  expect(retry.textContent).toBe("");
+  await user.hover(retry);
+  expect(await screen.findByText("Retry correctness")).toBeTruthy();
+  await user.click(retry);
+  expect(fetcher).toHaveBeenCalledWith(
+    "/api/agents",
+    expect.objectContaining({
+      body: JSON.stringify({ action: "retry", id: "failed-job" }),
+    }),
+  );
+  expect(onAction).not.toHaveBeenCalled();
 });

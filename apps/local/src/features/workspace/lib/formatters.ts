@@ -1,6 +1,16 @@
 import type { LivePreview } from "../../review/types";
 import type { ResyncMode } from "@senslop/contracts";
 import type { RepositoryState, SavedReviewSummary } from "../types";
+import {
+  ListTodo,
+  ListTree,
+  ListX,
+  ShieldAlert,
+  ShieldCheck,
+  ShieldEllipsis,
+  ShieldX,
+} from "lucide-react";
+import { formatJobStatusAppearance } from "../../agents/lib/formatters";
 
 export const formatRepository = (
   repository: RepositoryState | null | undefined,
@@ -21,6 +31,47 @@ export const formatReviewSummary = (review: SavedReviewSummary) => ({
 });
 
 export const formatSnapshot = (hash: string) => `Snapshot ${hash.slice(0, 12)}`;
+
+export const formatReviewWork = (
+  job: NonNullable<SavedReviewSummary["work"]>[number],
+) => {
+  const task = job.kind === "grouping" ? "Grouping" : "Correctness";
+  const appearance = {
+    ...formatJobStatusAppearance(job.status),
+    task: task.toLowerCase(),
+  };
+  switch (job.status) {
+    case "queued":
+      return {
+        ...appearance,
+        Icon: job.kind === "grouping" ? ListTodo : ShieldEllipsis,
+        label: `${task}: Queued — ${job.error ?? job.progress}`,
+      };
+    case "running":
+      return {
+        ...appearance,
+        label: `${task}: Preparing — ${job.progress}`,
+      };
+    case "completed":
+      return {
+        ...appearance,
+        Icon: job.kind === "grouping" ? ListTree : ShieldCheck,
+        label: `${task}: Ready`,
+      };
+    case "failed":
+      return {
+        ...appearance,
+        Icon: job.kind === "grouping" ? ListX : ShieldAlert,
+        label: `${task}: Failed — ${job.error ?? job.progress}`,
+      };
+    case "canceled":
+      return {
+        ...appearance,
+        Icon: job.kind === "grouping" ? ListX : ShieldX,
+        label: `${task}: Canceled`,
+      };
+  }
+};
 
 export const formatFreshness = (
   saved: string | null | undefined,

@@ -4,7 +4,16 @@ import { useId, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Check, Dot, FolderCheckIcon, Pencil, Trash2, X } from "lucide-react";
+import {
+  Check,
+  Dot,
+  FileCheck2,
+  FolderCheckIcon,
+  Pencil,
+  RotateCcw,
+  Trash2,
+  X,
+} from "lucide-react";
 import {
   Command,
   CommandDialog,
@@ -26,6 +35,7 @@ import {
 } from "../lib/formatters";
 import { useReviewHistory } from "../hooks/use-review-history";
 import { TooltipWrapper } from "@/components/ui/tooltip-wrapper";
+import { ReviewWorkStatus } from "./review-work-status";
 
 const renameSchema = z.object({
   title: z.string().trim().min(1, "Enter a review name.").max(200),
@@ -93,70 +103,134 @@ const ReviewHistoryItem = ({
         }}
       >
         <div className="min-w-0 flex-1 flex flex-col gap-2">
-          {editing ? (
-            <form
-              noValidate
-              onClick={(event) => event.stopPropagation()}
-              onKeyDown={(event) => event.stopPropagation()}
-              className="flex gap-2"
-              onSubmit={handleSubmit(async ({ title }) => {
-                if (
-                  await act({
-                    action: "change",
-                    id: review.id,
-                    expectedHash: review.hash,
-                    expectedRound: review.round ?? 1,
-                    change: { action: "rename", title },
-                  })
-                )
-                  setEditing(false);
-              })}
-            >
-              <label className="sr-only" htmlFor={id}>
-                Review name
-              </label>
-              <Input
-                id={id}
-                autoFocus
-                {...register("title")}
-                className="text-base min-w-0"
-                aria-invalid={!!errors.title}
-              />
-              <Button
-                type="submit"
-                size="icon"
-                aria-label="Save review name"
-                disabled={busy}
+          <div className="flex flex-col">
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div className="min-w-0 flex-1">
+                {editing ? (
+                  <form
+                    noValidate
+                    onClick={(event) => event.stopPropagation()}
+                    onKeyDown={(event) => event.stopPropagation()}
+                    className="flex gap-2"
+                    onSubmit={handleSubmit(async ({ title }) => {
+                      if (
+                        await act({
+                          action: "change",
+                          id: review.id,
+                          expectedHash: review.hash,
+                          expectedRound: review.round ?? 1,
+                          change: { action: "rename", title },
+                        })
+                      )
+                        setEditing(false);
+                    })}
+                  >
+                    <label className="sr-only" htmlFor={id}>
+                      Review name
+                    </label>
+                    <Input
+                      id={id}
+                      autoFocus
+                      {...register("title")}
+                      className="text-base min-w-0"
+                      aria-invalid={!!errors.title}
+                    />
+                    <TooltipWrapper content="Save review name">
+                      <Button
+                        type="submit"
+                        size="icon"
+                        aria-label="Save review name"
+                        disabled={busy}
+                      >
+                        <LoadingSwap isLoading={busy}>
+                          <Check aria-hidden="true" />
+                        </LoadingSwap>
+                      </Button>
+                    </TooltipWrapper>
+                    <TooltipWrapper content="Cancel rename">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        aria-label="Cancel rename"
+                        onClick={() => setEditing(false)}
+                      >
+                        <X aria-hidden="true" />
+                      </Button>
+                    </TooltipWrapper>
+                    {errors.title && <p role="alert">{errors.title.message}</p>}
+                  </form>
+                ) : (
+                  <p className="font-medium wrap-break-word">{review.title}</p>
+                )}
+              </div>
+              <div
+                className="flex flex-wrap items-center gap-1"
+                onClick={(event) => event.stopPropagation()}
+                onKeyDown={(event) => event.stopPropagation()}
               >
-                <LoadingSwap isLoading={busy}>
-                  <Check aria-hidden="true" />
-                </LoadingSwap>
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                aria-label="Cancel rename"
-                onClick={() => setEditing(false)}
-              >
-                <X aria-hidden="true" />
-              </Button>
-              {errors.title && <p role="alert">{errors.title.message}</p>}
-            </form>
-          ) : (
-            <p className="font-medium wrap-break-word">{review.title}</p>
-          )}
-          <p className="flex flex-wrap items-center gap-1 text-muted-foreground">
-            <span>{summary.round}</span>
-            <Dot aria-hidden="true" className="size-4 shrink-0" />
-            <span>{summary.date}</span>
-            <Dot aria-hidden="true" className="size-4 shrink-0" />
-            <span>{summary.files}</span>
-            <Dot aria-hidden="true" className="size-4 shrink-0" />
-            <span>{summary.notes}</span>
-            <Dot aria-hidden="true" className="size-4 shrink-0" />
-            <span>{summary.completed}</span>
-          </p>
+                <TooltipWrapper content="Snapshot ready to read">
+                  <span
+                    role="img"
+                    tabIndex={0}
+                    aria-label="Snapshot ready to read"
+                    className="inline-flex size-9 items-center justify-center rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    <FileCheck2
+                      aria-hidden="true"
+                      className="size-4 text-success!"
+                    />
+                  </span>
+                </TooltipWrapper>
+                {review.work?.map((job) => (
+                  <ReviewWorkStatus key={job.id} job={job} />
+                ))}
+                <TooltipWrapper content={`Rename ${review.title}`}>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    aria-label={`Rename ${review.title}`}
+                    disabled={busy}
+                    onClick={() => setEditing(true)}
+                  >
+                    <Pencil aria-hidden="true" />
+                  </Button>
+                </TooltipWrapper>
+                <TooltipWrapper content={`Delete ${review.title}`}>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    aria-label={`Delete ${review.title}`}
+                    disabled={busy}
+                    onClick={() =>
+                      void (async () => {
+                        if (await confirm())
+                          await act({
+                            action: "delete",
+                            id: review.id,
+                            expectedHash: review.hash,
+                            expectedRound: review.round ?? 1,
+                          });
+                      })()
+                    }
+                  >
+                    <Trash2 aria-hidden="true" />
+                  </Button>
+                </TooltipWrapper>
+              </div>
+            </div>
+            <p className="flex flex-wrap items-center gap-1 text-muted-foreground">
+              <span>{summary.round}</span>
+              <Dot aria-hidden="true" className="size-4 shrink-0" />
+              <span>{summary.date}</span>
+              <Dot aria-hidden="true" className="size-4 shrink-0" />
+              <span>{summary.files}</span>
+              <Dot aria-hidden="true" className="size-4 shrink-0" />
+              <span>{summary.notes}</span>
+              <Dot aria-hidden="true" className="size-4 shrink-0" />
+              <span>{summary.completed}</span>
+            </p>
+          </div>
           <p className="text-muted-foreground font-mono">
             {formatSnapshot(review.hash)}
           </p>
@@ -165,40 +239,6 @@ const ReviewHistoryItem = ({
               Local operation failed. Retry; your saved data is retained.
             </p>
           )}
-        </div>
-        <div
-          className="flex shrink-0 gap-1"
-          onClick={(event) => event.stopPropagation()}
-          onKeyDown={(event) => event.stopPropagation()}
-        >
-          <Button
-            variant="ghost"
-            size="icon"
-            aria-label={`Rename ${review.title}`}
-            disabled={busy}
-            onClick={() => setEditing(true)}
-          >
-            <Pencil aria-hidden="true" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            aria-label={`Delete ${review.title}`}
-            disabled={busy}
-            onClick={() =>
-              void (async () => {
-                if (await confirm())
-                  await act({
-                    action: "delete",
-                    id: review.id,
-                    expectedHash: review.hash,
-                    expectedRound: review.round ?? 1,
-                  });
-              })()
-            }
-          >
-            <Trash2 aria-hidden="true" />
-          </Button>
         </div>
       </CommandItem>
     </>
@@ -276,9 +316,16 @@ export const ReviewHistory = ({
           {history.error && !history.isFetching && !history.isDebouncing ? (
             <div role="alert" className="p-4">
               <p>{history.error.message}</p>
-              <Button variant="outline" onClick={() => void history.refetch()}>
-                Retry history
-              </Button>
+              <TooltipWrapper content="Retry history">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label="Retry history"
+                  onClick={() => void history.refetch()}
+                >
+                  <RotateCcw aria-hidden="true" />
+                </Button>
+              </TooltipWrapper>
             </div>
           ) : loading ? (
             <p role="status" className="p-4 text-muted-foreground">
@@ -289,7 +336,7 @@ export const ReviewHistory = ({
               <CommandGroup
                 key={directory ?? ""}
                 heading={
-                  <div className="flex min-w-0 items-start gap-2">
+                  <div className="flex min-w-0 items-start gap-2 w-full leading-6">
                     <div className="flex-1 min-w-0">
                       <span className="break-all font-mono">
                         {formatReviewDirectory(directory)}
@@ -297,9 +344,13 @@ export const ReviewHistory = ({
                     </div>
                     {directory === currentDirectory && (
                       <TooltipWrapper content="Current folder">
-                        <span tabIndex={0} aria-label="Current folder">
+                        <span
+                          tabIndex={0}
+                          aria-label="Current folder"
+                          className="shrink-0 h-[1lh] flex items-center"
+                        >
                           <FolderCheckIcon
-                            className="h-[6lh]"
+                            className="size-5"
                             aria-hidden="true"
                           />
                         </span>
