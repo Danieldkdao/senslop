@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import { storedConnectionSchema } from "@senslop/contracts";
 import type { LocalStore } from "@senslop/review-core/storage";
+import { projectPreferenceKey } from "@senslop/review-core/policy";
 import {
   aiSettingsSchema,
   aiSettingsPatchSchema,
@@ -29,7 +30,7 @@ export class AgentStore {
     private readonly dispatch?: { id: string; key: string },
   ) {}
 
-  settings = () => {
+  private globalSettings = () => {
     const existingSettings = this.local.database
       .prepare("SELECT value FROM preferences WHERE name = 'ai_settings'")
       .get();
@@ -38,6 +39,27 @@ export class AgentStore {
         ? JSON.parse(String(existingSettings.value))
         : defaultAiSettings,
     );
+  };
+
+  settings = () => {
+    const settings = this.globalSettings();
+    const projectSettings = this.local.database
+      .prepare("SELECT value FROM preferences WHERE name=?")
+      .get(
+        projectPreferenceKey(
+          this.local,
+          this.repository,
+          "project_ai_settings",
+        ),
+      );
+    return projectSettings
+      ? aiSettingsSchema.parse({
+          ...settings,
+          ...JSON.parse(String(projectSettings.value)),
+          capacity: settings.capacity,
+          machineConcurrency: settings.machineConcurrency,
+        })
+      : settings;
   };
 
   capacityLocked = () =>
@@ -77,7 +99,28 @@ export class AgentStore {
       .prepare(
         "INSERT INTO preferences VALUES ('ai_settings', ?) ON CONFLICT(name) DO UPDATE SET value = excluded.value",
       )
-      .run(JSON.stringify(settings));
+      .run(
+        JSON.stringify({
+          ...this.globalSettings(),
+          capacity: settings.capacity,
+          machineConcurrency: settings.machineConcurrency,
+        }),
+      );
+    const projectSettings = aiSettingsSchema
+      .omit({ capacity: true, machineConcurrency: true })
+      .parse(settings);
+    this.local.database
+      .prepare(
+        "INSERT INTO preferences VALUES (?,?) ON CONFLICT(name) DO UPDATE SET value=excluded.value",
+      )
+      .run(
+        projectPreferenceKey(
+          this.local,
+          this.repository,
+          "project_ai_settings",
+        ),
+        JSON.stringify(projectSettings),
+      );
     return settings;
   };
 

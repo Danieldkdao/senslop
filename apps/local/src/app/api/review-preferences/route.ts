@@ -1,3 +1,4 @@
+import { projectPreferenceKey } from "@senslop/review-core/policy";
 import {
   getWorkspace,
   protectLocalRoute,
@@ -12,11 +13,17 @@ export const GET = async (request: Request) => {
       { status: 403 },
     );
   try {
-    const existingPreferences = getWorkspace()
-      .store.database.prepare(
-        "SELECT value FROM preferences WHERE name = 'review_preferences'",
+    const workspace = getWorkspace();
+    const key = projectPreferenceKey(
+      workspace.store,
+      await workspace.root(),
+      "project_review_preferences",
+    );
+    const existingPreferences = workspace.store.database
+      .prepare(
+        "SELECT value FROM preferences WHERE name IN (?, 'review_preferences') ORDER BY name = ? DESC LIMIT 1",
       )
-      .get();
+      .get(key, key);
     return Response.json(
       reviewPreferencesSchema.parse(
         existingPreferences
@@ -48,11 +55,17 @@ export const PUT = async (request: Request) => {
       { status: 400 },
     );
   try {
-    getWorkspace()
-      .store.database.prepare(
-        "INSERT INTO preferences VALUES ('review_preferences', ?) ON CONFLICT(name) DO UPDATE SET value = excluded.value",
+    const workspace = getWorkspace();
+    const key = projectPreferenceKey(
+      workspace.store,
+      await workspace.root(),
+      "project_review_preferences",
+    );
+    workspace.store.database
+      .prepare(
+        "INSERT INTO preferences VALUES (?, ?) ON CONFLICT(name) DO UPDATE SET value = excluded.value",
       )
-      .run(JSON.stringify(input.data));
+      .run(key, JSON.stringify(input.data));
     return Response.json(input.data);
   } catch {
     return Response.json(
@@ -78,13 +91,19 @@ export const PATCH = async (request: Request) => {
       { status: 400 },
     );
   try {
-    const store = getWorkspace().store;
+    const workspace = getWorkspace();
+    const store = workspace.store;
+    const key = projectPreferenceKey(
+      store,
+      await workspace.root(),
+      "project_review_preferences",
+    );
     const updatedPreferences = store.transaction(() => {
       const existingPreferences = store.database
         .prepare(
-          "SELECT value FROM preferences WHERE name = 'review_preferences'",
+          "SELECT value FROM preferences WHERE name IN (?, 'review_preferences') ORDER BY name = ? DESC LIMIT 1",
         )
-        .get();
+        .get(key, key);
       const updatedPreferences = reviewPreferencesSchema.parse({
         ...(existingPreferences
           ? JSON.parse(String(existingPreferences.value))
@@ -93,9 +112,9 @@ export const PATCH = async (request: Request) => {
       });
       store.database
         .prepare(
-          "INSERT INTO preferences VALUES ('review_preferences', ?) ON CONFLICT(name) DO UPDATE SET value = excluded.value",
+          "INSERT INTO preferences VALUES (?, ?) ON CONFLICT(name) DO UPDATE SET value = excluded.value",
         )
-        .run(JSON.stringify(updatedPreferences));
+        .run(key, JSON.stringify(updatedPreferences));
       return updatedPreferences;
     });
     return Response.json(updatedPreferences);

@@ -18,6 +18,7 @@ import {
   resyncSnapshot,
   readRepository,
   resolveRepository,
+  readCommonGitDirectory,
 } from "@senslop/review-core/git";
 import { LocalStore } from "@senslop/review-core/storage";
 
@@ -33,8 +34,20 @@ export class LocalWorkspace {
   private handoff: Promise<void> = Promise.resolve();
   private contexts = new Set<Promise<void>>();
   private operations: Promise<unknown> = Promise.resolve();
+  private projectIdentity: Promise<void> | null = null;
   constructor(private readonly options: LocalWorkspaceOptions) {
     this.store = new LocalStore(options.databasePath);
+    this.store.database
+      .prepare(
+        "INSERT INTO preferences VALUES (?,?) ON CONFLICT(name) DO UPDATE SET value=excluded.value",
+      )
+      .run(
+        `known_project:${options.repository}`,
+        JSON.stringify({
+          root: options.repository,
+          directory: options.directory ?? options.repository,
+        }),
+      );
   }
 
   root = async () => {
@@ -43,6 +56,27 @@ export class LocalWorkspace {
       throw new Error(
         "The opened repository root changed. Restart the CLI in the intended repository.",
       );
+    this.projectIdentity ??= readCommonGitDirectory(root).then((common) => {
+      this.store.database
+        .prepare(
+          "INSERT INTO preferences VALUES (?,?) ON CONFLICT(name) DO UPDATE SET value=excluded.value",
+        )
+        .run(`project_common:${root}`, common);
+      for (const name of [
+        "project_ai_settings",
+        "project_review_preferences",
+        "project_policy",
+      ]) {
+        const previous = this.store.database
+          .prepare("SELECT value FROM preferences WHERE name=?")
+          .get(`${name}:${root}`);
+        if (previous)
+          this.store.database
+            .prepare("INSERT OR IGNORE INTO preferences VALUES (?,?)")
+            .run(`${name}:${common}`, String(previous.value));
+      }
+    });
+    await this.projectIdentity;
     return root;
   };
 
