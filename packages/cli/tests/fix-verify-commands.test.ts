@@ -2,11 +2,51 @@ import { expect, test, vi } from "vitest";
 import { parseCliCommand } from "../src/features/commands/parse-command";
 import { executeReviewCommand } from "../src/features/reviews/commands";
 import type { WorkspaceClient } from "../src/features/workspace/workspace-client";
+import { CliError } from "../src/features/commands/errors";
+
 const review = {
   id: "11111111-1111-4111-8111-111111111111",
   hash: "a".repeat(64),
   round: 2,
 };
+
+test.each(["failed", "blocked", "canceled", "timed-out", "interrupted"])(
+  "watching an unsuccessful check reports a nonzero CLI exit: %s",
+  async (status) => {
+    const client = {
+      request: vi.fn(async () => ({
+        id: "check",
+        review,
+        status,
+        error: null,
+      })),
+    } as unknown as WorkspaceClient;
+    const operation = executeReviewCommand(
+      client,
+      parseCliCommand(["checks", "watch", "check"]),
+    );
+    await expect(operation).rejects.toBeInstanceOf(CliError);
+    await expect(operation).rejects.toMatchObject({
+      code: "check_failed",
+      exitCode: 4,
+      details: { checkId: "check", status },
+    });
+  },
+);
+
+test("watching a passed check succeeds", async () => {
+  const run = { id: "check", review, status: "passed" };
+  const client = {
+    request: vi.fn(async () => run),
+  } as unknown as WorkspaceClient;
+  expect(
+    await executeReviewCommand(
+      client,
+      parseCliCommand(["checks", "watch", "check"]),
+    ),
+  ).toEqual(run);
+});
+
 test("finding decisions retain an explicit review revision and omit an optional reason", async () => {
   const request = vi.fn(async (path: string) =>
     path.includes("workspace") ? review : { findings: [] },

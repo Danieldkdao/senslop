@@ -67,6 +67,10 @@ export const captureFixChanges = async (
   const review = workflow.round(task.review.id, task.review.round);
   if (!review) throw new Error("Original task source unavailable.");
   const policy = readProjectPolicy(store, root);
+  const capturedChanges =
+    review.source.kind === "working-tree"
+      ? (review.syncBaseline ?? review.files)
+      : review.files;
   const base = review.source.head ?? review.source.base;
   const manifest = task.manifestId
     ? readExecutionManifest(store, root, task.manifestId)
@@ -75,7 +79,7 @@ export const captureFixChanges = async (
     manifest?.files.map((file) => file.path) ??
     (await listSourcePaths(root, base))
   ).filter((path) => allowsSourcePath(policy, path));
-  for (const file of review.files)
+  for (const file of capturedChanges)
     if (allowsSourcePath(policy, file.path) && !paths.includes(file.path))
       paths.push(file.path);
   const currentPaths = (await listSourcePaths(task.directory, null)).filter(
@@ -98,10 +102,20 @@ export const captureFixChanges = async (
       "Original execution context is incomplete. Return changes manually.",
     );
   for (const path of new Set([...paths, ...currentPaths])) {
-    const selected = review.files.find((file) => file.path === path);
+    const selected = capturedChanges.find((file) => file.path === path);
     const existing = await localBytes(task.directory, path, 1024 * 1024);
     if (existing.unsupported)
       throw new Error(`${path}: ${existing.unsupported}`);
+    const originalMode =
+      manifest?.files.find((file) => file.path === path)?.mode ??
+      baseInputs?.modes[path] ??
+      0o644;
+    if (
+      existing.bytes &&
+      ((await lstat(join(task.directory, path))).mode & 0o777) !==
+        (originalMode & 0o777)
+    )
+      throw new Error(`File mode changes require manual handling: ${path}`);
     const originalHash =
       manifest?.files.find((file) => file.path === path)?.hash ??
       (selected

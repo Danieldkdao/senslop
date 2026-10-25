@@ -39,7 +39,7 @@ import {
   formatUsageCost,
 } from "../lib/formatters";
 
-const optionalLimit = z
+export const optionalLimit = z
   .string()
   .refine(
     (value) =>
@@ -49,6 +49,7 @@ const optionalLimit = z
         Number.isSafeInteger(Number(value))),
     "Enter a positive whole number or leave blank.",
   );
+export type OptionalLimitSchema = z.infer<typeof optionalLimit>;
 const budgetSchema = z.object({
   tokenBudget: optionalLimit,
   timeLimitSeconds: optionalLimit,

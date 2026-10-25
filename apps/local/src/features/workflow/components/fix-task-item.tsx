@@ -17,7 +17,7 @@ import {
   CollapsibleContent,
 } from "@/components/ui/collapsible";
 import { FixPrompt } from "../../agents/components/fix-prompt";
-import { formatFixTaskStatus } from "../lib/formatters";
+import { formatFixTaskStatus, formatTaskActivity } from "../lib/formatters";
 import { ChangeInspector } from "./change-inspector";
 import type { WorkflowActionSchema } from "../schemas";
 
@@ -158,11 +158,21 @@ export const FixTaskItem = ({
               )}
             </div>
             <ol className="flex flex-col gap-2 border-l pl-3">
-              {task.activity.map((event, index) => (
-                <li key={index} className="text-base text-muted-foreground">
-                  {event.label}
-                </li>
-              ))}
+              {task.activity.map((event, index) => {
+                const activity = formatTaskActivity(event.label);
+                return (
+                  <li
+                    key={index}
+                    className="flex items-center gap-2 text-base text-muted-foreground"
+                  >
+                    <activity.Icon
+                      aria-hidden="true"
+                      className="size-4 shrink-0"
+                    />
+                    {activity.label}
+                  </li>
+                );
+              })}
             </ol>
           </div>
         </CollapsibleContent>

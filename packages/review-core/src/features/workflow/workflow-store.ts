@@ -101,6 +101,9 @@ export class WorkflowStore {
         const candidates = findings.filter(
           (finding) =>
             !finding.duplicateOf &&
+            !finding.observations.some(
+              (observation) => observation.jobId === jobId,
+            ) &&
             finding.observations.some(
               (observation) =>
                 observation.evidence.code === evidence.code &&
@@ -114,9 +117,19 @@ export class WorkflowStore {
                   )),
             ),
         );
+        const located = candidates.filter((finding) =>
+          finding.observations.some(
+            (observation) =>
+              observation.evidence.path === evidence.path &&
+              observation.evidence.side === evidence.side &&
+              observation.evidence.start === evidence.start &&
+              observation.evidence.end === evidence.end,
+          ),
+        );
+        const matches = located.length ? located : candidates;
         const finding =
-          candidates.length === 1
-            ? candidates[0]!
+          matches.length === 1
+            ? matches[0]!
             : trackedFindingSchema.parse({
                 id: randomUUID(),
                 reviewId: review.id,
@@ -124,12 +137,16 @@ export class WorkflowStore {
                 observations: [],
                 history: [],
                 possibleMatches: findings
-                  .filter((item) =>
-                    item.observations.some(
-                      (observation) =>
-                        observation.evidence.code === evidence.code &&
-                        observation.evidence.path === evidence.path,
-                    ),
+                  .filter(
+                    (item) =>
+                      !item.observations.some(
+                        (observation) => observation.jobId === jobId,
+                      ) &&
+                      item.observations.some(
+                        (observation) =>
+                          observation.evidence.code === evidence.code &&
+                          observation.evidence.path === evidence.path,
+                      ),
                   )
                   .map((item) => item.id),
               });

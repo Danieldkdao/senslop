@@ -55,6 +55,13 @@ export const LivePreviewProvider = ({ children }: { children: ReactNode }) => {
   }, [state]);
   const apply = useCallback((data: unknown) => {
     if (data === null) {
+      selectedReview.current = null;
+      sessionStorage.removeItem("senslop:last-review");
+      const url = new URL(window.location.href);
+      url.searchParams.delete("review");
+      url.searchParams.delete("file");
+      window.history.replaceState(null, "", url);
+      etag.current = null;
       setState({ preview: null, error: null });
       return;
     }
@@ -147,7 +154,8 @@ export const LivePreviewProvider = ({ children }: { children: ReactNode }) => {
         const data: unknown = await response.json();
         if (signal?.aborted || started !== epoch.current) return;
         apply(data);
-        etag.current = response.headers?.get("etag") ?? null;
+        etag.current =
+          data === null ? null : (response.headers?.get("etag") ?? null);
       }
       setState((current) =>
         current.error ? { ...current, error: null } : current,

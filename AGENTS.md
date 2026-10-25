@@ -63,7 +63,8 @@ Read the exact versioned docs at https://docs.expo.dev/versions/v57.0.0/ before 
 ## Project conventions
 
 - Use exactly one blank line between imports and main code, between functions, and between unrelated definitions. Keep each Zod schema directly adjacent to its inferred type. Never add multiple blank lines; run formatting on changed authored files.
-- Use flex layouts with gap utilities for spacing in authored application UI; never use Tailwind `space-*` utilities. Preserve existing generated shadcn/ui primitive classes.
+- Use flex layouts with gap utilities for spacing in authored application UI; never use Tailwind `space-*` utilities.
+- Preserve generated shadcn/ui primitives by default. The shared Button ghost variant is an intentional project customization: transparent resting backgrounds and theme-muted hover backgrounds, with important background utilities to preserve this behavior in composed triggers. Preserve this customization when regenerating Button; keep other generated variants unchanged.
 - Use `LoadingSwap` for button loading states and `useConfirm` for confirmation dialogs.
 - Prefer icon buttons with tooltips over full text buttons whenever they make the design cleaner and simpler, even when space is available. Use full text buttons only when they have ample room and fit the layout without clutter. Give icon buttons accessible labels.
 - Keep status and informational content concise. Prefer meaningful icons with tooltips and shorter content when full text adds crowding or visual noise, or when icons make the design cleaner regardless of available space. Preserve useful details in tooltips and accessible labels.
@@ -71,7 +72,7 @@ Read the exact versioned docs at https://docs.expo.dev/versions/v57.0.0/ before 
 - Use shadcn/ui Select for application selection controls, following the installed Base UI composition API. Make authored inputs, Select triggers, and other form fields fill their container width.
 - Give every authored state/status an exhaustive formatter returning its label and Lucide icon. Prefer icons with tooltips for compact metadata and actions; use Lucide icons for arrows and separators. Finding dismissal reasons and manual verification notes are optional.
 - Use a Lucide dot icon or structured spacing to separate UI metadata; avoid the literal middle-dot character in authored UI text.
-- Add shadcn components through the installed CLI using the existing `components.json`. Preserve generated primitives and the owner's theme. Follow the selected Base UI composition API in application callers.
+- Add shadcn components through the installed CLI using the existing `components.json`. Preserve the owner's theme and follow the primitive customization rule above. Follow the selected Base UI composition API in application callers.
 - Generate Better Auth tables with the web package's `auth` command into one schema file. Never manually edit or split that generated schema or duplicate its table mapping in auth configuration. Generated names and formatting are exempt from authored table and function conventions; application tables remain convention-aligned.
 - Use `getCurrentUser` from `src/lib/auth/helpers.ts` for server-side user/session reads. Pass request headers in Proxy and API routes; server components use its request-context default. Browser components use Better Auth client hooks, and standalone services validate through the authenticated web API.
 - Use the shared toast system in `src/components/ui/toast.tsx` for submission and service feedback; keep field-validation and OTP-code errors inline.

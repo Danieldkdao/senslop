@@ -6,6 +6,7 @@ import {
   realpath,
   rm,
   writeFile,
+  readdir,
 } from "node:fs/promises";
 import { dirname, join, basename } from "node:path";
 import { simpleGit } from "simple-git";
@@ -49,8 +50,12 @@ export const materializeReview = async (
 ): Promise<ExecutionManifestSchema> => {
   new WorkflowStore(store, root).requireReview(review.id, review);
   const policy = readProjectPolicy(store, root);
+  const capturedChanges =
+    review.source.kind === "working-tree"
+      ? (review.syncBaseline ?? review.files)
+      : review.files;
   if (
-    review.files.some(
+    [...review.files, ...capturedChanges].some(
       (file) =>
         !allowsSourcePath(policy, file.path) ||
         (file.oldPath && !allowsSourcePath(policy, file.oldPath)),
@@ -95,7 +100,7 @@ export const materializeReview = async (
     );
   const contents = new Map(Object.entries(captured.binarySources));
   const modes = new Map(Object.entries(captured.modes));
-  for (const file of sourceSide === "base" ? [] : review.files) {
+  for (const file of sourceSide === "base" ? [] : capturedChanges) {
     if (file.oldPath && file.oldPath !== file.path) {
       contents.delete(file.oldPath);
       modes.delete(file.oldPath);
@@ -214,21 +219,27 @@ export const executionSourceChanged = async (
       return true;
     }
   }
-  const extra = (
-    await simpleGit(manifest.directory).raw([
-      "ls-files",
-      "--others",
-      "--exclude-standard",
-      "-z",
-    ])
-  )
-    .split("\0")
-    .filter(Boolean);
-  return extra.some(
-    (path) =>
-      !generatedPaths.includes(path) &&
-      !manifest.files.some((file) => file.path === path),
-  );
+  const recorded = new Set(manifest.files.map((file) => file.path));
+  const generated = new Set(generatedPaths);
+  const hasExtraSource = async (directory: string): Promise<boolean> => {
+    for (const entry of await readdir(join(manifest.directory, directory), {
+      withFileTypes: true,
+    })) {
+      // Match capture's dependency/build exclusions, without trusting the mutable index or ignore rules.
+      if (
+        [".git", "node_modules", ".next", "dist", "build", "coverage"].includes(
+          entry.name,
+        )
+      )
+        continue;
+      const path = directory ? `${directory}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) {
+        if (await hasExtraSource(path)) return true;
+      } else if (!recorded.has(path) && !generated.has(path)) return true;
+    }
+    return false;
+  };
+  return hasExtraSource("");
 };
 
 export const removeManagedWorkspace = async (

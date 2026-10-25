@@ -184,6 +184,18 @@ test("declared generated artifacts are recorded without hiding captured-source e
   });
 });
 
+test("creating and staging an extra source file cannot produce a passing check", async () => {
+  const check = runner.create(review, {
+    command:
+      "node -e \"require('fs').writeFileSync('extra.ts','new source')\" && git add extra.ts",
+  });
+  expect(await runner.run(check.id)).toMatchObject({
+    status: "failed",
+    sourceModified: true,
+    exitCode: 0,
+  });
+});
+
 test("an interrupted engine step stops its command and keeps its workspace leased until shutdown", async () => {
   const check = runner.create(review, {
     command: 'node -e "setTimeout(()=>{},1200)"',

@@ -34,10 +34,11 @@ import {
 import {
   formatFindingDecision,
   formatVerificationOutcome,
+  formatFindingActivity,
+  formatActivityTime,
 } from "../lib/formatters";
 import type { WorkflowActionSchema } from "../schemas";
 import { ManualVerification } from "./manual-verification";
-import { formatActivityTime } from "../lib/formatters";
 
 const reasonSchema = z.object({ reason: z.string().max(5000) });
 export type ReasonSchema = z.infer<typeof reasonSchema>;
@@ -175,22 +176,31 @@ export const FindingControls = ({
         </CollapsibleTrigger>
         <CollapsibleContent>
           <ol className="flex flex-col gap-3 border-l pl-3 pt-3">
-            {finding.history.map((event) => (
-              <li key={event.id} className="flex flex-col gap-1">
-                <span className="text-base">{event.label}</span>
-                {event.reason && (
-                  <span className="wrap-break-word text-muted-foreground">
-                    {event.reason}
+            {finding.history.map((event) => {
+              const activity = formatFindingActivity(event);
+              return (
+                <li key={event.id} className="flex flex-col gap-1">
+                  <span className="flex items-center gap-2 text-base">
+                    <activity.Icon
+                      aria-hidden="true"
+                      className="size-4 shrink-0"
+                    />
+                    {activity.label}
                   </span>
-                )}
-                <time
-                  className="text-base text-muted-foreground"
-                  dateTime={event.createdAt}
-                >
-                  {formatActivityTime(event.createdAt)}
-                </time>
-              </li>
-            ))}
+                  {event.reason && (
+                    <span className="wrap-break-word text-muted-foreground">
+                      {event.reason}
+                    </span>
+                  )}
+                  <time
+                    className="text-base text-muted-foreground"
+                    dateTime={event.createdAt}
+                  >
+                    {formatActivityTime(event.createdAt)}
+                  </time>
+                </li>
+              );
+            })}
           </ol>
         </CollapsibleContent>
       </Collapsible>

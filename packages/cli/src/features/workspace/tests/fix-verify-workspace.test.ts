@@ -215,6 +215,19 @@ test.skipIf(process.env.RUN_LOCAL_AI_TESTS !== "1")(
       expect(
         ((await cli("usage", "show", handoff.id)) as unknown[]).length,
       ).toBeGreaterThan(0);
+      const failedCheck = (await cli(
+        "checks",
+        "run",
+        handoff.id,
+        "--command",
+        'node -e "process.exit(1)"',
+      )) as { id: string };
+      await expect(
+        cli("checks", "watch", failedCheck.id, "--timeout", "30"),
+      ).rejects.toMatchObject({
+        code: 4,
+        stderr: expect.stringContaining('"code":"check_failed"'),
+      });
     } finally {
       await app?.stop();
       await provider.stop();

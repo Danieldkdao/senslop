@@ -635,6 +635,20 @@ Implemented features **2, 3, 4, 5, 14, 15, and 16**, plus the initial feature 20
 
 **Limits and owner review:** Chrome computer-use access was stopped, so no browser visual pass is claimed. Real-renderer/DOM interactions and layout assertions passed; the owner should still inspect wide/narrow layouts, chart tooltips, and spacing. Real paid-provider diagnosis quality, live hosted authentication/presence, real OS-credential writes, cross-platform process behavior, and a fresh archive installation remain unverified in this delivery. Independent external agents are outside Senslop's process/local-inference enforcement. Managed copies are bounded to 20 MiB and are not an OS sandbox; unsupported or unavailable inputs fail explicitly. Reliable model pricing is absent, so cost stays unknown. Full source archives begin with this migration; legacy runs may have only their original excerpt. Newer managed source edits are preserved for explicit review/cleanup rather than automatically discarded. `/ai-test` remains intentionally present until the [deferred cleanup](#deferred-cleanup) is scheduled.
 
+### Group 1 review corrections — October 25, 2026
+
+Follow-up corrections to the committed Group 1 delivery address the ten reported issues. These changes are local and uncommitted; the 42-commit delivery record above remains unchanged.
+
+- [x] Issues 1–2: managed source overlays the complete captured working-tree baseline, including unchanged dirty helpers and deletions after new-mode re-sync. Check validation and automatic cleanup enumerate source independently of the Git index, catching restored deletions and staged additions while preserving newer edits.
+- [x] Issue 3: identical findings at distinct locations within one run retain separate IDs; exact replays and unambiguous locations remain stable across later runs and reordered observations.
+- [x] Issue 4: active model requests share the remaining aggregate time allowance through persisted accounting, including simultaneous/staggered requests from separate store connections and requests that finish early.
+- [x] Issue 5: `checks watch` exits with code 4 for every unsuccessful terminal result and includes check/review IDs in JSON error details. Passed checks still exit successfully.
+- [x] Issue 6: mode-only edits, combined content/mode edits, and newly executable files explicitly require manual handling on task return. Automatic application preserves existing modes; applying mode edits is unsupported. Returned before-images also use the full captured dirty baseline.
+- [x] Issues 7–9: missing stored/URL review IDs clear selection and ETags so polling discovers the current review; the optional-limit schema exports its adjacent inferred type; finding and task activity use named label-and-Lucide-icon formatters.
+- [x] Issue 10: the owner-approved transparent ghost Button remains unchanged. `AGENTS.md` documents a narrow shared-primitive exception, including regeneration guidance, while retaining the default preservation rule for other generated variants.
+
+**Verification:** 1,203 ordinary tests passed with zero failures and 13 opt-in tests skipped. The focused regression suite passed 73 tests. Repository typechecking, lint, and all eight production build tasks passed; existing shared-UI lint warnings remain. The packaged CLI/real-engine fix-and-verify process test passed against a deterministic loopback provider, including actual failed-check exit code 4. All services started by that test were stopped. No dedicated schema tests were added or run. These checks do not establish real-provider diagnosis quality or a fresh browser visual pass.
+
 ## Primary references
 
 - [Inngest concurrency](https://www.inngest.com/docs/durable-execution/flow-control/concurrency): executing steps, keyed limits, and queued work. This informs feature 1; do not equate step limits with a machine-wide model-request limit.

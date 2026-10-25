@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import {
   usageRecordSchema,
   type ReviewIdentitySchema,
+  type UsageRecordSchema,
 } from "@senslop/contracts";
 import type { LocalStore } from "../../db/local-store";
 import { WorkflowStore } from "./workflow-store";
@@ -19,6 +20,17 @@ export class UsageStore {
       .all(reviewId)
       .map((row) => usageRecordSchema.parse(JSON.parse(String(row.body))));
   };
+
+  private elapsed = (usage: UsageRecordSchema[]) =>
+    usage.reduce(
+      (sum, row) =>
+        sum +
+        (row.completed
+          ? row.durationMs
+          : Math.max(0, Date.now() - Date.parse(row.createdAt))),
+      0,
+    );
+
   reserve = (
     review: ReviewIdentitySchema,
     task: string,
@@ -28,7 +40,7 @@ export class UsageStore {
     const policy = readReviewPolicy(this.store, this.repository, review.id);
     const id = randomUUID();
     const started = performance.now();
-    const remaining = this.store.transaction(() => {
+    this.store.transaction(() => {
       new WorkflowStore(this.store, this.repository).requireReview(
         review.id,
         review,
@@ -42,14 +54,7 @@ export class UsageStore {
             : row.reservedTokens),
         0,
       );
-      const elapsed = usage.reduce(
-        (sum, row) =>
-          sum +
-          (row.completed
-            ? row.durationMs
-            : Date.now() - Date.parse(row.createdAt)),
-        0,
-      );
+      const elapsed = this.elapsed(usage);
       if (policy.tokenBudget !== null && consumed + tokens > policy.tokenBudget)
         throw new WorkflowPolicyError(
           "Budget reached. Completed work is preserved; increase the review token budget to continue.",
@@ -79,16 +84,45 @@ export class UsageStore {
       this.store.database
         .prepare("INSERT INTO review_usage VALUES (?,?,?)")
         .run(id, review.id, JSON.stringify(record));
-      return policy.timeLimitSeconds === null
-        ? null
-        : Math.max(1, Math.floor(policy.timeLimitSeconds * 1000 - elapsed));
     });
     let completed = false;
+    const controller =
+      policy.timeLimitSeconds === null ? null : new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const checkTime = () => {
+      if (completed || !controller || controller.signal.aborted) return;
+      try {
+        const usage = this.list(review.id);
+        const left = policy.timeLimitSeconds! * 1000 - this.elapsed(usage);
+        if (left <= 0) {
+          controller.abort(
+            new WorkflowPolicyError(
+              "Budget reached. Review execution time allowance is exhausted.",
+            ),
+          );
+          return;
+        }
+        const active = Math.max(
+          1,
+          usage.filter((row) => !row.completed).length,
+        );
+        // Recheck shared accounting so newly admitted requests shorten every active deadline.
+        timer = setTimeout(
+          checkTime,
+          Math.max(1, Math.min(25, Math.floor(left / active))),
+        );
+        timer.unref();
+      } catch (error) {
+        controller.abort(error);
+      }
+    };
+    checkTime();
     return {
-      signal: remaining === null ? null : AbortSignal.timeout(remaining),
+      signal: controller?.signal ?? null,
       finish: (usage: { inputTokens?: number; outputTokens?: number }) => {
         if (completed) return;
         completed = true;
+        clearTimeout(timer);
         const row = this.list(review.id).find((item) => item.id === id);
         if (!row) return;
         this.store.database

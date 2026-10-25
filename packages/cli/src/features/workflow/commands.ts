@@ -106,7 +106,18 @@ export const executeWorkflowCommand = async (
     const signal = AbortSignal.timeout(timeout * 1000);
     while (!signal.aborted) {
       const current = await read(signal);
-      if (!["queued", "running"].includes(current.status)) return current;
+      if (current.status === "passed") return current;
+      if (!["queued", "running"].includes(current.status))
+        throw new CliError(
+          current.error ?? `Check ${current.status}.`,
+          "check_failed",
+          4,
+          {
+            checkId: id,
+            reviewId: current.review.id,
+            status: current.status,
+          },
+        );
       await sleep(500, undefined, { signal }).catch(() => {});
     }
     throw new CliError(

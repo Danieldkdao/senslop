@@ -64,6 +64,35 @@ const finding = {
   fixPrompt: "Fix the value.",
 };
 
+test("identical expressions at separate locations remain distinct across a run and its replay", async () => {
+  const { store, review, workflow } = await fixture();
+  try {
+    const jobId = randomUUID();
+    const inputs = [finding, { ...finding, start: 20, end: 20 }];
+    const first = workflow.observe(review, jobId, inputs);
+    expect(new Set(first.map((item) => item.id)).size).toBe(2);
+    expect(workflow.findings(review.id)).toHaveLength(2);
+    expect(
+      workflow.observe(review, jobId, inputs).map((item) => item.id),
+    ).toEqual(first.map((item) => item.id));
+    expect(
+      workflow.observe(review, randomUUID(), inputs).map((item) => item.id),
+    ).toEqual(first.map((item) => item.id));
+    expect(
+      workflow
+        .observe(review, randomUUID(), [...inputs].reverse())
+        .map((item) => item.id),
+    ).toEqual(first.map((item) => item.id).reverse());
+    expect(
+      workflow
+        .findings(review.id)
+        .every((item) => item.observations.length === 3),
+    ).toBe(true);
+  } finally {
+    store.close();
+  }
+});
+
 test("decisions persist with optional reasons and repeated observations retain identity", async () => {
   const { store, review, workflow } = await fixture();
   try {

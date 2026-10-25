@@ -50,6 +50,53 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
+test.each(["stored", "url"])(
+  "a deleted %s selection clears stale state and discovers a later background review",
+  async (selection) => {
+    const missing = "11111111-1111-4111-8111-111111111111";
+    const next = "22222222-2222-4222-8222-222222222222";
+    sessionStorage.setItem("senslop:last-review", missing);
+    if (selection === "url")
+      window.history.replaceState(null, "", `/?review=${missing}&file=old.ts`);
+    let available: unknown = null;
+    const fetcher = vi.fn(async (url: string) =>
+      Response.json(url.includes(missing) ? null : available),
+    );
+    vi.stubGlobal("fetch", fetcher);
+    render(
+      <LivePreviewProvider>
+        <Consumer />
+      </LivePreviewProvider>,
+    );
+    await waitFor(() =>
+      expect(sessionStorage.getItem("senslop:last-review")).toBeNull(),
+    );
+    expect(new URL(window.location.href).searchParams.has("review")).toBe(
+      false,
+    );
+    available = {
+      id: next,
+      protocolVersion: 1,
+      source: {
+        kind: "working-tree",
+        base: "a".repeat(40),
+        head: null,
+        firstParent: false,
+      },
+      files: [],
+      excluded: [],
+    };
+    fireEvent.click(screen.getByText("Reload"));
+    await waitFor(() =>
+      expect(sessionStorage.getItem("senslop:last-review")).toBe(next),
+    );
+    expect(
+      fetcher.mock.calls.filter(([url]) => url.includes(missing)),
+    ).toHaveLength(1);
+    expect(fetcher).toHaveBeenLastCalledWith("/api/preview", expect.anything());
+  },
+);
+
 test("local polling restores snapshots after reload, skips unchanged results and keeps files on connection failure", async () => {
   vi.useFakeTimers();
   const snapshot = {

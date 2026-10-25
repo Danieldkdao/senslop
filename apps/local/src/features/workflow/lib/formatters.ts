@@ -21,6 +21,9 @@ import {
   TimerOff,
   Unplug,
   Wrench,
+  History,
+  Link2,
+  RotateCcw,
   type LucideIcon,
 } from "lucide-react";
 import type {
@@ -29,6 +32,12 @@ import type {
   FixTaskStatus,
   CheckStatus,
   WorkflowJobStatus,
+  FindingEventSchema,
+} from "@senslop/contracts";
+import {
+  findingDecisions,
+  verificationOutcomes,
+  fixTaskStatuses,
 } from "@senslop/contracts";
 
 export const formatFindingDecision = (
@@ -73,6 +82,35 @@ export const formatFixTaskStatus = (status: FixTaskStatus) => {
       return { label: "Canceled", Icon: CircleMinus };
   }
 };
+
+export const formatFindingActivity = (event: FindingEventSchema) => {
+  switch (event.kind) {
+    case "decision": {
+      const decision = findingDecisions.find((value) => value === event.label);
+      return decision
+        ? formatFindingDecision(decision)
+        : { label: event.label, Icon: Pencil };
+    }
+    case "assessment": {
+      const outcome = verificationOutcomes.find(
+        (value) => value === event.label,
+      );
+      return outcome
+        ? formatVerificationOutcome(outcome)
+        : { label: event.label, Icon: ScanSearch };
+    }
+    case "duplicate":
+      return { label: event.label, Icon: Link2 };
+    case "recurrence":
+      return { label: event.label, Icon: RotateCcw };
+  }
+};
+
+export const formatTaskActivity = (label: string) => {
+  const status = fixTaskStatuses.find((value) => value === label);
+  return status ? formatFixTaskStatus(status) : { label, Icon: History };
+};
+
 export const formatCheckStatus = (status: CheckStatus) => {
   switch (status) {
     case "queued":
