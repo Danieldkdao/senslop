@@ -13,6 +13,7 @@ import {
   type JobSchema,
   type ModelSelectionSchema,
   type MessageStatus,
+  type JobPriority,
 } from "../schemas";
 import { defaultAiSettings, groupingFallbackDelayMs } from "../constants";
 import { matchesJobSnapshot } from "./job-snapshots";
@@ -25,6 +26,7 @@ export class AgentStore {
   constructor(
     readonly local: LocalStore,
     readonly repository: string,
+    private readonly dispatch?: { id: string; key: string },
   ) {}
 
   settings = () => {
@@ -66,7 +68,9 @@ export class AgentStore {
     const settings = aiSettingsSchema.parse(input);
     if (
       this.capacityLocked() &&
-      !isDeepStrictEqual(settings.capacity, this.settings().capacity)
+      (!isDeepStrictEqual(settings.capacity, this.settings().capacity) ||
+        (settings.machineConcurrency ?? 4) !==
+          (this.settings().machineConcurrency ?? 4))
     )
       throw new CapacityLockedError(capacityLockedMessage);
     this.local.database
@@ -108,15 +112,48 @@ export class AgentStore {
     );
   };
 
+  reviewWork = (review: { id: string; hash: string; round?: number }) => {
+    const existingJobs = this.local.database
+      .prepare(
+        `
+      SELECT json_object('id', j.id, 'kind', json_extract(j.body, '$.kind'),
+        'status', json_extract(j.body, '$.status'), 'progress', json_extract(j.body, '$.progress'),
+        'error', json_extract(j.body, '$.error'), 'priority', coalesce(json_extract(j.body, '$.priority'), 'normal')) AS body
+      FROM ai_jobs j JOIN reviews r ON r.id = j.snapshot_id
+      WHERE r.repository = ? AND j.snapshot_id = ? AND json_extract(j.body, '$.hash') = ?
+        AND coalesce(json_extract(j.body, '$.snapshotRound'), 1) = ? ORDER BY j.rowid DESC
+    `,
+      )
+      .all(this.repository, review.id, review.hash, review.round ?? 1);
+    const kinds = new Set<string>();
+    return existingJobs.flatMap((row) => {
+      const job = jobSchema
+        .pick({
+          id: true,
+          kind: true,
+          status: true,
+          progress: true,
+          error: true,
+          priority: true,
+        })
+        .parse(JSON.parse(String(row.body)));
+      if (kinds.has(job.kind)) return [];
+      kinds.add(job.kind);
+      return [job];
+    });
+  };
+
   job = (id: string) => {
     const existingJob = this.local.database
       .prepare(
         "SELECT j.body FROM ai_jobs j JOIN reviews r ON r.id = j.snapshot_id WHERE j.id = ? AND r.repository = ?",
       )
       .get(id, this.repository);
-    return existingJob
-      ? jobSchema.parse(JSON.parse(String(existingJob.body)))
-      : null;
+    if (!existingJob) return null;
+    const job = jobSchema.parse(JSON.parse(String(existingJob.body)));
+    return this.dispatch?.id === id && job.dispatchKey !== this.dispatch.key
+      ? null
+      : job;
   };
 
   jobHistory = (snapshotId: string, offset = 0, limit = 50, search = "") => {
@@ -176,6 +213,8 @@ export class AgentStore {
         this.writeJob(job.id, {
           status: "queued",
           dispatched: false,
+          dispatchKey: null,
+          dispatchGeneration: job.dispatchGeneration + 1,
           runId: null,
           progress: "Resuming after workspace restart",
           retryAt: null,
@@ -187,9 +226,35 @@ export class AgentStore {
       return [...snapshots];
     });
 
-  createJob = (snapshotId: string, kind: JobKind) =>
+  createJob = (
+    snapshotId: string,
+    kind: JobKind,
+    options: {
+      hash?: string;
+      round?: number;
+      priority?: JobPriority;
+      retryOf?: string;
+    } = {},
+  ) =>
     this.local.transaction(() => {
       const snapshot = this.snapshot(snapshotId);
+      if (
+        (options.hash !== undefined && options.hash !== snapshot.hash) ||
+        (options.round !== undefined && options.round !== snapshot.round)
+      )
+        throw new Error("Review contents changed. Reload and retry.");
+      const previousJob = options.retryOf ? this.job(options.retryOf) : null;
+      if (
+        options.retryOf &&
+        (!previousJob ||
+          previousJob.snapshotId !== snapshotId ||
+          previousJob.kind !== kind ||
+          !matchesJobSnapshot(previousJob, snapshot) ||
+          !["failed", "canceled"].includes(previousJob.status))
+      )
+        throw new Error(
+          "Retry requires a failed or canceled job for this review revision. Reload and retry.",
+        );
       if (kind === "grouping" && snapshot.groupingEnabled === false)
         throw new Error(
           "Grouping and summarization are disabled for this review.",
@@ -209,7 +274,9 @@ export class AgentStore {
         snapshotRound: snapshot.round,
         kind,
         generation: (jobs[0]?.generation ?? 0) + 1,
-        settings: this.runSettings(),
+        settings: previousJob?.settings ?? this.runSettings(),
+        priority: options.priority ?? previousJob?.priority ?? "normal",
+        retryOf: previousJob?.id ?? null,
         status: "queued",
         progress: "Waiting for local worker",
         error: null,
@@ -225,6 +292,20 @@ export class AgentStore {
       return job;
     });
 
+  prioritizeJob = (id: string, priority: JobPriority) =>
+    this.local.transaction(() => {
+      const existingJob = this.job(id);
+      if (!existingJob || existingJob.status !== "queued")
+        throw new Error("Only queued jobs can change priority.");
+      return this.writeJob(id, {
+        priority,
+        dispatchGeneration: existingJob.dispatchGeneration + 1,
+        dispatchKey: null,
+        dispatched: false,
+        progress: "Waiting for local worker",
+      })!;
+    });
+
   private writeJob = (
     id: string,
     patch: Partial<
@@ -238,6 +319,9 @@ export class AgentStore {
         | "result"
         | "retryAt"
         | "fallbackAt"
+        | "priority"
+        | "dispatchKey"
+        | "dispatchGeneration"
       >
     >,
   ) => {
@@ -290,9 +374,10 @@ export class AgentStore {
     if (!existingJob) return null;
     const existingCheckpoint = this.local.database
       .prepare(
-        "SELECT c.body FROM ai_batch_checkpoints c JOIN ai_jobs j ON j.id = c.job_id WHERE j.snapshot_id = ? AND json_extract(j.body, '$.kind') = ? AND json_extract(j.body, '$.hash') = ? AND COALESCE(json_extract(j.body, '$.snapshotRound'), ?) = ? AND c.checkpoint_key = ? ORDER BY (j.id = ?) DESC, j.rowid DESC LIMIT 1",
+        "WITH RECURSIVE lineage(id) AS (SELECT ? UNION SELECT json_extract(j.body, '$.retryOf') FROM ai_jobs j JOIN lineage l ON l.id = j.id WHERE json_extract(j.body, '$.retryOf') IS NOT NULL) SELECT c.body FROM ai_batch_checkpoints c JOIN ai_jobs j ON j.id = c.job_id WHERE j.id IN (SELECT id FROM lineage) AND j.snapshot_id = ? AND json_extract(j.body, '$.kind') = ? AND json_extract(j.body, '$.hash') = ? AND COALESCE(json_extract(j.body, '$.snapshotRound'), ?) = ? AND c.checkpoint_key = ? ORDER BY (j.id = ?) DESC, j.rowid DESC LIMIT 1",
       )
       .get(
+        id,
         existingJob.snapshotId,
         existingJob.kind,
         existingJob.hash,

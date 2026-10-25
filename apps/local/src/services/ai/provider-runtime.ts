@@ -1,5 +1,7 @@
 import "server-only";
 import { createHash } from "node:crypto";
+import { dirname, join } from "node:path";
+import { serverEnv } from "../../data/env/server";
 import {
   APICallError,
   createGateway,
@@ -34,6 +36,7 @@ import {
 } from "./errors";
 import { getOpenCodeProtocol } from "./opencode-protocol";
 import { getRequestLimiter } from "./request-limiter";
+import { readMachineConcurrency } from "./shared-request-capacity";
 import { estimateInputTokenUpperBound } from "./context-budget";
 import { createChatGptSubscriptionModel } from "./chatgpt-subscription-model";
 import { createClaudeSubscriptionModel } from "./claude-subscription-model";
@@ -115,6 +118,7 @@ export const resolveLanguageModel = (
   modelId: string,
   fetcher: typeof fetch = fetch,
   capacity?: ConnectionCapacitySchema,
+  machineConcurrency?: number,
 ): ResolvedLanguageModel => {
   const compatible = getCompatibleModel(connection, modelId);
   const profile = capacity
@@ -290,7 +294,22 @@ export const resolveLanguageModel = (
       }),
     )
     .digest("hex");
-  const limiter = getRequestLimiter(key, connection.provider, profile);
+  const limiter = getRequestLimiter(
+    key,
+    connection.provider,
+    profile,
+    serverEnv.SENSLOP_LOCAL_DATABASE
+      ? {
+          path: join(
+            dirname(serverEnv.SENSLOP_LOCAL_DATABASE),
+            "ai-capacity.sqlite",
+          ),
+          machineConcurrency:
+            machineConcurrency ??
+            readMachineConcurrency(serverEnv.SENSLOP_LOCAL_DATABASE),
+        }
+      : undefined,
+  );
   const wrapModel = (model: Exclude<LanguageModel, string>) =>
     wrapLanguageModel({
       model,

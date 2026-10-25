@@ -7,6 +7,7 @@ import { getWorkspace } from "../../features/workspace/lib/server-workspace";
 import { formatAiError } from "../ai/errors";
 import { serverEnv } from "../../data/env/server";
 import { getAiErrorDiagnostics } from "../ai/diagnostics";
+import type { JobPriority } from "../../features/agents/schemas";
 
 const store = async () => {
   const workspace = getWorkspace();
@@ -23,22 +24,51 @@ export const analysisJob = inngest.createFunction(
       { limit: 1, key: "event.data.snapshotId + '-' + event.data.kind" },
     ],
     idempotency: "event.data.dispatchKey",
-    cancelOn: [{ event: "senslop/analysis.canceled", match: "data.jobId" }],
+    priority: { run: "event.data.priority == 'high' ? 120 : 0" },
+    cancelOn: [
+      { event: "senslop/analysis.canceled", match: "data.dispatchKey" },
+    ],
     onFailure: async ({ event, error }) => {
       const jobId = event.data.event.data.jobId;
+      if (
+        serverEnv.SENSLOP_LOCAL_STARTED_AT &&
+        !String(event.data.event.data.dispatchKey).startsWith(
+          `${jobId}:${serverEnv.SENSLOP_LOCAL_STARTED_AT}:`,
+        )
+      )
+        return;
       console.warn("[senslop:analysis-job]", {
         event: "failed",
         jobId,
         snapshotId: event.data.event.data.snapshotId,
         ...getAiErrorDiagnostics(error),
       });
-      if (typeof jobId === "string")
-        (await store()).failJob(jobId, formatAiError(error));
+      if (typeof jobId === "string") {
+        const agents = await store();
+        if (
+          agents.job(jobId)?.dispatchKey === event.data.event.data.dispatchKey
+        )
+          agents.failJob(jobId, formatAiError(error));
+      }
     },
   },
   async ({ event, step, runId, attempt }) => {
     if (typeof event.data.jobId !== "string") return;
-    await executeJob(await store(), event.data.jobId, runId, step, attempt);
+    if (
+      serverEnv.SENSLOP_LOCAL_STARTED_AT &&
+      !String(event.data.dispatchKey).startsWith(
+        `${event.data.jobId}:${serverEnv.SENSLOP_LOCAL_STARTED_AT}:`,
+      )
+    )
+      return;
+    await executeJob(
+      await store(),
+      event.data.jobId,
+      runId,
+      step,
+      attempt,
+      event.data.dispatchKey,
+    );
   },
 );
 
@@ -48,20 +78,27 @@ export const dispatchJobs = async (snapshotId: string) => {
     .jobs(snapshotId)
     .filter((job) => job.status === "queued" && !job.dispatched)) {
     try {
+      const dispatchKey = `${job.id}:${serverEnv.SENSLOP_LOCAL_STARTED_AT ?? job.createdAt}:${job.dispatchGeneration}`;
+      agents.updateJob(job.id, { dispatchKey });
       await inngest.send({
-        id: `${job.id}:${serverEnv.SENSLOP_LOCAL_STARTED_AT ?? job.createdAt}`,
+        id: dispatchKey,
         name: "senslop/analysis.requested",
         data: {
           jobId: job.id,
           snapshotId,
           kind: job.kind,
-          dispatchKey: `${job.id}:${serverEnv.SENSLOP_LOCAL_STARTED_AT ?? job.createdAt}`,
+          dispatchKey,
+          priority: job.priority,
         },
       });
-      agents.updateJob(job.id, {
-        dispatched: true,
-        progress: "Waiting for local worker",
-      });
+      const currentJob = agents.job(job.id);
+      if (currentJob?.dispatchKey === dispatchKey)
+        agents.updateJob(job.id, {
+          dispatched: true,
+          ...(currentJob.status === "queued"
+            ? { progress: "Waiting for local worker" }
+            : {}),
+        });
       console.info("[senslop:analysis-job]", {
         event: "dispatched",
         jobId: job.id,
@@ -94,7 +131,10 @@ export const resumeJobs = async () => {
     await dispatchJobs(snapshotId);
 };
 
-export const scheduleGrouping = async (snapshotId: string) => {
+export const scheduleGrouping = async (
+  snapshotId: string,
+  priority?: JobPriority,
+) => {
   const agents = await store();
   const snapshot = agents.snapshot(snapshotId);
   if (
@@ -110,6 +150,6 @@ export const scheduleGrouping = async (snapshotId: string) => {
       "grouping",
     )
   )
-    agents.createJob(snapshotId, "grouping");
+    agents.createJob(snapshotId, "grouping", { priority });
   await dispatchJobs(snapshotId);
 };

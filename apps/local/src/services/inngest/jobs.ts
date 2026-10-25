@@ -2,7 +2,7 @@ import { prepareIncrementalGrouping } from "../ai/incremental-grouping";
 import { formatAiError, isFatalAiError } from "../ai/errors";
 import { NonRetriableError, RetryAfterError } from "inngest";
 import { analysisRetryDelaysMs } from "../../features/agents/constants";
-import type { AgentStore } from "../../features/agents/lib/agent-store";
+import { AgentStore } from "../../features/agents/lib/agent-store";
 import { matchesJobSnapshot } from "../../features/agents/lib/job-snapshots";
 import { assignedModel, createRepositoryAgent } from "../ai/repository-agent";
 import { loadContext } from "../analysis/frozen-context";
@@ -44,7 +44,13 @@ export const executeJob = async (
   runId: string,
   step: DurableSteps,
   attempt = 0,
+  dispatchKey?: string,
 ) => {
+  if (dispatchKey)
+    store = new AgentStore(store.local, store.repository, {
+      id,
+      key: dispatchKey,
+    });
   const job = store.job(id);
   if (!job || ["canceled", "completed", "failed"].includes(job.status)) return;
   const snapshot = store.snapshot(job.snapshotId);
@@ -67,15 +73,21 @@ export const executeJob = async (
     event: "started",
     hasAnalysisCheckpoint: !!job.result,
   });
-  store.updateJob(id, {
-    status: "running",
-    progress: "Collecting frozen context",
-    runId,
-    error: null,
-    retryAt: null,
-    fallbackAt: null,
-  });
   await step.run("prepare-context", async () => {
+    const currentJob = store.job(id);
+    if (
+      !currentJob ||
+      ["canceled", "completed", "failed"].includes(currentJob.status)
+    )
+      throw new NonRetriableError("Job canceled or superseded.");
+    store.updateJob(id, {
+      status: "running",
+      progress: "Collecting frozen context",
+      runId,
+      error: null,
+      retryAt: null,
+      fallbackAt: null,
+    });
     const startedAt = performance.now();
     console.info("[senslop:analysis-job]", {
       ...diagnosticContext,
@@ -103,6 +115,12 @@ export const executeJob = async (
   const result =
     job.result ??
     (await step.run("analyze", async () => {
+      const currentJob = store.job(id);
+      if (
+        !currentJob ||
+        ["canceled", "completed", "failed"].includes(currentJob.status)
+      )
+        throw new NonRetriableError("Job canceled or superseded.");
       const startedAt = performance.now();
       const abort = new AbortController();
       const timer = setInterval(() => {

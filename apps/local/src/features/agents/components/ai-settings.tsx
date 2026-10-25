@@ -30,6 +30,7 @@ import {
 } from "../schemas";
 import { formatAgentRole, formatGroupingMode } from "../lib/formatters";
 import { AiCapacitySettings } from "../../ai-capacity/components/ai-capacity-settings";
+import { NumberInput } from "@senslop/ui/components/number-input";
 
 export const AiSettings = ({
   navigation,
@@ -314,6 +315,44 @@ export const AiSettings = ({
           )}
         />
         <FieldError errors={[errors.capacity]} className="text-base" />
+        <div className="flex flex-col gap-2">
+          <label htmlFor="machine-concurrency">
+            Total AI requests across workspaces
+          </label>
+          <p className="text-muted-foreground">
+            Shared by running repositories using this application-data
+            directory. Provider ceilings still apply.
+          </p>
+          <Controller
+            control={control}
+            name="machineConcurrency"
+            render={({ field }) => (
+              <NumberInput
+                id="machine-concurrency"
+                label="Total AI requests across workspaces"
+                value={field.value ?? 4}
+                min={1}
+                max={64}
+                disabled={
+                  settings.isPending ||
+                  capacityStatus.isPending ||
+                  !!capacityStatus.error ||
+                  capacityStatus.data?.locked
+                }
+                onValueChange={(machineConcurrency) => {
+                  resetField("machineConcurrency", {
+                    defaultValue: machineConcurrency,
+                  });
+                  save({ machineConcurrency });
+                }}
+              />
+            )}
+          />
+          <FieldError
+            errors={[errors.machineConcurrency]}
+            className="text-base"
+          />
+        </div>
       </form>
       <section className="border-t pt-5 flex flex-col gap-3">
         <h3 className="font-medium">Configure Providers</h3>

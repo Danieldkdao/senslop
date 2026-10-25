@@ -32,6 +32,7 @@ export type ProviderRequestLimits = {
 };
 
 export type RequestCapacity = {
+  machineConcurrency?: number;
   concurrency: number;
   limits: ProviderRequestLimits;
 };

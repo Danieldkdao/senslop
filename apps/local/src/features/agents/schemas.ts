@@ -11,6 +11,7 @@ export type AgentRole = (typeof agentRoles)[number];
 export const groupingModes = ["always", "never", "ask"] as const;
 export type GroupingMode = (typeof groupingModes)[number];
 export const aiSettingsSchema = z.object({
+  machineConcurrency: z.number().int().min(1).max(64).optional(),
   capacity: aiCapacitySchema.default({}),
   groupingMode: z
     .enum(groupingModes)
@@ -332,7 +333,13 @@ export const jobStatuses = [
   "canceled",
 ] as const;
 export type JobStatus = (typeof jobStatuses)[number];
+export const jobPriorities = ["normal", "high"] as const;
+export type JobPriority = (typeof jobPriorities)[number];
 export const jobSchema = z.object({
+  priority: z.enum(jobPriorities).default("normal"),
+  retryOf: z.uuid().nullable().default(null),
+  dispatchKey: z.string().nullable().default(null),
+  dispatchGeneration: z.number().int().nonnegative().default(0),
   title: z
     .string()
     .trim()
@@ -545,6 +552,15 @@ export const agentActionSchema = z.discriminatedUnion("action", [
     kind: z
       .enum(jobKinds)
       .describe("Whether to group changed files or run a correctness review."),
+    expectedHash: z.string().optional(),
+    expectedRound: z.number().int().positive().optional(),
+    priority: z.enum(jobPriorities).optional(),
+  }),
+  z.object({ action: z.literal("retry"), id: z.uuid() }),
+  z.object({
+    action: z.literal("priority"),
+    id: z.uuid(),
+    priority: z.enum(jobPriorities),
   }),
   z.object({
     action: z.literal("cancel").describe("Cancel an active local AI job."),

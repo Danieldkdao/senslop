@@ -161,6 +161,7 @@ export const createRepositoryAgent = async ({
     selection.modelId,
     undefined,
     capacity,
+    settings.machineConcurrency,
   );
   const requestLimiter = model.requestLimiter;
   const batchConcurrency = () =>
@@ -419,6 +420,7 @@ export const createRepositoryAgent = async ({
         selection.modelId,
         undefined,
         contextCapacity,
+        settings.machineConcurrency,
       );
       const contextLimit = contextCapacity.contextTokens;
       const contextGeneration = getGenerationOptions(

@@ -26,6 +26,18 @@ export const GET = async (request: Request) => {
   try {
     const workspace = getWorkspace();
     const agents = new AgentStore(workspace.store, await workspace.root());
+    if (new URL(request.url).searchParams.get("queue") === "1")
+      return Response.json(
+        agents.pendingJobs().sort((left, right) => {
+          const leftOrder =
+            Date.parse(left.createdAt) -
+            (left.priority === "high" ? 120000 : 0);
+          const rightOrder =
+            Date.parse(right.createdAt) -
+            (right.priority === "high" ? 120000 : 0);
+          return leftOrder - rightOrder;
+        }),
+      );
     if (serverEnv.SENSLOP_LOCAL_STARTED_AT)
       agents.recoverForeground(serverEnv.SENSLOP_LOCAL_STARTED_AT);
     const snapshotId = new URL(request.url).searchParams.get("snapshotId");
@@ -128,6 +140,28 @@ export const POST = async (request: Request) => {
     const workspace = getWorkspace();
     const agents = new AgentStore(workspace.store, await workspace.root());
     switch (input.action) {
+      case "retry": {
+        const previousJob = agents.job(input.id);
+        if (!previousJob) throw new Error("Job not found.");
+        const job = agents.createJob(previousJob.snapshotId, previousJob.kind, {
+          retryOf: previousJob.id,
+        });
+        await dispatchJobs(job.snapshotId);
+        return Response.json(job);
+      }
+      case "priority": {
+        const previousJob = agents.job(input.id);
+        const job = agents.prioritizeJob(input.id, input.priority);
+        if (previousJob?.dispatchKey)
+          await inngest
+            .send({
+              name: "senslop/analysis.canceled",
+              data: { jobId: input.id, dispatchKey: previousJob.dispatchKey },
+            })
+            .catch(() => {});
+        await dispatchJobs(job.snapshotId);
+        return Response.json(job);
+      }
       case "rename-review":
         return Response.json(agents.renameReview(input.id, input.title));
       case "delete-review":
@@ -135,6 +169,13 @@ export const POST = async (request: Request) => {
         return Response.json({ saved: true });
       case "job": {
         const snapshot = agents.snapshot(input.snapshotId);
+        if (
+          (input.expectedHash !== undefined &&
+            snapshot.hash !== input.expectedHash) ||
+          (input.expectedRound !== undefined &&
+            snapshot.round !== input.expectedRound)
+        )
+          throw new Error("Review contents changed. Reload and retry.");
         if (
           input.kind === "review" &&
           snapshot.source.kind === "working-tree"
@@ -152,11 +193,12 @@ export const POST = async (request: Request) => {
         if (!assignedModel(agents.settings(), input.kind))
           throw new Error("Choose task models in Settings → AI first.");
         if (input.kind === "grouping")
-          workspace.store.enableGrouping(
-            await workspace.root(),
-            input.snapshotId,
-          );
-        const job = agents.createJob(input.snapshotId, input.kind);
+          workspace.store.enableGrouping(agents.repository, input.snapshotId);
+        const job = agents.createJob(input.snapshotId, input.kind, {
+          hash: input.expectedHash,
+          round: input.expectedRound,
+          priority: input.priority,
+        });
         await dispatchJobs(input.snapshotId);
         return Response.json(job);
       }
@@ -170,7 +212,7 @@ export const POST = async (request: Request) => {
         await inngest
           .send({
             name: "senslop/analysis.canceled",
-            data: { jobId: input.id },
+            data: { jobId: input.id, dispatchKey: job.dispatchKey },
           })
           .catch(() => {});
         return Response.json({ saved: true });
@@ -186,7 +228,11 @@ export const POST = async (request: Request) => {
   } catch (error) {
     return Response.json(
       { message: (error as Error).message },
-      { status: 400 },
+      {
+        status: /Review contents changed/.test((error as Error).message)
+          ? 409
+          : 400,
+      },
     );
   }
 };

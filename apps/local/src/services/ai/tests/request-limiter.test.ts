@@ -1,5 +1,9 @@
 import { afterEach, expect, test, vi } from "vitest";
 import { APICallError } from "ai";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { SharedRequestCapacity } from "../shared-request-capacity";
 import { createRequestLimiter, getRequestLimiter } from "../request-limiter";
 import { getAiProviderBackoff } from "../errors";
 
@@ -462,4 +466,43 @@ test("provider retry delays in a structured error body are honored", () => {
     }),
   });
   expect(getAiProviderBackoff(error)?.retryAfterMs).toBe(45000);
+});
+
+test("shared admission holds through streaming and nested context work reuses its parent's slot", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "senslop-shared-limiter-"));
+  const coordinator = new SharedRequestCapacity(
+    join(directory, "capacity.sqlite"),
+    1,
+  );
+  try {
+    const limiter = createRequestLimiter({
+      initialConcurrency: 1,
+      maxConcurrency: 1,
+      allowNestedRequests: true,
+      shared: { coordinator, key: "endpoint" },
+    });
+    await limiter.run(async () => {
+      await limiter.run(async () => {});
+    });
+    const stream = await limiter.runStream(async () => ({
+      stream: new ReadableStream({ start() {} }),
+    }));
+    const abort = new AbortController();
+    const blocked = coordinator.acquire(
+      "other",
+      { concurrency: 1, limits: {} },
+      0,
+      0,
+      abort.signal,
+    );
+    abort.abort();
+    await expect(blocked).rejects.toMatchObject({ name: "AbortError" });
+    await stream.stream.cancel();
+    (
+      await coordinator.acquire("other", { concurrency: 1, limits: {} }, 0, 0)
+    ).release();
+  } finally {
+    coordinator.close();
+    await rm(directory, { recursive: true, force: true });
+  }
 });
