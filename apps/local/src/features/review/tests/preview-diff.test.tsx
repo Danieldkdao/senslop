@@ -105,6 +105,23 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
+test("split selection applies the active side to Pierre while the pointer is down", () => {
+  render(
+    <PreviewDiff file={file} view="split" settings={settings} {...handlers} />,
+  );
+  const host = document.createElement("div");
+  const instance = { setSelectedLines: vi.fn() };
+  const range = { start: 1, end: 2, side: "deletions" as const };
+  act(() =>
+    mocks.diff.mock.lastCall![0].options.onPostRender(host, instance, "render"),
+  );
+  act(() => mocks.diff.mock.lastCall![0].options.onLineSelectionStart(range));
+  expect(instance.setSelectedLines).toHaveBeenLastCalledWith(range, {
+    activeLineSide: "deletions",
+    notify: false,
+  });
+});
+
 test.each(["split", "unified"] as const)(
   "%s uses Pierre's native gutter without an oversized custom button",
   (view) => {

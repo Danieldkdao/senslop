@@ -1,6 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, useRef } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useState,
+  useRef,
+} from "react";
 import { useTheme } from "next-themes";
 import { FileDiff, File, type FileDiffOptions } from "@pierre/diffs/react";
 import type { DiffLineAnnotation, SelectedLineRange } from "@pierre/diffs";
@@ -59,6 +66,12 @@ export const PreviewDiff = ({
   );
   const commentPending = useRef(false);
   const selectionGesture = useRef(false);
+  const diffInstance = useRef<{
+    setSelectedLines: (
+      range: SelectedLineRange | null,
+      options: { activeLineSide?: "additions" | "deletions"; notify: boolean },
+    ) => void;
+  } | null>(null);
   const [selectedRange, setSelectedRange] = useState<SelectedLineRange | null>(
     null,
   );
@@ -179,6 +192,13 @@ export const PreviewDiff = ({
               : null)),
     [selectionPreview, activeNoteRange, selectedRange, evidence],
   );
+  useLayoutEffect(() => {
+    // The React adapter reapplies selectedLines without its side after onPostRender.
+    diffInstance.current?.setSelectedLines?.(selectedLines, {
+      activeLineSide: selectedLines?.side,
+      notify: false,
+    });
+  });
   const closeComment = () => {
     commentPending.current = false;
     setCommentTarget(null);
@@ -199,7 +219,13 @@ export const PreviewDiff = ({
   );
   const onLineSelectionChange = useCallback(
     (range: SelectedLineRange | null) => {
-      if (!commentPending.current) setSelectionPreview({ range });
+      if (!commentPending.current) {
+        diffInstance.current?.setSelectedLines(range, {
+          activeLineSide: range?.side,
+          notify: false,
+        });
+        setSelectionPreview({ range });
+      }
     },
     [],
   );
@@ -209,8 +235,15 @@ export const PreviewDiff = ({
   }, []);
   const revealedEvidence = useRef<PreviewDiffProps["evidence"]>(null);
   const revealEvidence = useCallback(
-    (node: HTMLElement, _instance: unknown, phase: string) => {
+    (node: HTMLElement, instance: unknown, phase: string) => {
       host.current = phase === "unmount" ? null : node;
+      diffInstance.current =
+        phase === "unmount" ? null : (instance as typeof diffInstance.current);
+      // Pierre otherwise paints matching rows in both split columns.
+      diffInstance.current?.setSelectedLines?.(selectedLines, {
+        activeLineSide: selectedLines?.side,
+        notify: false,
+      });
       if (!evidence || phase === "unmount") return;
       requestAnimationFrame(() => {
         const line = node.shadowRoot?.querySelector<HTMLElement>(
@@ -238,7 +271,7 @@ export const PreviewDiff = ({
         }
       });
     },
-    [evidence],
+    [evidence, selectedLines],
   );
   const options = useMemo<FileDiffOptions<ReviewAnnotation, undefined>>(
     () => ({
