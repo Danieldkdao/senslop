@@ -30,6 +30,8 @@ export const useReviewWorkflow = (review?: ReviewIdentitySchema | null) => {
   const act = async (operation: WorkflowActionSchema, target = review) => {
     if (!target) return null;
     const execute = async () => {
+      if (operation.action === "apply-task")
+        toast.info("Applying selected files…");
       try {
         const response = await fetch("/api/workflow", {
           method: "POST",
@@ -46,6 +48,10 @@ export const useReviewWorkflow = (review?: ReviewIdentitySchema | null) => {
           client.invalidateQueries({ queryKey: ["workspace-metadata"] }),
         ]);
         if (data.warning) toast.warning(String(data.warning));
+        else if (operation.action === "apply-task")
+          toast.success("Selected files applied.");
+        else if (operation.action === "review-task")
+          toast.success("Task marked reviewed.");
         return data as unknown;
       } catch (error) {
         toast.error((error as Error).message);

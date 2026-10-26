@@ -270,7 +270,9 @@ export const FixTaskItem = ({
         <div className="flex shrink-0 justify-end gap-2">
           {task.workspaceKind === "managed" ? (
             <Button
-              disabled={!choices.length}
+              aria-label="Apply selected files"
+              aria-busy={busy}
+              disabled={busy || !choices.length}
               onClick={async () => {
                 const applied = await act({
                   action: "apply-task",
@@ -280,16 +282,19 @@ export const FixTaskItem = ({
                 if (applied) setInspect(false);
               }}
             >
-              Apply selected files
+              <LoadingSwap isLoading={busy}>Apply selected files</LoadingSwap>
             </Button>
           ) : (
             <Button
+              aria-label="Mark changes reviewed"
+              aria-busy={busy}
+              disabled={busy}
               onClick={async () => {
                 if (await act({ action: "review-task", taskId: task.id }))
                   setInspect(false);
               }}
             >
-              Mark changes reviewed
+              <LoadingSwap isLoading={busy}>Mark changes reviewed</LoadingSwap>
             </Button>
           )}
         </div>
