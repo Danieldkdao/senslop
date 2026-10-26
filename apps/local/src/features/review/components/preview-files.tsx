@@ -75,6 +75,7 @@ export const PreviewFiles = ({
       ) : organization && onSelectUnit && onOrganizationAction ? (
         <RegionBrowser
           key={preview.id}
+          reviewId={preview.id}
           organization={organization}
           impact={impact}
           selectedUnitId={selectedUnitId}
@@ -84,7 +85,7 @@ export const PreviewFiles = ({
       ) : (
         <nav
           aria-label="Changed files"
-          className="min-h-0 flex-1 flex flex-col gap-1 overflow-auto p-2"
+          className="min-h-0 flex-1 flex flex-col gap-1 scroll-fade-y overflow-auto p-2"
         >
           {grouping ? (
             <GroupedFiles

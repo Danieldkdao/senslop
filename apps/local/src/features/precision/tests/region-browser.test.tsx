@@ -4,7 +4,11 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { RegionBrowser } from "../components/region-browser";
 import type { OrganizationSchema } from "@senslop/contracts";
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  localStorage.clear();
+  sessionStorage.clear();
+});
 const organization: OrganizationSchema = {
   version: 0,
   manual: false,

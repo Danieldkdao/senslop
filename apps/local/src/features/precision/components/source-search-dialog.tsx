@@ -1,5 +1,7 @@
 "use client";
 
+import { useSavedState } from "../../usability/hooks/use-saved-state";
+
 import { useState } from "react";
 import { Braces, Files, Search } from "lucide-react";
 import type {
@@ -49,7 +51,7 @@ export const SourceSearchDialog = ({
   onSource: (location: SourceLocationSchema) => void;
 }) => {
   const [mode, setMode] = useState("files");
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useSavedState(`source-search:${review?.id}`, "");
   const [changedOnly, setChangedOnly] = useState(true);
   const [side, setSide] = useState<"before" | "after">("after");
   const explorer = useSourceExplorer(open ? review : null, side);

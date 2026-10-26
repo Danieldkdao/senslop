@@ -47,7 +47,7 @@ export const RequirementsView = ({
     <section
       aria-label="Requirement coverage"
       className={cn(
-        "flex min-h-0 flex-1 flex-col gap-3 overflow-auto p-4 text-base",
+        "flex min-h-0 flex-1 flex-col gap-3 scroll-fade-y overflow-auto p-4 text-base",
         className,
       )}
     >
