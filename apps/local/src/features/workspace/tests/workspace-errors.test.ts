@@ -1,5 +1,6 @@
 import { afterEach, expect, test, vi } from "vitest";
 import { SnapshotLimitError } from "@senslop/review-core/git";
+import { scheduleGrouping } from "../../../services/inngest/functions";
 import { GET } from "../../../app/api/preview/route";
 import {
   GET as getMetadata,
@@ -8,6 +9,10 @@ import {
 
 vi.mock("../../../services/inngest/functions", () => ({
   scheduleGrouping: vi.fn(async () => {}),
+}));
+const deferred = vi.hoisted(() => [] as (() => Promise<unknown>)[]);
+vi.mock("next/server", () => ({
+  after: (callback: () => Promise<unknown>) => deferred.push(callback),
 }));
 vi.mock("../../agents/lib/agent-store", () => ({
   AgentStore: class {
@@ -40,6 +45,7 @@ vi.mock(
         listReviews: state.listReviews,
         changeReview: state.changeReview,
         getReview: state.getReview,
+        currentReview: () => null,
       },
     }),
     protectLocalRoute: () => state.allowed,
@@ -47,8 +53,58 @@ vi.mock(
 );
 afterEach(() => {
   vi.clearAllMocks();
+  deferred.length = 0;
   state.allowed = true;
 });
+
+test.each(["preview", "inspect", "resync"])(
+  "%s returns saved data before slow preparation finishes",
+  async (operation) => {
+    const id = crypto.randomUUID();
+    const saved = { id, revision: 1 };
+    if (operation === "preview") state.getReview.mockReturnValueOnce(saved);
+    if (operation === "inspect") state.inspect.mockResolvedValueOnce(saved);
+    if (operation === "resync") state.resync.mockResolvedValueOnce(saved);
+    let finish!: () => void;
+    vi.mocked(scheduleGrouping).mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const response =
+      operation === "preview"
+        ? await GET(new Request(`http://localhost/api/preview?id=${id}`))
+        : await postWorkspace(
+            new Request("http://localhost/api/workspace", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(
+                operation === "inspect"
+                  ? { action: "inspect", source: { kind: "working-tree" } }
+                  : {
+                      action: "resync",
+                      id,
+                      expectedHash: "a".repeat(64),
+                      expectedRound: 1,
+                    },
+              ),
+            }),
+          );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject(saved);
+    expect(scheduleGrouping).not.toHaveBeenCalled();
+    expect(deferred).toHaveLength(1);
+    const pending = deferred[0]!();
+    expect(scheduleGrouping).toHaveBeenCalledWith(
+      id,
+      ...(operation === "preview" ? [] : [undefined]),
+    );
+    finish();
+    await pending;
+  },
+  1000,
+);
 
 test("inspection limits report the actionable cause while unexpected save errors remain private", async () => {
   const request = () =>
