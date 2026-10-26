@@ -1,5 +1,12 @@
 import { afterEach, expect, test } from "vitest";
-import { mkdtemp, mkdir, writeFile, readFile, rm } from "node:fs/promises";
+import {
+  mkdtemp,
+  mkdir,
+  writeFile,
+  readFile,
+  rm,
+  symlink,
+} from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
@@ -24,7 +31,16 @@ afterEach(async () => {
       .map((path) => rm(path, { recursive: true, force: true })),
   );
 });
-test.each(["initial", "new-round", "restored-deletion", "staged-addition"])(
+test.each([
+  "initial",
+  "new-round",
+  "restored-deletion",
+  "staged-addition",
+  "symlink",
+  "large-source",
+  "large-file",
+  "credential-module",
+])(
   "managed source and cleanup preserve the complete captured state: %s",
   async (scenario) => {
     const directory = await mkdtemp(join(tmpdir(), "senslop-execution-"));
@@ -38,6 +54,38 @@ test.each(["initial", "new-round", "restored-deletion", "staged-addition"])(
     await writeFile(join(root, "file.ts"), "base\n");
     await writeFile(join(root, "helper.ts"), "base helper\n");
     await writeFile(join(root, "deleted.ts"), "deleted source\n");
+    if (scenario === "credential-module") {
+      await writeFile(
+        join(root, "credentials.ts"),
+        "export const readCredentials = () => null;\n",
+      );
+      await writeFile(
+        join(root, "credentials.json"),
+        '{"token":"private fixture"}',
+      );
+    }
+    if (scenario === "large-file")
+      await writeFile(
+        join(root, "asset.bin"),
+        Buffer.alloc(21 * 1024 * 1024, 7),
+      );
+    if (scenario === "large-source") {
+      await writeFile(
+        join(root, "asset-one.bin"),
+        Buffer.alloc(11 * 1024 * 1024, 7),
+      );
+      await writeFile(
+        join(root, "asset-two.bin"),
+        Buffer.alloc(11 * 1024 * 1024, 8),
+      );
+    }
+    if (scenario === "symlink") {
+      await mkdir(join(root, ".claude/skills"), { recursive: true });
+      await symlink(
+        "../../external-skills",
+        join(root, ".claude/skills/fixture"),
+      );
+    }
     await git.add(".");
     await git.commit("base");
     await writeFile(join(root, "helper.ts"), "dirty helper\n");
@@ -87,6 +135,32 @@ test.each(["initial", "new-round", "restored-deletion", "staged-addition"])(
         review,
         join(directory, "managed"),
       );
+      if (scenario === "credential-module") {
+        expect(
+          await readFile(join(manifest.directory, "credentials.ts"), "utf8"),
+        ).toBe("export const readCredentials = () => null;\n");
+        expect(
+          manifest.files.some((file) => file.path === "credentials.json"),
+        ).toBe(false);
+      }
+      if (scenario === "large-file")
+        expect(
+          (await readFile(join(manifest.directory, "asset.bin"))).equals(
+            Buffer.alloc(21 * 1024 * 1024, 7),
+          ),
+        ).toBe(true);
+      if (scenario === "large-source") {
+        expect(
+          (await readFile(join(manifest.directory, "asset-one.bin"))).equals(
+            Buffer.alloc(11 * 1024 * 1024, 7),
+          ),
+        ).toBe(true);
+        expect(
+          (await readFile(join(manifest.directory, "asset-two.bin"))).equals(
+            Buffer.alloc(11 * 1024 * 1024, 8),
+          ),
+        ).toBe(true);
+      }
       expect(await readFile(join(manifest.directory, "file.ts"), "utf8")).toBe(
         scenario === "new-round" ? "new round\n" : "dirty\n",
       );
@@ -116,6 +190,9 @@ test.each(["initial", "new-round", "restored-deletion", "staged-addition"])(
         await removeManagedWorkspace(store, root, manifest.id, true);
         return;
       }
+      expect(
+        manifest.files.some((file) => file.path.startsWith(".claude/skills")),
+      ).toBe(false);
       expect(await git.diff(["--cached"])).toBe(index);
       await removeManagedWorkspace(store, root, manifest.id);
       expect(await git.diff(["--cached"])).toBe(index);

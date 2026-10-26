@@ -90,6 +90,43 @@ test("base and changed checks execute their recorded bytes and source-changing c
   });
 });
 
+test("simple commands run with more than 20 MiB of unchanged repository assets", async () => {
+  await writeFile(
+    join(root, "asset-one.bin"),
+    Buffer.alloc(11 * 1024 * 1024, 7),
+  );
+  await writeFile(
+    join(root, "asset-two.bin"),
+    Buffer.alloc(11 * 1024 * 1024, 8),
+  );
+  const git = simpleGit(root);
+  await git.add(["asset-one.bin", "asset-two.bin"]);
+  await git.commit("assets");
+  const repository = await readRepository(root);
+  review = store.saveReview(
+    root,
+    {
+      ...(await collectSnapshot({
+        cwd: root,
+        source: { kind: "working-tree" },
+      })),
+      id: randomUUID(),
+      protocolVersion: 1,
+    },
+    repository.fingerprint,
+    false,
+    { repositoryState: repository },
+  );
+  const check = runner.create(review, { command: "node --version" });
+  const result = await runner.run(check.id);
+  expect(result).toMatchObject({
+    status: "passed",
+    exitCode: 0,
+    sourceModified: false,
+  });
+  expect(result?.output.trim()).toBe(process.version);
+});
+
 test("canceling and timing out checks persist distinct terminal outcomes", async () => {
   const check = runner.create(review, {
     command: 'node -e "setTimeout(()=>{},30000)"',
@@ -110,41 +147,66 @@ test("canceling and timing out checks persist distinct terminal outcomes", async
   expect((await runner.run(timeout.id))?.status).toBe("timed-out");
 });
 
-test("fixing one of two findings preserves the other and executable mode without resolving either automatically", async () => {
-  const issues = workflow.observe(
-    review,
-    randomUUID(),
-    ["Guard input", "Handle empty"].map((title) => ({
-      title,
-      severity: "high",
-      problem: title,
-      path: "value.txt",
-      side: "after",
-      start: 1,
-      end: 1,
-      code: "bug",
-      fixPrompt: "Fix",
-    })),
-  );
-  const tasks = new FixTasks(store, root);
-  let task = tasks.create(review, {
-    title: "Fix guard",
-    findingIds: [issues[0]!.id],
-    workspaceKind: "managed",
-  });
-  task = await prepareFixTask(store, root, task, runner.parent);
-  tasks.claim(task.id, "Fixture", review);
-  await writeFile(join(task.directory!, "value.txt"), "fixed\n");
-  await captureFixChanges(store, root, task.id, review);
-  await applyFixChanges(store, root, task.id, review, ["value.txt"]);
-  expect(await readFile(join(root, "value.txt"), "utf8")).toBe("fixed\n");
-  expect((await stat(join(root, "value.txt"))).mode & 0o777).toBe(0o755);
-  expect(
-    workflow
-      .findings(review.id)
-      .every((finding) => finding.decision === "open"),
-  ).toBe(true);
-});
+test.each(["managed", "current"] as const)(
+  "%s task returns text edits beside large unchanged images without resolving findings",
+  async (workspaceKind) => {
+    await writeFile(join(root, "image.png"), Buffer.alloc(22 * 1024 * 1024));
+    await simpleGit(root).add("image.png");
+    await simpleGit(root).commit("image");
+    const repository = await readRepository(root);
+    review = store.saveReview(
+      root,
+      {
+        ...(await collectSnapshot({
+          cwd: root,
+          source: { kind: "working-tree" },
+        })),
+        id: randomUUID(),
+        protocolVersion: 1,
+      },
+      repository.fingerprint,
+      false,
+      { repositoryState: repository },
+    );
+    const issues = workflow.observe(
+      review,
+      randomUUID(),
+      ["Guard input", "Handle empty"].map((title) => ({
+        title,
+        severity: "high",
+        problem: title,
+        path: "value.txt",
+        side: "after",
+        start: 1,
+        end: 1,
+        code: "bug",
+        fixPrompt: "Fix",
+      })),
+    );
+    const tasks = new FixTasks(store, root);
+    let task = tasks.create(review, {
+      title: "Fix guard",
+      findingIds: [issues[0]!.id],
+      workspaceKind,
+    });
+    task = await prepareFixTask(store, root, task, runner.parent);
+    tasks.claim(task.id, "Fixture", review);
+    await writeFile(join(task.directory!, "value.txt"), "fixed\n");
+    const returned = await captureFixChanges(store, root, task.id, review);
+    expect(returned.changes.map((change) => change.path)).toEqual([
+      "value.txt",
+    ]);
+    if (workspaceKind === "managed")
+      await applyFixChanges(store, root, task.id, review, ["value.txt"]);
+    expect(await readFile(join(root, "value.txt"), "utf8")).toBe("fixed\n");
+    expect((await stat(join(root, "value.txt"))).mode & 0o777).toBe(0o755);
+    expect(
+      workflow
+        .findings(review.id)
+        .every((finding) => finding.decision === "open"),
+    ).toBe(true);
+  },
+);
 
 test("manual assessment rejects unrelated execution evidence", () => {
   const [issue] = workflow.observe(review, randomUUID(), [
