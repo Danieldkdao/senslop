@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { randomUUID } from "node:crypto";
 import {
   reviewReportSchema,
+  reviewBriefSchema,
   type ReviewReportSchema,
   type ReportItemSchema,
 } from "@senslop/contracts";
@@ -34,10 +35,12 @@ export class ReviewReports {
             "SELECT body FROM review_reports WHERE review_id=? ORDER BY rowid DESC",
           )
           .all(reviewId)
-          .map((row) => reviewReportSchema.parse(JSON.parse(String(row.body))))
+          .map((row) =>
+            this.export(String(JSON.parse(String(row.body)).id), true)!,
+          )
       : [];
 
-  get = (id: string) => {
+  private read = (id: string) => {
     const row = this.store.database
       .prepare(
         "SELECT rr.body FROM review_reports rr JOIN reviews r ON r.id=rr.review_id WHERE rr.id=? AND r.repository=?",
@@ -45,6 +48,25 @@ export class ReviewReports {
       .get(id, this.repository);
     return row ? reviewReportSchema.parse(JSON.parse(String(row.body))) : null;
   };
+
+  get = (id: string): ReviewReportSchema | null => this.export(id, true);
+
+  private assessmentPaths = (
+    reviewId: string,
+    findingIds: string[],
+    round: number,
+  ) => [
+    ...new Set(
+      new WorkflowStore(this.store, this.repository)
+        .findings(reviewId)
+        .filter((finding) => findingIds.includes(finding.id))
+        .flatMap((finding) =>
+          finding.observations
+            .filter((observation) => observation.review.round <= round)
+            .map((observation) => observation.evidence.path),
+        ),
+    ),
+  ];
 
   evidence = (id: string, path: string, evidenceRound?: number) => {
     const report = this.get(id);
@@ -189,12 +211,13 @@ export class ReviewReports {
             job.hash === review.hash && (job.snapshotRound ?? 1) === round,
         );
       const latestReview = jobs.find((job) => job.kind === "review");
-      const brief = new ReviewIntent(this.store, this.repository)
-        .briefs(id)
-        .find(
-          (item) =>
-            item.review.hash === review.hash && item.review.round === round,
-        );
+      const brief = latestReview?.reviewIntent
+        ? latestReview.reviewIntent.brief
+          ? reviewBriefSchema.parse(latestReview.reviewIntent.brief)
+          : null
+        : new ReviewIntent(this.store, this.repository)
+            .briefs(id)
+            .find((item) => item.review.round <= round);
       const requirements: ReportItemSchema[] = (brief?.criteria ?? []).map(
         (criterion) => {
           const assessment = (
@@ -243,20 +266,44 @@ export class ReviewReports {
           (run) =>
             run.review.hash === review.hash && run.review.round === round,
         )
-        .map((run) => ({
-          id: run.id,
-          label: `Verification / ${run.status}`,
-          detail: [
-            ...run.assessments.map(
-              (assessment: { outcome: string; explanation: string }) =>
-                `${assessment.outcome.replaceAll("-", " ")}: ${assessment.explanation}`,
-            ),
-            run.error,
-            run.assessments.length ? null : "No assessment recorded.",
-          ]
-            .filter(Boolean)
-            .join("\n"),
-        }));
+        .flatMap((run): ReportItemSchema[] => [
+          {
+            id: run.id,
+            label: `Verification / ${run.status}`,
+            detail:
+              run.error ??
+              (run.assessments.length
+                ? "Assessments recorded below."
+                : "No assessment recorded."),
+            evidencePaths: this.assessmentPaths(id, run.findingIds, round),
+          },
+          ...run.assessments.map(
+            (assessment: {
+              findingId: string;
+              outcome: string;
+              explanation: string;
+            }) => {
+              const paths = this.assessmentPaths(
+                id,
+                [assessment.findingId],
+                round,
+              );
+              const permitted = paths.length > 0 && paths.every(allowed);
+              return {
+                id: `${run.id}:${assessment.findingId}`,
+                label: permitted
+                  ? assessment.outcome.replaceAll("-", " ")
+                  : "Excluded evidence",
+                detail: permitted
+                  ? assessment.explanation
+                  : "Evidence excluded by current source policy.",
+                evidencePaths: paths,
+                path: paths[0],
+                reviewId: id,
+              };
+            },
+          ),
+        ]);
       const tasks: ReportItemSchema[] = this.store.database
         .prepare(
           "SELECT body FROM fix_tasks WHERE review_id=? ORDER BY rowid DESC",
@@ -412,11 +459,11 @@ export class ReviewReports {
       this.store.database
         .prepare("INSERT INTO review_reports VALUES (?,?,?,?)")
         .run(report.id, id, round, JSON.stringify(report));
-      return report;
+      return this.export(report.id, includeSource)!;
     });
 
   export = (id: string, includeSource = false) => {
-    const report = this.get(id);
+    const report = this.read(id);
     if (!report) return null;
     const policy = readProjectPolicy(this.store, this.repository);
     const exported = {
@@ -424,21 +471,41 @@ export class ReviewReports {
       includeSource: includeSource && report.includeSource,
       sections: report.sections.map((section) => ({
         ...section,
-        items: section.items.map((item) => ({
-          ...item,
-          label:
-            item.path && !allowsSourcePath(policy, item.path)
-              ? "Excluded evidence"
-              : item.label,
-          detail:
-            item.path && !allowsSourcePath(policy, item.path)
+        items: section.items.map((item) => {
+          let paths = item.evidencePaths ?? (item.path ? [item.path] : []);
+          // Older reports stored all explanations in one pathless verification item.
+          if (
+            section.title === "Verification history" &&
+            !item.evidencePaths &&
+            !item.path
+          ) {
+            const row = this.store.database
+              .prepare(
+                "SELECT body FROM finding_verifications WHERE id=? AND review_id=?",
+              )
+              .get(item.id, report.review.id);
+            const run = row ? JSON.parse(String(row.body)) : null;
+            paths = run
+              ? this.assessmentPaths(
+                  report.review.id,
+                  run.findingIds,
+                  report.review.round,
+                )
+              : [];
+          }
+          const blocked =
+            paths.some((path) => !allowsSourcePath(policy, path)) ||
+            (section.title === "Verification history" && !paths.length);
+          return {
+            ...item,
+            label: blocked ? "Excluded evidence" : item.label,
+            detail: blocked
               ? "Evidence excluded by current policy."
               : item.detail,
-          code:
-            includeSource && item.path && allowsSourcePath(policy, item.path)
-              ? item.code
-              : undefined,
-        })),
+            code:
+              includeSource && !blocked && item.path ? item.code : undefined,
+          };
+        }),
       })),
     };
     exported.remainingWork = [

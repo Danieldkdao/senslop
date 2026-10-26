@@ -6,6 +6,7 @@ export const reportItemSchema = z.object({
   label: z.string(),
   detail: z.string(),
   path: z.string().optional(),
+  evidencePaths: z.array(z.string()).optional(),
   code: z.string().optional(),
   reviewId: z.string().optional(),
   evidenceReview: reviewIdentitySchema.optional(),
