@@ -926,6 +926,35 @@ export const createRepositoryAgent = async ({
     },
     verify: async (finding: FindingEvidenceSchema) => {
       const schema = verificationAssessmentSchema.omit({ findingId: true });
+      const changedFile = snapshot.files.find(
+        (file) => file.path === finding.path || file.oldPath === finding.path,
+      );
+      const targetPath = changedFile?.path ?? finding.path;
+      const excerpt = (side: "before" | "after") => {
+        const path =
+          side === "before" ? (changedFile?.oldPath ?? targetPath) : targetPath;
+        const source = (side === "before" ? context.before : context.sources)?.[
+          path
+        ];
+        if (source === undefined)
+          return { path, available: false, contents: null };
+        const lines = source.split("\n");
+        const start = Math.max(1, Math.min(finding.start, lines.length) - 40);
+        const end = Math.min(lines.length, start + 200);
+        return {
+          path,
+          available: true,
+          totalLines: lines.length,
+          start,
+          end,
+          contents: tools.read(path, start, end, side),
+        };
+      };
+      const evidence = {
+        before: excerpt("before"),
+        after: excerpt("after"),
+        diff: changedFile?.diff.slice(0, 12000) ?? null,
+      };
       const result = await generateText({
         ...options,
         ...(model.createModel
@@ -933,7 +962,7 @@ export const createRepositoryAgent = async ({
           : {}),
         output: Output.object({ schema }),
         instructions: `${instructions}\nAssess the original reported failure condition against the current frozen source. Use repository tools to investigate. A missing report or a passing generic test does not prove a fix. Distinguish still present, apparently fixed, no longer applicable, and unverified. Explain the evidence and limitations. This assessment never changes the user's decision.`,
-        prompt: `Original finding:\n${JSON.stringify(finding)}\nCurrent captured source:\n${initial}`,
+        prompt: `Original finding:\n${JSON.stringify(finding)}\nCurrent captured source metadata:\n${initial}\nExact frozen target evidence (bounded; use tools for more):\n${JSON.stringify(evidence)}`,
         abortSignal: signal,
         maxOutputTokens: 2000,
         maxRetries: 0,
