@@ -121,6 +121,7 @@ const revision = async (cwd: string, input: string) => {
 export const secretReason = (path: string): string | null => {
   const parts = path.split("/");
   const name = parts.at(-1)!;
+  const credentialModule = /^credentials\.(?:[cm]?[jt]sx?|py|go)$/i.test(name);
   const reviewConfig =
     name === "review.json" &&
     parts.at(-2) === ".senslop" &&
@@ -128,7 +129,8 @@ export const secretReason = (path: string): string | null => {
   if (
     (/^\.env(?:\.|$)/i.test(name) &&
       !/^\.env\.(example|sample|template)$/i.test(name)) ||
-    /^(credentials(?:\..*)?|id_(rsa|dsa|ecdsa|ed25519)(?:\.pub)?|\.npmrc|\.pypirc|\.netrc|\.git-credentials)$/i.test(
+    (/^credentials(?:\..*)?$/i.test(name) && !credentialModule) ||
+    /^(id_(rsa|dsa|ecdsa|ed25519)(?:\.pub)?|\.npmrc|\.pypirc|\.netrc|\.git-credentials)$/i.test(
       name,
     ) ||
     /\.(pem|p12|pfx|key)$/i.test(name) ||

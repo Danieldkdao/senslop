@@ -156,3 +156,43 @@ test("explicit review configuration is capturable while private local state rema
   expect(captured.sources[".senslop/review.json"]).toContain("security");
   expect(captured.sources[".senslop/state.sqlite"]).toBeUndefined();
 });
+
+test("credential handling source modules remain capturable while credential data and private directories stay excluded", async () => {
+  const { cwd, git } = await fixture();
+  await mkdir(join(cwd, "auth"));
+  await mkdir(join(cwd, ".aws"));
+  for (const extension of ["ts", "js", "py", "go"])
+    await writeFile(
+      join(cwd, `auth/credentials.${extension}`),
+      "source module\n",
+    );
+  for (const path of [
+    "auth/credentials.json",
+    "auth/credentials.production.json",
+    ".aws/credentials.ts",
+    ".env",
+    "id_ed25519",
+  ])
+    await writeFile(join(cwd, path), "private fixture\n");
+  await git.add(".");
+  await git.commit("authentication modules");
+  await writeFile(join(cwd, "auth/credentials.ts"), "updated source module\n");
+  const paths = await listSourcePaths(cwd, "HEAD");
+  for (const extension of ["ts", "js", "py", "go"])
+    expect(paths).toContain(`auth/credentials.${extension}`);
+  for (const path of [
+    "auth/credentials.json",
+    "auth/credentials.production.json",
+    ".aws/credentials.ts",
+    ".env",
+    "id_ed25519",
+  ])
+    expect(paths).not.toContain(path);
+  const snapshot = await collectSnapshot({
+    cwd,
+    source: { kind: "working-tree" },
+  });
+  expect(
+    snapshot.files.find((file) => file.path === "auth/credentials.ts")?.after,
+  ).toBe("updated source module\n");
+});
