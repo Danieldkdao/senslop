@@ -9,7 +9,9 @@
     "test": "vitest run --config ../../vitest.config.mts packages/cli",
     "dev": "tsup --watch --onSuccess \"node scripts/bundle-local-app.mjs\"",
     "dev:local": "tsx src/index.ts connect --dev",
-    "pack:check": "npm pack --dry-run"
+    "pack:check": "npm pack --dry-run",
+    "prepack": "node scripts/bundle-engine.mjs",
+    "postpack": "node scripts/bundle-engine.mjs --restore"
   },
   "devDependencies": {
     "@senslop/contracts": "workspace:*",
@@ -40,7 +42,7 @@
     "open": "^11.0.4",
     "simple-git": "4.0.2",
     "ws": "8.22.0",
-    "zod": "4.6.5"
+    "zod": "4.6.6"
   },
   "publishConfig": {
     "access": "public",
@@ -51,5 +53,8 @@
     "type": "git",
     "url": "git+https://github.com/Danieldkdao/senslop.git",
     "directory": "packages/cli"
-  }
+  },
+  "bundleDependencies": [
+    "inngest-cli"
+  ]
 }

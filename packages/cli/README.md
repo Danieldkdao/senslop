@@ -246,14 +246,24 @@ The standalone app includes native dependencies from the build host; verificatio
 
 Publishing preparation is verified on macOS arm64 with Node.js 24.22.1, pnpm 12.8.1, and npm 11.19.1; publication has not been performed.
 
-- Passed the frozen-lockfile install, targeted production build, CLI typecheck/lint, 131 CLI/updater tests, and 21 Git/check-runner regression tests; 10 opt-in CLI tests remained skipped.
-- Passed the clean archive integration test, including app startup, Git capture modes, assets, saved reviews, and process cleanup, plus npm's publish dry-run.
-- The archive includes the license and excludes environment/session/database/cache files and unintended raw app source; configured secret values were not found in the checked release files or changed files.
-- **Release blocker:** `pnpm audit --prod` reports 24 advisories across the workspace production graph: two critical, nine high, nine moderate, and four low. Dependency versions remain unchanged in this publishing-preparation change.
+- Next.js and its ESLint configuration are pinned to 16.4.1; all direct Zod dependencies are pinned to 4.6.6.
+- Targeted pnpm overrides patch `adm-zip` to 0.6.1, `undici` to 7.30.1, `ip-address` to 10.7.4, `body-parser` to 2.4.0, and `fast-uri` to 3.1.9.
+- `prepack` materializes Inngest's dependency tree with the patched ZIP dependency for npm bundling; `postpack` restores pnpm's symlink, and an interrupted pack is recovered on the next pack.
+- Passed the production build, all workspace typechecks and lint checks, and 1,280 local app/CLI/review-core regression tests; the archive test passed separately, while 10 other opt-in tests were not run.
+- Passed the clean archive integration test, including the installed ZIP version, a zero-finding npm audit of the installed dependency tree, app/engine startup, Git capture modes, icon/static assets, saved reviews, and process cleanup.
 
-The audit includes [Next.js advisories fixed in 16.4.1](https://github.com/advisories/GHSA-2464-fhr4-w9xw), Zod advisories fixed in 4.6.6, and transitive `adm-zip` advisories through `inngest-cli`; the checked latest `inngest-cli@1.49.0` still declares the affected `adm-zip` range. Additional findings concern esbuild, KaTeX, ip-address, body-parser, undici, and fast-uri; the workspace audit includes hosted/tooling dependencies as well as dependencies of the CLI and bundled app.
+The workspace production audit now reports four findings, with no critical findings. These remaining dependency paths were assessed separately from the published runtime:
 
-Resolve or explicitly assess the audit findings before publishing, then rebuild, repack, and repeat release checks; this evidence does not establish support on other operating systems or compatibility with real provider accounts.
+| Finding                                                                                                  | Remaining dependency path                               | Release assessment                                                                                                                                                               |
+| -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [esbuild development-server CORS](https://github.com/advisories/GHSA-67mh-4wv8-2f99), moderate           | Hosted Better Auth → drizzle-kit → esbuild 0.18.20      | Not present in the bundled app or CLI runtime; no esbuild development server is launched by Senslop.                                                                             |
+| [esbuild Windows development-server traversal](https://github.com/advisories/GHSA-g7r4-m6w7-qqqr), low   | Hosted Better Auth → drizzle-kit → tsx → esbuild 0.27.7 | Not present in the bundled runtime; the affected development server is not used by the release.                                                                                  |
+| [KaTeX prototype-pollution gadget](https://github.com/advisories/GHSA-238p-pmpm-9mq7), low               | Icons → LobeHub UI → remark-math → KaTeX 0.16.47        | Not present in the bundled package inventory, and the app enables no KaTeX/math-rendering integration.                                                                           |
+| [Zod oversized-collection resource consumption](https://github.com/advisories/GHSA-mrhx-c7xc-m3w5), high | Hosted/shared shadcn tooling → Zod 3.25.76              | Retained for the tooling's Zod 3 APIs; absent from the bundled runtime, whose Zod version is 4.6.6. Untrusted oversized inputs remain a risk when running that separate tooling. |
+
+These findings remain visible in `pnpm audit --prod`; no advisories are suppressed. Updating the separate hosted/code-generation tooling is a follow-up dependency migration, rather than forcing its older APIs onto incompatible versions for this CLI release.
+
+The bundled runtime's package/version inventory was checked against npm's bulk advisory endpoint, which returned no advisories. The archive excludes environment/session/database/cache files, package-manager traversal paths, and unintended raw app source; native dependency support is still verified only on macOS arm64, with real-provider and future-version upgrade checks remaining separate.
 
 ## Fix and verify
 

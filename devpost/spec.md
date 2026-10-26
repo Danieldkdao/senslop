@@ -223,7 +223,7 @@ OS Keychain/Credential Manager/Secret Service stores secrets. SQLite stores nons
 
 ## Packaging and runtime paths
 
-Build dependencies through the workspace task graph, then run the CLI bundle. Its packaging script includes the standalone local Next.js app, assets/fonts, runtime dependencies, local job engine support, and bundled skill. A clean archive install is a separate verification scenario from source tests.
+Build dependencies through the workspace task graph, then run the CLI bundle. Its packaging script includes the standalone local Next.js app, assets/fonts, runtime dependencies, local job engine support, and bundled skill. A clean archive install is a separate verification scenario from source tests. The Inngest CLI dependency tree is bundled with patched `adm-zip`; pack hooks temporarily materialize pnpm links and restore them afterward so published npm consumers receive the audited versions.
 
 The CLI package is prepared for public publication as `senslop`; npm authentication and publishing remain manual maintainer actions. The repository root and internal workspaces remain private. Normal data lives in OS application-data storage; jobs/state are per-root subdirectories, while reviews.sqlite is the per-user local store. Disposable transport/session paths are separate from durable data.
 
