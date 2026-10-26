@@ -1,4 +1,10 @@
 #!/usr/bin/env node
+import { executeDailyCommand } from "./features/daily-workflow/commands.js";
+import { executeCheckpointCommand } from "./features/daily-workflow/checkpoint-commands.js";
+import {
+  executeUpdateCommand,
+  notifyCliUpdate,
+} from "./features/updates/commands.js";
 import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { select, text, isCancel } from "@clack/prompts";
@@ -110,6 +116,21 @@ export const main = async (args = process.argv.slice(2)) => {
     return;
   }
   const repository = stringOption(values, "repo") ?? process.cwd();
+  if (name === "update" || name === "update check") {
+    console.log(
+      formatCommandResult(await executeUpdateCommand(command), !!values.json),
+    );
+    return;
+  }
+  if (name.startsWith("checkpoint ")) {
+    console.log(
+      formatCommandResult(
+        await executeCheckpointCommand(command, repository),
+        !!values.json,
+      ),
+    );
+    return;
+  }
   if (name === "app start" || name === "connect") {
     await runWorkspace({
       development: !!values.dev,
@@ -239,7 +260,9 @@ export const main = async (args = process.argv.slice(2)) => {
     const client = await connectWorkspace(repository).catch((error: Error) => {
       throw new CliError(error.message, "app_unavailable", 3);
     });
-    if (name.startsWith("settings "))
+    if (name === "about" || /^(git|memory|reports) /.test(name))
+      result = await executeDailyCommand(client, command);
+    else if (name.startsWith("settings "))
       result = await executeSettingsCommand(client, command);
     else if (name.startsWith("providers "))
       result = await executeProviderCommand(client, command);
@@ -252,25 +275,27 @@ if (
   process.argv[1] &&
   realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)
 ) {
-  main().catch(
-    (
-      error: Error & { code?: string; exitCode?: number; details?: unknown },
-    ) => {
-      const json = process.argv.includes("--json");
-      const code =
-        error.exitCode ??
-        (error instanceof TypeError ||
-        /Unknown command|not valid|Usage:|Choose exactly|--group or|--timeout/.test(
-          error.message,
-        )
-          ? 2
-          : 1);
-      process.stderr.write(
-        json
-          ? `${JSON.stringify({ error: { code: error.code ?? (code === 2 ? "invalid_arguments" : "operation_failed"), message: error.message, ...(error.details ? { details: error.details } : {}) } })}\n`
-          : `Senslop: ${error.message}\n`,
-      );
-      process.exitCode = code;
-    },
-  );
+  notifyCliUpdate(process.argv.slice(2))
+    .then((updated) => (updated ? undefined : main()))
+    .catch(
+      (
+        error: Error & { code?: string; exitCode?: number; details?: unknown },
+      ) => {
+        const json = process.argv.includes("--json");
+        const code =
+          error.exitCode ??
+          (error instanceof TypeError ||
+          /Unknown command|not valid|Usage:|Choose exactly|--group or|--timeout/.test(
+            error.message,
+          )
+            ? 2
+            : 1);
+        process.stderr.write(
+          json
+            ? `${JSON.stringify({ error: { code: error.code ?? (code === 2 ? "invalid_arguments" : "operation_failed"), message: error.message, ...(error.details ? { details: error.details } : {}) } })}\n`
+            : `Senslop: ${error.message}\n`,
+        );
+        process.exitCode = code;
+      },
+    );
 }
