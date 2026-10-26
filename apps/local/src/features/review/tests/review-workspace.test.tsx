@@ -935,6 +935,23 @@ test("opening ungrouped reviews and refreshing stays quiet", () => {
   expect(state.toastSuccess).not.toHaveBeenCalled();
 });
 
+test("preparation can be stopped before its job appears in polling", async () => {
+  setNavigationPreview();
+  state.preview!.groupingEnabled = true;
+  state.jobs = [];
+  render(<ReviewWorkspace>Setup</ReviewWorkspace>);
+  await userEvent
+    .setup()
+    .click(screen.getByRole("button", { name: "Stop review" }));
+  expect(state.act).toHaveBeenCalledWith({
+    action: "cancel-grouping",
+    snapshotId: state.preview!.id,
+    expectedHash: state.preview!.hash,
+    expectedRound: state.preview!.round,
+  });
+  expect(state.discard).not.toHaveBeenCalled();
+});
+
 test.each(["queued", "running"] as const)(
   "stop review cancels the active %s grouping job and retains the snapshot",
   async (status) => {

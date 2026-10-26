@@ -63,6 +63,23 @@ const fixture = async () => {
   };
 };
 
+test("stopping preparation before dispatch records a revision-specific cancellation", async () => {
+  const { local, review, agents } = await fixture();
+  try {
+    const job = agents.cancelGrouping(review.id, review.hash, review.round);
+    expect(job.status).toBe("canceled");
+    expect(agents.jobs(review.id)).toHaveLength(1);
+    expect(agents.cancelGrouping(review.id, review.hash, review.round).id).toBe(
+      job.id,
+    );
+    expect(() =>
+      agents.cancelGrouping(review.id, "stale", review.round),
+    ).toThrow(/changed/);
+  } finally {
+    local.close();
+  }
+});
+
 test("capacity settings lock across repositories and remain frozen in saved runs", async () => {
   const { local, review, agents, databasePath } = await fixture();
   try {

@@ -556,6 +556,12 @@ export const agentStateSchema = z.object({
 export type AgentStateSchema = z.infer<typeof agentStateSchema>;
 export const agentActionSchema = z.discriminatedUnion("action", [
   z.object({
+    action: z.literal("cancel-grouping"),
+    snapshotId: z.uuid(),
+    expectedHash: z.string().optional(),
+    expectedRound: z.number().int().positive().optional(),
+  }),
+  z.object({
     action: z.literal("rename-review"),
     id: z.uuid(),
     title: z.string().trim().min(1).max(200),

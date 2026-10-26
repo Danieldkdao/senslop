@@ -362,6 +362,30 @@ export class AgentStore {
       return job;
     });
 
+  cancelGrouping = (snapshotId: string, hash?: string, round?: number) =>
+    this.local.transaction(() => {
+      const snapshot = this.snapshot(snapshotId);
+      if (
+        (hash !== undefined && snapshot.hash !== hash) ||
+        (round !== undefined && snapshot.round !== round)
+      )
+        throw new Error("Review contents changed. Reload and retry.");
+      const existingJob = this.jobs(snapshotId).find(
+        (job) => job.kind === "grouping" && matchesJobSnapshot(job, snapshot),
+      );
+      if (
+        existingJob &&
+        ["completed", "failed", "canceled"].includes(existingJob.status)
+      )
+        return existingJob;
+      const job =
+        existingJob ?? this.createJob(snapshotId, "grouping", { hash, round });
+      return this.updateJob(job.id, {
+        status: "canceled",
+        progress: "Canceled",
+      })!;
+    });
+
   prioritizeJob = (id: string, priority: JobPriority) =>
     this.local.transaction(() => {
       const existingJob = this.job(id);

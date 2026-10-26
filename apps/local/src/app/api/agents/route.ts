@@ -203,19 +203,29 @@ export const POST = async (request: Request) => {
         after(() => dispatchJobs(input.snapshotId));
         return Response.json(job);
       }
+      case "cancel-grouping":
       case "cancel": {
-        const job = agents.job(input.id);
+        const job =
+          input.action === "cancel-grouping"
+            ? agents.cancelGrouping(
+                input.snapshotId,
+                input.expectedHash,
+                input.expectedRound,
+              )
+            : agents.job(input.id);
         if (!job) throw new Error("Job not found.");
-        agents.updateJob(input.id, {
-          status: "canceled",
-          progress: "Canceled",
-        });
+        if (input.action === "cancel")
+          agents.updateJob(input.id, {
+            status: "canceled",
+            progress: "Canceled",
+          });
         after(() =>
-          inngest.send({
-            name: "senslop/analysis.canceled",
-            data: { jobId: input.id, dispatchKey: job.dispatchKey },
-          })
-          .catch(() => {}),
+          inngest
+            .send({
+              name: "senslop/analysis.canceled",
+              data: { jobId: job.id, dispatchKey: job.dispatchKey },
+            })
+            .catch(() => {}),
         );
         return Response.json({ saved: true });
       }

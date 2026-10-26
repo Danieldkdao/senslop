@@ -1038,7 +1038,18 @@ export const ReviewWorkspace = ({ children }: ReviewWorkspaceProps) => {
               setInitialSettingsSection("ai");
               setSettingsOpen(true);
             }}
-            onStop={(id) => agents.act({ action: "cancel", id })}
+            onStop={(id) =>
+              agents.act(
+                id
+                  ? { action: "cancel", id }
+                  : {
+                      action: "cancel-grouping",
+                      snapshotId: preview!.id,
+                      expectedHash: preview!.hash,
+                      expectedRound: preview!.round,
+                    },
+              )
+            }
             onDiscard={discardReview}
           />
         ) : preview ? (
