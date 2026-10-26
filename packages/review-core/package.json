@@ -24,6 +24,8 @@
     "./maintenance": "./src/features/workflow/project-maintenance.ts",
     "./memory": "./src/features/memory/project-memory.ts",
     "./notifications": "./src/features/notifications/notification-events.ts",
+    "./checkpoint": "./src/features/git-workflow/push-checkpoint.ts",
+    "./git-process": "./src/features/git-workflow/git-process.ts",
     "./reports": "./src/features/reports/review-reports.ts"
   },
   "scripts": {
