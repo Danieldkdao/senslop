@@ -5,6 +5,8 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { LocalStore } from "@senslop/review-core/storage";
 import { CheckRunner } from "@senslop/review-core/checks";
+import { FixTasks } from "@senslop/review-core/fix-tasks";
+import { VerificationStore } from "@senslop/review-core/verification";
 import { getCheckRunner } from "../../../services/inngest/functions";
 import { WorkflowStore } from "@senslop/review-core/workflow";
 import { saveProjectPolicy } from "@senslop/review-core/policy";
@@ -196,6 +198,81 @@ test("a check can be canceled after its source round has advanced", async () => 
   ).toBe(200);
   expect(runner.get(check.id)?.status).toBe("canceled");
 });
+
+test("history removal hides finished checks, preserves evidence, and retains active checks", async () => {
+  const runner = new CheckRunner(state.store, "/fixture", "");
+  const active = runner.create(review, { command: "node --version" });
+  const finished = runner.create(review, { command: "node -v" });
+  runner.cancel(finished.id);
+  expect(
+    (await write({ action: "remove-history", kind: "checks", id: active.id }))
+      .status,
+  ).toBe(400);
+  expect(
+    (await write({ action: "remove-history", kind: "checks", id: finished.id }))
+      .status,
+  ).toBe(200);
+  const response = await GET(
+    new Request(`http://localhost/api/workflow?reviewId=${review.id}`),
+  );
+  expect(
+    (await response.json()).checks.map((check: { id: string }) => check.id),
+  ).toEqual([active.id]);
+  expect(runner.get(finished.id)?.status).toBe("canceled");
+  runner.cancel(active.id);
+  expect(
+    (await write({ action: "remove-history", kind: "checks" })).status,
+  ).toBe(200);
+  const cleared = await GET(
+    new Request(`http://localhost/api/workflow?reviewId=${review.id}`),
+  );
+  expect((await cleared.json()).checks).toEqual([]);
+});
+
+test.each(["tasks", "verification"] as const)(
+  "%s history clears individually and in bulk without deleting linked records",
+  async (kind) => {
+    const tasks = new FixTasks(state.store, "/fixture");
+    const runs = new VerificationStore(state.store, "/fixture");
+    const create = () =>
+      kind === "tasks"
+        ? tasks.create(review, {
+            title: "Fix guard",
+            findingIds: [finding.id],
+            workspaceKind: "current",
+          })
+        : runs.create(review, [finding.id]);
+    const cancel = (id: string) =>
+      kind === "tasks"
+        ? tasks.transition(id, "canceled", review)
+        : runs.cancel(id);
+    const first = create();
+    expect(
+      (await write({ action: "remove-history", kind, id: first.id })).status,
+    ).toBe(400);
+    cancel(first.id);
+    expect(
+      (await write({ action: "remove-history", kind, id: first.id })).status,
+    ).toBe(200);
+    const second = create();
+    cancel(second.id);
+    expect((await write({ action: "remove-history", kind })).status).toBe(200);
+    const response = await GET(
+      new Request(`http://localhost/api/workflow?reviewId=${review.id}`),
+    );
+    const history = await response.json();
+    expect(kind === "tasks" ? history.tasks : history.verifications).toEqual(
+      [],
+    );
+    expect(
+      kind === "tasks" ? tasks.get(first.id) : runs.get(first.id),
+    ).toBeTruthy();
+    expect(
+      (await write({ action: "remove-history", kind, id: randomUUID() }))
+        .status,
+    ).toBe(400);
+  },
+);
 
 test("source auto-save patches preserve the latest review budgets and depth", async () => {
   saveProjectPolicy(

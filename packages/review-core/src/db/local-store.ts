@@ -530,6 +530,9 @@ export class LocalStore {
       this.database
         .prepare("DELETE FROM preferences WHERE name=?")
         .run(`review_rules:${id}`);
+      this.database
+        .prepare("DELETE FROM preferences WHERE name LIKE ?")
+        .run(`workflow-history:${id}:%`);
     });
     this.database.exec("PRAGMA wal_checkpoint(TRUNCATE)");
   };
