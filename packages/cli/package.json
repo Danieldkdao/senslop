@@ -1,7 +1,6 @@
 {
-  "name": "@senslop/cli",
+  "name": "senslop",
   "version": "0.1.0",
-  "private": true,
   "type": "module",
   "scripts": {
     "build": "tsup && node scripts/bundle-local-app.mjs",
@@ -42,5 +41,15 @@
     "simple-git": "4.0.2",
     "ws": "8.22.0",
     "zod": "4.6.5"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Danieldkdao/senslop.git",
+    "directory": "packages/cli"
   }
 }

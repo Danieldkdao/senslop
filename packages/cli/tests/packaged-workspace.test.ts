@@ -154,16 +154,24 @@ packageTest(
     ).finally(() => rm(runtimeCache, { recursive: true, force: true }));
     const archive = JSON.parse(packed.stdout)[0] as {
       filename: string;
+      name: string;
       files: { path: string }[];
     };
+    expect(archive.name).toBe("senslop");
     const paths = archive.files.map((file) => file.path);
     expect(paths.some((path) => path.endsWith("apps/local/server.js"))).toBe(
       true,
     );
     expect(paths.some((path) => path.includes(".next/static/"))).toBe(true);
+    expect(paths).toContain("license.md");
     expect(paths).toContain("dist/local-app/node_modules/react/index.js");
     expect(paths).toContain("dist/local-app/node_modules/react-dom/index.js");
     expect(paths.some((path) => path.includes("/route-cache/"))).toBe(false);
+    expect(
+      paths.some((path) =>
+        /dist\/local-app\/apps\/local\/src\/app\/.*\.[cm]?[jt]sx?$/.test(path),
+      ),
+    ).toBe(false);
     expect(
       paths.some((path) =>
         /\.next\/node_modules\/@napi-rs\/keyring-[^/]+\/index\.js$/.test(path),
@@ -188,7 +196,7 @@ packageTest(
       ],
       { maxBuffer: 4 * 1024 * 1024 },
     );
-    const cli = join(installation, "node_modules/@senslop/cli/dist/index.js");
+    const cli = join(installation, "node_modules/senslop/dist/index.js");
     const repo = join(scratch, "repo");
     await execute("git", ["init", "--initial-branch=main", repo]);
     fixtureRepositories.add(await realpath(repo));
@@ -602,7 +610,7 @@ packageTest(
     ).toBeLessThanOrEqual(1);
     expect(
       await readFile(
-        join(installation, "node_modules/@senslop/cli/package.json"),
+        join(installation, "node_modules/senslop/package.json"),
         "utf8",
       ),
     ).toContain('"node": "24.x || >=26"');

@@ -2,7 +2,7 @@
 
 Requires Node.js 24.x or 26+ and Git; source builds use pnpm 12.8.1. Senslop bundles the local browser app and its job engine. Local reviews do not require a hosted Senslop account.
 
-This reference covers the complete local review workflow on `main`. The package remains private and unpublished. In a source checkout, build through the workspace task graph and substitute `node packages/cli/dist/index.js` for `senslop`; see the [root setup guide](../../README.md). The [technical spec](../../devpost/spec.md) describes the current architecture, while the [roadmap](../../devpost/local-review-roadmap.md) records delivered scopes, dated evidence, and remaining release work.
+This reference covers the complete local review workflow on `main`. The public npm package name is `senslop`; publishing is a separate manual release step. In a source checkout, build through the workspace task graph and substitute `node packages/cli/dist/index.js` for `senslop`; see the [root setup guide](../../README.md). The [technical spec](../../devpost/spec.md) describes the current architecture, while the [roadmap](../../devpost/local-review-roadmap.md) records delivered scopes, dated evidence, and remaining release work.
 
 ## Run the app and CLI separately
 
@@ -197,11 +197,63 @@ Machine-oriented commands write undecorated JSON to stdout and structured errors
 
 Run `pnpm dev:local` in the repository to start the source app and worker. Use `node --import tsx packages/cli/src/index.ts COMMAND` from another terminal for source CLI commands, or pass `--repo PATH`. UI edits use Fast Refresh; frozen compilation runs in a separate worker and CLI calls load current source on each invocation. To run development against another project, use `node --import tsx packages/cli/src/index.ts app start --dev --repo /absolute/path/to/project`; restart the app terminal after changing launcher logic, and stop it before switching between development and production for the same project. Installed users run the bundled production app.
 
-From the checkout root, use the [root setup guide](../../README.md#try-it-locally): `pnpm install --frozen-lockfile`, then `pnpm exec turbo run build --filter=@senslop/cli`. For explicit rebuilds, run `pnpm --filter @senslop/local build` before `pnpm --filter @senslop/cli build`; the app build compiles the frozen-analysis worker before Next.js, and the CLI packages that standalone output. The archive includes standalone Next.js, shared assets, native runtime dependencies, and the skill; it excludes source workspaces and real environment files. The package remains private and is not published.
+From the checkout root, use the [root setup guide](../../README.md#try-it-locally): `pnpm install --frozen-lockfile`, then `pnpm exec turbo run build --filter=senslop`. For explicit rebuilds, run `pnpm --filter @senslop/local build` before `pnpm --filter senslop build`; the app build compiles the frozen-analysis worker before Next.js, and the CLI packages that standalone output. The archive includes standalone Next.js, shared assets, native runtime dependencies, and the skill; it excludes source workspaces and real environment files. Only the CLI package is publishable; the repository root and other workspaces remain private.
 
-For the checkout, `pnpm exec turbo run build --filter=@senslop/cli` builds through the dependency graph. Root `pnpm typecheck`/`pnpm build` also include hosted workspaces and their environment requirements; targeted local checks do not require hosted authentication setup. Verify fresh archive installation separately before claiming distribution readiness.
+For the checkout, `pnpm exec turbo run build --filter=senslop` builds through the dependency graph. Root `pnpm typecheck`/`pnpm build` also include hosted workspaces and their environment requirements; targeted local checks do not require hosted authentication setup. Verify fresh archive installation separately before claiming distribution readiness.
 
 Run the ordinary suite with `pnpm test`. `SENSLOP_AGENT_TEST=1 pnpm exec vitest run packages/cli/tests/agent-workflow.test.ts` exercises the production bundle and real local engine through independent CLI processes, using an isolated repository/data directory and deterministic loopback provider. This checks orchestration rather than real model quality. Existing opt-in development, installed-package, subscription, and OS credential tests remain available in their test files.
+
+## Publishing
+
+The initial release is `senslop@0.1.0`; npm authentication and publication are manual steps performed by the maintainer.
+
+From the repository root, verify the frozen dependencies, production build, and CLI checks:
+
+```sh
+pnpm install --frozen-lockfile
+pnpm exec turbo run build typecheck lint --filter=senslop
+pnpm exec vitest run packages/cli packages/review-core/src/features/updates/tests/update-service.test.ts
+SENSLOP_PACK_TEST=1 pnpm exec vitest run packages/cli/tests/packaged-workspace.test.ts
+pnpm audit --prod
+```
+
+The archive test installs the packed package in a disposable directory, starts the bundled app, exercises reviews and assets, and stops its processes; it requires registry access and local loopback ports.
+
+Inspect and create the release archive from the CLI directory:
+
+```sh
+cd packages/cli
+npm pack --dry-run
+npm pack
+npm publish ./senslop-0.1.0.tgz --dry-run --access public
+```
+
+Inspect the file list for secrets, environment files, local databases, caches, and unintended source files; verify that the bundled app, static assets, skill, and license are present.
+
+After reviewing the checks and committing the release changes, authenticate with an npm account that has 2FA enabled and publish that archive:
+
+```sh
+npm login
+npm whoami
+npm publish ./senslop-0.1.0.tgz --access public
+```
+
+Publish only from `packages/cli`; keep the repository root and internal packages private. Increase the CLI version before each later release because npm does not allow reusing a published name/version pair.
+
+The standalone app includes native dependencies from the build host; verification on one OS/architecture does not establish support on other platforms. Real provider compatibility and a future published-version upgrade require separate checks.
+
+### Release verification — October 26, 2026
+
+Publishing preparation is verified on macOS arm64 with Node.js 24.22.1, pnpm 12.8.1, and npm 11.19.1; publication has not been performed.
+
+- Passed the frozen-lockfile install, targeted production build, CLI typecheck/lint, 131 CLI/updater tests, and 21 Git/check-runner regression tests; 10 opt-in CLI tests remained skipped.
+- Passed the clean archive integration test, including app startup, Git capture modes, assets, saved reviews, and process cleanup, plus npm's publish dry-run.
+- The archive includes the license and excludes environment/session/database/cache files and unintended raw app source; configured secret values were not found in the checked release files or changed files.
+- **Release blocker:** `pnpm audit --prod` reports 24 advisories across the workspace production graph: two critical, nine high, nine moderate, and four low. Dependency versions remain unchanged in this publishing-preparation change.
+
+The audit includes [Next.js advisories fixed in 16.4.1](https://github.com/advisories/GHSA-2464-fhr4-w9xw), Zod advisories fixed in 4.6.6, and transitive `adm-zip` advisories through `inngest-cli`; the checked latest `inngest-cli@1.49.0` still declares the affected `adm-zip` range. Additional findings concern esbuild, KaTeX, ip-address, body-parser, undici, and fast-uri; the workspace audit includes hosted/tooling dependencies as well as dependencies of the CLI and bundled app.
+
+Resolve or explicitly assess the audit findings before publishing, then rebuild, repack, and repeat release checks; this evidence does not establish support on other operating systems or compatibility with real provider accounts.
 
 ## Fix and verify
 

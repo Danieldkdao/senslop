@@ -225,7 +225,7 @@ OS Keychain/Credential Manager/Secret Service stores secrets. SQLite stores nons
 
 Build dependencies through the workspace task graph, then run the CLI bundle. Its packaging script includes the standalone local Next.js app, assets/fonts, runtime dependencies, local job engine support, and bundled skill. A clean archive install is a separate verification scenario from source tests.
 
-The CLI package is private and not published at this baseline. Normal data lives in OS application-data storage; jobs/state are per-root subdirectories, while reviews.sqlite is the per-user local store. Disposable transport/session paths are separate from durable data.
+The CLI package is prepared for public publication as `senslop`; npm authentication and publishing remain manual maintainer actions. The repository root and internal workspaces remain private. Normal data lives in OS application-data storage; jobs/state are per-root subdirectories, while reviews.sqlite is the per-user local store. Disposable transport/session paths are separate from durable data.
 
 ## Fix and verify architecture
 
@@ -277,7 +277,7 @@ Group 3 uses review-core modules for project memory, Git/checkpoints, reports, n
 
 Reports store immutable captured-round outcome versions; HTML escapes authored content with a restrictive CSP. Evidence and exports apply current source policy. Browser form drafts use tab-local state plus a restart backup, bounded size and 30-day expiry; successful submissions clear them, and note cancellation also clears its draft. Notifications require browser permission, category opt-in, event cursors, and atomic server-side event claims; Web Locks serialize local delivery when available, with direct delivery using the same claims otherwise. Notification-worker preparation has a ten-second timeout; browser submission itself is awaited without a misleading timeout because it cannot be canceled. Completion events are recorded at job publication/failure, without requiring a later rename; the minimal service worker handles click navigation without source caching or a remote push service.
 
-Update checks use the stable @senslop/cli npm registry release with bounded requests and cached availability. Installation supports detected global npm/pnpm copies, validates a pinned version, rejects active work/running owners, backs up SQLite, and invokes argument-based package-manager commands after explicit confirmation. Source/archive copies do not self-replace. About owns diagnostics; `/ai-test` and its inference helper are retired. Fixed input-aware hotkeys remain; configurable shortcuts and publishing are deferred.
+Update checks use the stable `senslop` npm registry release with bounded requests and cached availability. Installation supports detected global npm/pnpm copies, validates a pinned version, rejects active work/running owners, backs up SQLite, and invokes argument-based package-manager commands after explicit confirmation. Source/archive copies do not self-replace. About owns diagnostics; `/ai-test` and its inference helper are retired. Fixed input-aware hotkeys remain; configurable shortcuts are deferred, and actual npm publication remains a separate maintainer action.
 
 ## Review-defect corrections — October 26, 2026
 

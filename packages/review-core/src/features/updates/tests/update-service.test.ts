@@ -14,26 +14,32 @@ test("version checks use stable release numbers and never invent an unpublished 
   );
   expect(unavailable.latest).toBe(null);
   expect(unavailable.available).toBe(false);
-  const available = await checkRelease(
-    "0.1.0",
-    vi.fn(async () =>
-      Response.json({ name: "@senslop/cli", version: "0.2.0" }),
-    ),
+  const request = vi.fn(async () =>
+    Response.json({ name: "senslop", version: "0.2.0" }),
   );
+  const available = await checkRelease("0.1.0", request);
   expect(available.available).toBe(true);
+  expect(request).toHaveBeenCalledWith(
+    "https://registry.npmjs.org/senslop/latest",
+    expect.any(Object),
+  );
+  const wrongPackage = await checkRelease("0.1.0", async () =>
+    Response.json({ name: "unrelated-cli", version: "0.2.0" }),
+  );
+  expect(wrongPackage.available).toBe(false);
 });
 
 test("updates pin a validated release and use argument arrays", () => {
   expect(updateArguments("npm", "0.2.0")).toEqual([
     "install",
     "--global",
-    "@senslop/cli@0.2.0",
+    "senslop@0.2.0",
   ]);
   expect(() => updateArguments("npm", "$(malicious)")).toThrow();
   expect(updateArguments("pnpm", "0.2.0")).toEqual([
     "add",
     "--global",
-    "@senslop/cli@0.2.0",
+    "senslop@0.2.0",
   ]);
 });
 
@@ -66,12 +72,9 @@ test("installation detection follows the executable symlink for global npm insta
   const { detectInstallation } = await import("../update-service");
   const directory = mkdtempSync(join(tmpdir(), "senslop-installation-"));
   try {
-    const entry = join(
-      directory,
-      "lib/node_modules/@senslop/cli/dist/index.js",
-    );
+    const entry = join(directory, "lib/node_modules/senslop/dist/index.js");
     mkdirSync(join(directory, "bin"), { recursive: true });
-    mkdirSync(join(directory, "lib/node_modules/@senslop/cli/dist"), {
+    mkdirSync(join(directory, "lib/node_modules/senslop/dist"), {
       recursive: true,
     });
     writeFileSync(entry, "");

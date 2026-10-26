@@ -521,13 +521,16 @@ export class GitOperations {
         "commit-msg",
         "post-commit",
       ]) {
-        const original = quoteShell(join(hooks, name));
+        // These paths belong to the reviewed repository, never the packaged application.
+        const original = quoteShell(
+          join(/* turbopackIgnore: true */ hooks, name),
+        );
         const guard =
           name === "post-commit"
             ? ""
             : `\ngit diff --cached --quiet ${quoteShell(tree)} -- || { echo 'Commit candidate changed in a hook. Inspect the staged diff and retry.' >&2; exit 1; }\n`;
         await writeFile(
-          join(directory, name),
+          join(/* turbopackIgnore: true */ directory, name),
           `#!/bin/sh\nif test -x ${original}; then ${original} "$@" || exit $?; fi\n${guard}`,
           { mode: 0o700 },
         );
