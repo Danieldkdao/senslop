@@ -1,6 +1,8 @@
 import {
   ToolLoopAgent,
   Output,
+  jsonSchema,
+  type JSONSchema7,
   isStepCount,
   type ToolSet,
   type ToolLoopAgentSettings,
@@ -36,6 +38,21 @@ type AnalysisAgentConfiguration = Pick<
   ) => Exclude<LanguageModel, string>;
 };
 
+const generatedOutput = (schema: z.ZodType) =>
+  Output.object({
+    schema: jsonSchema<Record<string, unknown>>(
+      z.toJSONSchema(schema, { target: "draft-7" }) as JSONSchema7,
+      {
+        validate: async (value) => {
+          const result = schema.safeParse(value);
+          return result.success
+            ? { success: true, value: result.data as Record<string, unknown> }
+            : { success: false, error: result.error };
+        },
+      },
+    ),
+  });
+
 const createAnalysisAgent = (
   id: string,
   schema: z.ZodType,
@@ -50,7 +67,7 @@ const createAnalysisAgent = (
   >({
     ...agentSettings,
     id,
-    output: Output.object({ schema }),
+    output: generatedOutput(schema),
     prepareCall: ({ options, ...call }) => ({
       ...call,
       ...(createModel
@@ -75,7 +92,7 @@ const createAnalysisAgent = (
           content: `Required final JSON schema:\n${JSON.stringify(z.toJSONSchema(options?.schema ?? schema))}`,
         },
       ],
-      output: Output.object({ schema: options?.schema ?? schema }),
+      output: generatedOutput(options?.schema ?? schema),
       maxOutputTokens: options?.maxOutputTokens ?? 8000,
       providerOptions: options?.providerOptions ?? call.providerOptions,
       stopWhen: isStepCount(createModel ? 1 : (options?.maxSteps ?? 1)),

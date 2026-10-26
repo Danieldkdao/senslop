@@ -3,7 +3,9 @@ import { generateText, isStepCount, Output, tool } from "ai";
 import { z } from "zod";
 import { resolveLanguageModel } from "../provider-runtime";
 import { repairGroupingResult } from "../analysis-repairs";
-import { createGroupingAgent } from "../analysis-agents";
+import { createGroupingAgent, createReviewAgent } from "../analysis-agents";
+import { createGroupingBatchSchema } from "../../../features/agents/schemas";
+import { createReviewBatchSchema } from "../analysis-repair-schemas";
 import type { SavedReviewSchema } from "@senslop/contracts";
 
 vi.mock("server-only", () => ({}));
@@ -249,7 +251,9 @@ test.each([true, false])(
           if (!value || typeof value !== "object") return;
           const node = value as Record<string, unknown>;
           if (node.type === "object" && node.properties) {
-            for (const key of Object.keys(node.properties))
+            for (const key of Object.keys(
+              node.properties as Record<string, unknown>,
+            ))
               if (!Array.isArray(node.required) || !node.required.includes(key))
                 problems.push(`${location}.${key} must be required`);
           }
@@ -318,5 +322,86 @@ test.each([true, false])(
       },
     );
     expect(result.groups[0]?.files).toEqual([summary]);
+  },
+);
+
+test.each(["review", "grouping"])(
+  "ChatGPT %s accepts the production response schema in strict mode",
+  async (kind) => {
+    const runtime = resolveLanguageModel(
+      {
+        provider: "chatgpt-subscription",
+        name: "ChatGPT",
+        baseURL: "https://api.openai.com/v1",
+        contextWindow: null,
+        model: "",
+      },
+      "fixture-access",
+      "gpt-5.6-luna",
+      async (_url, init) => {
+        const body = JSON.parse(String(init?.body));
+        const inspect = (value: unknown) => {
+          if (!value || typeof value !== "object") return;
+          const node = value as Record<string, unknown>;
+          if (node.type === "object" && node.properties) {
+            expect(node.additionalProperties).toBe(false);
+            expect(node.required).toEqual(
+              expect.arrayContaining(
+                Object.keys(node.properties as Record<string, unknown>),
+              ),
+            );
+          }
+          Object.values(node).forEach((child) =>
+            Array.isArray(child) ? child.forEach(inspect) : inspect(child),
+          );
+        };
+        inspect(body.text.format.schema);
+        return events(
+          true,
+          JSON.stringify(
+            kind === "review"
+              ? {
+                  files: [{ path: "sample.ts", findings: [] }],
+                  limitations: [],
+                }
+              : {
+                  groups: [
+                    {
+                      title: "Flow",
+                      rationale: "Change",
+                      files: [
+                        { path: "sample.ts", summary: "Change", related: [] },
+                      ],
+                    },
+                  ],
+                },
+          ),
+        );
+      },
+    );
+    const result = await (
+      kind === "review" ? createReviewAgent : createGroupingAgent
+    )({
+      ...runtime,
+      instructions: "Review frozen source",
+      tools: {},
+      maxRetries: 0,
+    }).generate({
+      prompt: "Review",
+      options: {
+        schema:
+          kind === "review"
+            ? createReviewBatchSchema(["sample.ts"])
+            : createGroupingBatchSchema(["sample.ts"]),
+        maxSteps: 1,
+        maxOutputTokens: 1000,
+        toolsEnabled: false,
+      },
+    });
+    expect(result.output).toMatchObject(
+      kind === "review"
+        ? { files: [{ path: "sample.ts", findings: [] }] }
+        : { groups: [{ title: "Flow" }] },
+    );
   },
 );
