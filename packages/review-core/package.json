@@ -22,6 +22,7 @@
     "./projects": "./src/features/workflow/project-registry.ts",
     "./verification": "./src/features/workflow/verification-store.ts",
     "./maintenance": "./src/features/workflow/project-maintenance.ts",
+    "./memory": "./src/features/memory/project-memory.ts",
     "./notifications": "./src/features/notifications/notification-events.ts"
   },
   "scripts": {

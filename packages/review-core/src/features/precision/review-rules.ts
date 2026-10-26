@@ -1,3 +1,4 @@
+import { ProjectMemory } from "../memory/project-memory";
 import { posix, matchesGlob } from "node:path";
 import {
   reviewRulesSchema,
@@ -258,9 +259,45 @@ export const readReviewInstructions = (
   for (const file of review.files)
     if (file.after !== null && allowsSourcePath(policy, file.path))
       allowed[file.path] = file.after;
+  const project = overrides?.project ?? readReviewOverrides(store, repository);
+  const rememberedRules = new ProjectMemory(store, repository)
+    .list()
+    .filter((entry) => entry.enabled)
+    .filter((entry) => {
+      const origin = store.getReview(repository, entry.review.id);
+      if (!origin) return false;
+      if (entry.originKind === "note")
+        return origin.notes.some(
+          (note) =>
+            note.id === entry.originId && allowsSourcePath(policy, note.path),
+        );
+      if (entry.originKind === "finding") {
+        const row = store.database
+          .prepare(
+            "SELECT body FROM review_findings WHERE id=? AND review_id=?",
+          )
+          .get(entry.originId, entry.review.id);
+        if (!row) return false;
+        const finding = JSON.parse(String(row.body)) as {
+          observations: { evidence: { path: string } }[];
+        };
+        return finding.observations.every((observation) =>
+          allowsSourcePath(policy, observation.evidence.path),
+        );
+      }
+      return true;
+    })
+    .map((entry) => ({
+      id: entry.id,
+      text: entry.assumption
+        ? `${entry.text}\nValid only while: ${entry.assumption}`
+        : entry.text,
+      paths: entry.paths,
+      enabled: true,
+    }));
   return resolveReviewInstructions(
     allowed,
-    overrides?.project ?? readReviewOverrides(store, repository),
+    { ...project, rules: [...rememberedRules, ...(project.rules ?? [])] },
     overrides?.review ?? readReviewOverrides(store, repository, reviewId),
   );
 };
