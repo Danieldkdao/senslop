@@ -4,8 +4,13 @@ import {
   Download,
   History,
   ListEnd,
+  Logs,
   FileCheck2,
   FileWarning,
+  Clock3,
+  Terminal,
+  CircleAlert,
+  Settings2,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Input } from "@/components/ui/input";
@@ -18,6 +23,7 @@ import {
   CollapsibleTrigger,
   CollapsibleContent,
 } from "@/components/ui/collapsible";
+import { WorkflowChevron, WorkflowDisclosure } from "./workflow-disclosure";
 import { CopyButton } from "../../../components/copy-button";
 import { compareChecks } from "../lib/compare-checks";
 import {
@@ -25,6 +31,7 @@ import {
   formatUsageDuration,
   formatCheckStatus,
 } from "../lib/formatters";
+import { WorkflowHistoryAction } from "./workflow-history-action";
 import type { WorkflowActionSchema } from "../schemas";
 
 export const CheckResults = ({
@@ -50,41 +57,62 @@ export const CheckResults = ({
       return (
         <Collapsible
           key={check.id}
-          className="flex min-w-0 flex-col gap-2 border-b py-3"
+          className="flex min-w-0 flex-col gap-2 border-b p-4"
         >
-          <div className="flex min-w-0 items-center gap-2">
+          <div className="flex min-w-0 items-start gap-2 text-base leading-6">
             <TooltipWrapper content={status.label}>
-              <span tabIndex={0} role="status" aria-label={status.label}>
+              <span
+                tabIndex={0}
+                role="status"
+                aria-label={status.label}
+                className="flex h-lh items-center"
+              >
                 <status.Icon
                   aria-hidden="true"
                   className={cn(
-                    "size-5 text-muted-foreground",
+                    "size-5 shrink-0",
+                    status.className,
                     status.loading && "animate-spin",
                   )}
                 />
               </span>
             </TooltipWrapper>
             {stale && (
-              <TooltipWrapper content="Historical result; source has changed">
+              <TooltipWrapper
+                content="Historical result; source has changed"
+                className="h-lh items-center"
+              >
                 <History
                   aria-label="Historical result"
-                  className="size-4 text-muted-foreground"
+                  className="size-5 shrink-0 text-muted-foreground"
                 />
               </TooltipWrapper>
             )}
             {comparisonDisplay && (
-              <TooltipWrapper content={comparisonDisplay.label}>
+              <TooltipWrapper
+                content={comparisonDisplay.label}
+                className="h-lh items-center"
+              >
                 <comparisonDisplay.Icon
                   aria-label={comparisonDisplay.label}
-                  className="size-4 text-muted-foreground"
+                  className={cn(
+                    "size-5 shrink-0 text-muted-foreground",
+                    comparisonDisplay.loading && "animate-spin",
+                  )}
                 />
               </TooltipWrapper>
             )}
-            <CollapsibleTrigger className="min-w-0 flex-1 wrap-break-word text-left font-mono text-base">
-              {check.command}
+            <CollapsibleTrigger className="flex min-w-0 flex-1 items-start gap-2 text-left leading-6 font-mono text-base">
+              <span className="min-w-0 flex-1 wrap-break-word">
+                {check.command}
+              </span>
+              <WorkflowChevron />
             </CollapsibleTrigger>
             {["queued", "running"].includes(check.status) && (
-              <TooltipWrapper content="Cancel check">
+              <TooltipWrapper
+                content="Cancel check"
+                className="h-lh items-center"
+              >
                 <Button
                   size="icon"
                   variant="ghost"
@@ -96,10 +124,16 @@ export const CheckResults = ({
                     }).catch(() => {})
                   }
                 >
-                  <StopCircle aria-hidden="true" className="size-4" />
+                  <StopCircle aria-hidden="true" className="size-5 shrink-0" />
                 </Button>
               </TooltipWrapper>
             )}
+            <WorkflowHistoryAction
+              kind="checks"
+              id={check.id}
+              disabled={["queued", "running"].includes(check.status)}
+              onAction={onAction}
+            />
           </div>
           <CollapsibleContent>
             <div className="flex min-w-0 flex-col gap-3">
@@ -107,114 +141,128 @@ export const CheckResults = ({
                 {check.sourceSide === "base" ? "Base" : "Changed source"}, round{" "}
                 {check.review.round} / {check.review.hash.slice(0, 8)}
               </span>
-              <dl className="flex flex-wrap gap-3 text-muted-foreground">
-                <div>
-                  <dt>Exit</dt>
-                  <dd>{check.exitCode ?? "Unavailable"}</dd>
-                </div>
-                <div>
-                  <dt>Duration</dt>
-                  <dd>
-                    {check.durationMs === null
-                      ? "Pending"
-                      : formatUsageDuration(check.durationMs)}
-                  </dd>
-                </div>
-              </dl>
-              {check.error && (
-                <span role="alert" className="wrap-break-word text-destructive">
-                  {check.error}
+              <div className="flex flex-wrap items-center gap-4 text-base text-muted-foreground">
+                <span className="flex items-center gap-2">
+                  <Terminal className="size-5 shrink-0" />
+                  {check.exitCode === null
+                    ? "No exit code"
+                    : `Exit ${check.exitCode}`}
                 </span>
-              )}
-              <Collapsible>
-                <CollapsibleTrigger className="text-base">
-                  Environment & inputs
-                </CollapsibleTrigger>
-                <CollapsibleContent>
-                  <pre className="overflow-auto whitespace-pre-wrap wrap-break-word font-mono text-base">
-                    {JSON.stringify(
-                      {
-                        command: check.command,
-                        cwd: check.cwd,
-                        manifestId: check.manifestId,
-                        dependencyHash: check.dependencyHash,
-                        ...check.environment,
-                      },
-                      null,
-                      2,
-                    )}
-                  </pre>
-                </CollapsibleContent>
-              </Collapsible>
-              <div className="flex justify-end gap-1">
-                <CopyButton text={check.output} label="Copy check output" />
-                <TooltipWrapper content="Download output">
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    aria-label="Download output"
-                    onClick={() => {
-                      const url = URL.createObjectURL(
-                        new Blob([check.output], { type: "text/plain" }),
-                      );
-                      const anchor = document.createElement("a");
-                      anchor.href = url;
-                      anchor.download = `check-${check.id}.txt`;
-                      anchor.click();
-                      URL.revokeObjectURL(url);
-                    }}
-                  >
-                    <Download aria-hidden="true" className="size-4" />
-                  </Button>
-                </TooltipWrapper>
-              </div>
-              {!!check.artifacts.length && (
-                <div className="flex flex-col gap-2">
-                  {check.artifacts.map((artifact) => (
-                    <div
-                      key={artifact.path}
-                      className="flex min-w-0 items-center gap-2"
+                <span className="flex items-center gap-2">
+                  <Clock3 className="size-5 shrink-0" />
+                  {check.durationMs === null
+                    ? "Pending"
+                    : formatUsageDuration(check.durationMs)}
+                </span>
+                <div className="flex items-center gap-1 [&_button]:size-9 [&_svg]:size-5">
+                  <CopyButton text={check.output} label="Copy check output" />
+                  <TooltipWrapper content="Download output">
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      aria-label="Download output"
+                      disabled={!check.output}
+                      onClick={() => {
+                        const url = URL.createObjectURL(
+                          new Blob([check.output], { type: "text/plain" }),
+                        );
+                        const anchor = document.createElement("a");
+                        anchor.href = url;
+                        anchor.download = `check-${check.id}.txt`;
+                        anchor.click();
+                        URL.revokeObjectURL(url);
+                      }}
                     >
-                      <TooltipWrapper
-                        content={artifact.error ?? "Captured output artifact"}
-                      >
-                        {artifact.error ? (
-                          <FileWarning
-                            aria-label="Artifact unavailable"
-                            className="size-4 shrink-0 text-muted-foreground"
-                          />
-                        ) : (
-                          <FileCheck2
-                            aria-label="Artifact recorded"
-                            className="size-4 shrink-0 text-muted-foreground"
-                          />
-                        )}
-                      </TooltipWrapper>
-                      <span className="min-w-0 flex-1 wrap-break-word font-mono text-base">
-                        {artifact.path}
-                      </span>
-                      {!artifact.error && (
-                        <TooltipWrapper content="Download artifact">
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            aria-label="Download artifact"
-                            render={
-                              <a
-                                href={`/api/workflow?checkId=${check.id}&artifact=${encodeURIComponent(artifact.path)}`}
-                                download
-                              />
+                      <Download
+                        aria-hidden="true"
+                        className="size-5 shrink-0"
+                      />
+                    </Button>
+                  </TooltipWrapper>
+                </div>
+              </div>
+              {check.error && (
+                <WorkflowDisclosure
+                  title="Error details"
+                  Icon={CircleAlert}
+                  destructive
+                >
+                  <p role="alert" className="wrap-break-word">
+                    {check.error}
+                  </p>
+                </WorkflowDisclosure>
+              )}
+              <WorkflowDisclosure title="Environment & inputs" Icon={Settings2}>
+                <pre className="overflow-auto whitespace-pre-wrap wrap-break-word font-mono text-base">
+                  {JSON.stringify(
+                    {
+                      command: check.command,
+                      cwd: check.cwd,
+                      manifestId: check.manifestId,
+                      dependencyHash: check.dependencyHash,
+                      ...check.environment,
+                    },
+                    null,
+                    2,
+                  )}
+                </pre>
+              </WorkflowDisclosure>
+              <WorkflowDisclosure title="Output" Icon={Logs} defaultOpen>
+                <div className="flex min-w-0 flex-col gap-3">
+                  {!!check.artifacts.length && (
+                    <div className="flex flex-col gap-2">
+                      {check.artifacts.map((artifact) => (
+                        <div
+                          key={artifact.path}
+                          className="flex min-w-0 items-center gap-2"
+                        >
+                          <TooltipWrapper
+                            content={
+                              artifact.error ?? "Captured output artifact"
                             }
                           >
-                            <Download aria-hidden="true" className="size-4" />
-                          </Button>
-                        </TooltipWrapper>
-                      )}
+                            {artifact.error ? (
+                              <FileWarning
+                                aria-label="Artifact unavailable"
+                                className="size-5 shrink-0 text-muted-foreground"
+                              />
+                            ) : (
+                              <FileCheck2
+                                aria-label="Artifact recorded"
+                                className="size-5 shrink-0 text-muted-foreground"
+                              />
+                            )}
+                          </TooltipWrapper>
+                          <span className="min-w-0 flex-1 wrap-break-word font-mono text-base">
+                            {artifact.path}
+                          </span>
+                          {!artifact.error && (
+                            <TooltipWrapper content="Download artifact">
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                aria-label="Download artifact"
+                                render={
+                                  <a
+                                    href={`/api/workflow?checkId=${check.id}&artifact=${encodeURIComponent(artifact.path)}`}
+                                    download
+                                  />
+                                }
+                              >
+                                <Download
+                                  aria-hidden="true"
+                                  className="size-5 shrink-0"
+                                />
+                              </Button>
+                            </TooltipWrapper>
+                          )}
+                        </div>
+                      ))}
                     </div>
-                  ))}
+                  )}
+                  <CheckOutput output={check.output} />
                 </div>
-              )}
-              <CheckOutput output={check.output} />
+              </WorkflowDisclosure>
             </div>
           </CollapsibleContent>
         </Collapsible>
@@ -231,31 +279,34 @@ const CheckOutput = ({ output }: { output: string }) => {
     if (follow && log.current) log.current.scrollTop = log.current.scrollHeight;
   }, [output, follow]);
   return (
-    <div className="flex min-w-0 flex-col gap-2">
-      <div className="flex items-center gap-2">
-        <Input
-          aria-label="Search check output"
-          placeholder="Search output…"
-          value={search}
-          onChange={(event) => setSearch(event.target.value)}
-          className="w-full text-base"
-        />
-        <TooltipWrapper content="Follow output">
-          <Button
-            size="icon"
-            variant={follow ? "secondary" : "ghost"}
-            aria-label="Follow output"
-            aria-pressed={follow}
-            onClick={() => setFollow(!follow)}
-          >
-            <ListEnd aria-hidden="true" className="size-4" />
-          </Button>
-        </TooltipWrapper>
-      </div>
+    <div className="-mx-4 flex min-w-0 flex-col">
+      {output && (
+        <div className="flex items-center gap-2 border-y pr-2">
+          <Input
+            variant="search"
+            aria-label="Search check output"
+            placeholder="Search output…"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            className="h-10 border-0 px-4"
+          />
+          <TooltipWrapper content="Follow output">
+            <Button
+              size="icon"
+              variant="ghost"
+              aria-label="Follow output"
+              aria-pressed={follow}
+              onClick={() => setFollow(!follow)}
+            >
+              <ListEnd aria-hidden="true" className="size-5 shrink-0" />
+            </Button>
+          </TooltipWrapper>
+        </div>
+      )}
       <pre
         ref={log}
         aria-label="Check output"
-        className="max-h-96 overflow-auto whitespace-pre-wrap wrap-break-word rounded-md bg-muted/30 p-3 font-mono text-base"
+        className="max-h-96 overflow-auto whitespace-pre-wrap wrap-break-word px-4 py-2 font-mono text-base"
       >
         {(search
           ? output
