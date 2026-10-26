@@ -9,9 +9,11 @@ import { randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 import { once } from "node:events";
 import {
+  lstat,
   mkdir,
   mkdtemp,
   readFile,
+  readlink,
   readdir,
   realpath,
   rm,
@@ -138,6 +140,9 @@ packageTest(
       { mode: 0o755 },
     );
     const packageDirectory = fileURLToPath(new URL("../", import.meta.url));
+    const engine = join(packageDirectory, "node_modules/inngest-cli");
+    const originalEngineLink = await readlink(engine);
+    const originalEngineTarget = await realpath(engine);
     const runtimeCache = join(
       packageDirectory,
       "dist/local-app/apps/local/.next/server/route-cache/packaging-test",
@@ -152,18 +157,37 @@ packageTest(
       ["pack", "--json", "--pack-destination", scratch],
       { cwd: packageDirectory, maxBuffer: 8 * 1024 * 1024 },
     ).finally(() => rm(runtimeCache, { recursive: true, force: true }));
+    expect((await lstat(engine)).isSymbolicLink()).toBe(true);
+    expect(await readlink(engine)).toBe(originalEngineLink);
+    expect(await realpath(engine)).toBe(originalEngineTarget);
+    await expect(
+      lstat(join(packageDirectory, "node_modules/.senslop-engine-source")),
+    ).rejects.toMatchObject({ code: "ENOENT" });
     const archive = JSON.parse(packed.stdout)[0] as {
       filename: string;
+      name: string;
+      bundled: string[];
       files: { path: string }[];
     };
+    expect(archive.name).toBe("senslop");
+    expect(archive.bundled).toContain("inngest-cli");
     const paths = archive.files.map((file) => file.path);
     expect(paths.some((path) => path.endsWith("apps/local/server.js"))).toBe(
       true,
     );
     expect(paths.some((path) => path.includes(".next/static/"))).toBe(true);
+    expect(paths).toContain("license.md");
+    expect(paths).toContain(
+      "dist/local-app/apps/local/node_modules/material-icon-theme/icons/typescript.svg",
+    );
     expect(paths).toContain("dist/local-app/node_modules/react/index.js");
     expect(paths).toContain("dist/local-app/node_modules/react-dom/index.js");
     expect(paths.some((path) => path.includes("/route-cache/"))).toBe(false);
+    expect(
+      paths.some((path) =>
+        /dist\/local-app\/apps\/local\/src\/app\/.*\.[cm]?[jt]sx?$/.test(path),
+      ),
+    ).toBe(false);
     expect(
       paths.some((path) =>
         /\.next\/node_modules\/@napi-rs\/keyring-[^/]+\/index\.js$/.test(path),
@@ -188,7 +212,23 @@ packageTest(
       ],
       { maxBuffer: 4 * 1024 * 1024 },
     );
-    const cli = join(installation, "node_modules/@senslop/cli/dist/index.js");
+    const installedPackage = join(installation, "node_modules/senslop");
+    const engineDependencies = await execute("node", [
+      "--input-type=module",
+      "-e",
+      `import { createRequire } from "node:module";
+       const require = createRequire(${JSON.stringify(join(installedPackage, "package.json"))});
+       const engineRequire = createRequire(require.resolve("inngest-cli/package.json"));
+       console.log(engineRequire("adm-zip/package.json").version);`,
+    ]);
+    expect(engineDependencies.stdout.trim()).toBe("0.6.1");
+    const audit = await execute(
+      "npm",
+      ["audit", "--prefix", installation, "--omit=dev", "--json"],
+      { maxBuffer: 4 * 1024 * 1024 },
+    );
+    expect(JSON.parse(audit.stdout).metadata.vulnerabilities.total).toBe(0);
+    const cli = join(installedPackage, "dist/index.js");
     const repo = join(scratch, "repo");
     await execute("git", ["init", "--initial-branch=main", repo]);
     fixtureRepositories.add(await realpath(repo));
@@ -602,7 +642,7 @@ packageTest(
     ).toBeLessThanOrEqual(1);
     expect(
       await readFile(
-        join(installation, "node_modules/@senslop/cli/package.json"),
+        join(installation, "node_modules/senslop/package.json"),
         "utf8",
       ),
     ).toContain('"node": "24.x || >=26"');

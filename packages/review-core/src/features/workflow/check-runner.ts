@@ -216,8 +216,10 @@ export class CheckRunner {
         "node_modules/.pnpm/lock.yaml",
       ])
         try {
+          // Execution-workspace dependencies are runtime inputs, not application assets.
           installedState += await readFile(
-            join(manifest.directory, path),
+            /* turbopackIgnore: true */
+            join(/* turbopackIgnore: true */ manifest.directory, path),
             "utf8",
           );
         } catch {}

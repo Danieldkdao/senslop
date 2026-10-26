@@ -33,7 +33,7 @@ export const checkRelease = async (
   };
   try {
     const response = await request(
-      "https://registry.npmjs.org/@senslop%2fcli/latest",
+      "https://registry.npmjs.org/senslop/latest",
       {
         signal: AbortSignal.timeout(3000),
         redirect: "error",
@@ -46,7 +46,7 @@ export const checkRelease = async (
     if (body.length > 200000) return initial;
     const release = JSON.parse(body) as { name?: string; version?: string };
     if (
-      release.name !== "@senslop/cli" ||
+      release.name !== "senslop" ||
       !release.version ||
       !stableVersion.test(release.version)
     )
@@ -98,7 +98,7 @@ export const detectInstallation = (entry: string): InstallationKind => {
   } catch {}
   const path = resolved.replaceAll("\\", "/");
   if (/\/pnpm\/global\//.test(path)) return "pnpm";
-  if (/\/(?:lib|npm)\/node_modules\/@senslop\/cli\//.test(path)) return "npm";
+  if (/\/(?:lib|npm)\/node_modules\/senslop\//.test(path)) return "npm";
   if (/\/packages\/cli\//.test(path)) return "source";
   return "unknown";
 };
@@ -106,8 +106,8 @@ export const detectInstallation = (entry: string): InstallationKind => {
 export const updateArguments = (manager: "npm" | "pnpm", version: string) => {
   if (!stableVersion.test(version)) throw new Error("Invalid release version.");
   return manager === "npm"
-    ? ["install", "--global", `@senslop/cli@${version}`]
-    : ["add", "--global", `@senslop/cli@${version}`];
+    ? ["install", "--global", `senslop@${version}`]
+    : ["add", "--global", `senslop@${version}`];
 };
 
 export const assertUpdateIdle = (store: LocalStore) => {

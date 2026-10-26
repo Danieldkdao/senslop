@@ -12,3 +12,10 @@ allowBuilds:
   protobufjs: false
 minimumReleaseAgeExclude:
   - ai@7.0.137
+# Pin audited transitive fixes; bundle the engine dependency tree for npm consumers.
+overrides:
+  "inngest-cli>adm-zip": 0.6.1
+  "undici@7.30.0": 7.30.1
+  "ip-address@10.7.3": 10.7.4
+  "body-parser@2.3.0": 2.4.0
+  "fast-uri@3.1.8": 3.1.9

@@ -54,10 +54,10 @@
       "dependsOn": ["^build"],
       "outputs": []
     },
-    "@senslop/cli#typecheck": {
+    "senslop#typecheck": {
       "dependsOn": ["@senslop/contracts#build"]
     },
-    "@senslop/cli#lint": {
+    "senslop#lint": {
       "dependsOn": ["@senslop/contracts#build"]
     }
   },

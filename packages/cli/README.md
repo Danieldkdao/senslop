@@ -2,7 +2,7 @@
 
 Requires Node.js 24.x or 26+ and Git; source builds use pnpm 12.8.1. Senslop bundles the local browser app and its job engine. Local reviews do not require a hosted Senslop account.
 
-This reference covers the complete local review workflow on `main`. The package remains private and unpublished. In a source checkout, build through the workspace task graph and substitute `node packages/cli/dist/index.js` for `senslop`; see the [root setup guide](../../README.md). The [technical spec](../../devpost/spec.md) describes the current architecture, while the [roadmap](../../devpost/local-review-roadmap.md) records delivered scopes, dated evidence, and remaining release work.
+This reference covers the complete local review workflow on `main`. The public npm package name is `senslop`; publishing is a separate manual release step. In a source checkout, build through the workspace task graph and substitute `node packages/cli/dist/index.js` for `senslop`; see the [root setup guide](../../README.md). The [technical spec](../../devpost/spec.md) describes the current architecture, while the [roadmap](../../devpost/local-review-roadmap.md) records delivered scopes, dated evidence, and remaining release work.
 
 ## Run the app and CLI separately
 
@@ -197,11 +197,73 @@ Machine-oriented commands write undecorated JSON to stdout and structured errors
 
 Run `pnpm dev:local` in the repository to start the source app and worker. Use `node --import tsx packages/cli/src/index.ts COMMAND` from another terminal for source CLI commands, or pass `--repo PATH`. UI edits use Fast Refresh; frozen compilation runs in a separate worker and CLI calls load current source on each invocation. To run development against another project, use `node --import tsx packages/cli/src/index.ts app start --dev --repo /absolute/path/to/project`; restart the app terminal after changing launcher logic, and stop it before switching between development and production for the same project. Installed users run the bundled production app.
 
-From the checkout root, use the [root setup guide](../../README.md#try-it-locally): `pnpm install --frozen-lockfile`, then `pnpm exec turbo run build --filter=@senslop/cli`. For explicit rebuilds, run `pnpm --filter @senslop/local build` before `pnpm --filter @senslop/cli build`; the app build compiles the frozen-analysis worker before Next.js, and the CLI packages that standalone output. The archive includes standalone Next.js, shared assets, native runtime dependencies, and the skill; it excludes source workspaces and real environment files. The package remains private and is not published.
+From the checkout root, use the [root setup guide](../../README.md#try-it-locally): `pnpm install --frozen-lockfile`, then `pnpm exec turbo run build --filter=senslop`. For explicit rebuilds, run `pnpm --filter @senslop/local build` before `pnpm --filter senslop build`; the app build compiles the frozen-analysis worker before Next.js, and the CLI packages that standalone output. The archive includes standalone Next.js, shared assets, native runtime dependencies, and the skill; it excludes source workspaces and real environment files. Only the CLI package is publishable; the repository root and other workspaces remain private.
 
-For the checkout, `pnpm exec turbo run build --filter=@senslop/cli` builds through the dependency graph. Root `pnpm typecheck`/`pnpm build` also include hosted workspaces and their environment requirements; targeted local checks do not require hosted authentication setup. Verify fresh archive installation separately before claiming distribution readiness.
+For the checkout, `pnpm exec turbo run build --filter=senslop` builds through the dependency graph. Root `pnpm typecheck`/`pnpm build` also include hosted workspaces and their environment requirements; targeted local checks do not require hosted authentication setup. Verify fresh archive installation separately before claiming distribution readiness.
 
 Run the ordinary suite with `pnpm test`. `SENSLOP_AGENT_TEST=1 pnpm exec vitest run packages/cli/tests/agent-workflow.test.ts` exercises the production bundle and real local engine through independent CLI processes, using an isolated repository/data directory and deterministic loopback provider. This checks orchestration rather than real model quality. Existing opt-in development, installed-package, subscription, and OS credential tests remain available in their test files.
+
+## Publishing
+
+The initial release is `senslop@0.1.0`; npm authentication and publication are manual steps performed by the maintainer.
+
+From the repository root, verify the frozen dependencies, production build, and CLI checks:
+
+```sh
+pnpm install --frozen-lockfile
+pnpm exec turbo run build typecheck lint --filter=senslop
+pnpm exec vitest run packages/cli packages/review-core/src/features/updates/tests/update-service.test.ts
+SENSLOP_PACK_TEST=1 pnpm exec vitest run packages/cli/tests/packaged-workspace.test.ts
+pnpm audit --prod
+```
+
+The archive test installs the packed package in a disposable directory, starts the bundled app, exercises reviews and assets, and stops its processes; it requires registry access and local loopback ports.
+
+Inspect and create the release archive from the CLI directory:
+
+```sh
+cd packages/cli
+npm pack --dry-run
+npm pack
+npm publish ./senslop-0.1.0.tgz --dry-run --access public
+```
+
+Inspect the file list for secrets, environment files, local databases, caches, and unintended source files; verify that the bundled app, static assets, skill, and license are present.
+
+After reviewing the checks and committing the release changes, authenticate with an npm account that has 2FA enabled and publish that archive:
+
+```sh
+npm login
+npm whoami
+npm publish ./senslop-0.1.0.tgz --access public
+```
+
+Publish only from `packages/cli`; keep the repository root and internal packages private. Increase the CLI version before each later release because npm does not allow reusing a published name/version pair.
+
+The standalone app includes native dependencies from the build host; verification on one OS/architecture does not establish support on other platforms. Real provider compatibility and a future published-version upgrade require separate checks.
+
+### Release verification — October 26, 2026
+
+Publishing preparation is verified on macOS arm64 with Node.js 24.22.1, pnpm 12.8.1, and npm 11.19.1; publication has not been performed.
+
+- Next.js and its ESLint configuration are pinned to 16.4.1; all direct Zod dependencies are pinned to 4.6.6.
+- Targeted pnpm overrides patch `adm-zip` to 0.6.1, `undici` to 7.30.1, `ip-address` to 10.7.4, `body-parser` to 2.4.0, and `fast-uri` to 3.1.9.
+- `prepack` materializes Inngest's dependency tree with the patched ZIP dependency for npm bundling; `postpack` restores pnpm's symlink, and an interrupted pack is recovered on the next pack.
+- Passed the production build, all workspace typechecks and lint checks, and 1,280 local app/CLI/review-core regression tests; the archive test passed separately, while 10 other opt-in tests were not run.
+- Passed the clean archive integration test, including the installed ZIP version, a zero-finding npm audit of the installed dependency tree, app/engine startup, Git capture modes, icon/static assets, saved reviews, and process cleanup.
+
+The workspace production audit now reports four findings, with no critical findings. These remaining dependency paths were assessed separately from the published runtime:
+
+| Finding                                                                                                  | Remaining dependency path                               | Release assessment                                                                                                                                                               |
+| -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [esbuild development-server CORS](https://github.com/advisories/GHSA-67mh-4wv8-2f99), moderate           | Hosted Better Auth → drizzle-kit → esbuild 0.18.20      | Not present in the bundled app or CLI runtime; no esbuild development server is launched by Senslop.                                                                             |
+| [esbuild Windows development-server traversal](https://github.com/advisories/GHSA-g7r4-m6w7-qqqr), low   | Hosted Better Auth → drizzle-kit → tsx → esbuild 0.27.7 | Not present in the bundled runtime; the affected development server is not used by the release.                                                                                  |
+| [KaTeX prototype-pollution gadget](https://github.com/advisories/GHSA-238p-pmpm-9mq7), low               | Icons → LobeHub UI → remark-math → KaTeX 0.16.47        | Not present in the bundled package inventory, and the app enables no KaTeX/math-rendering integration.                                                                           |
+| [Zod oversized-collection resource consumption](https://github.com/advisories/GHSA-mrhx-c7xc-m3w5), high | Hosted/shared shadcn tooling → Zod 3.25.76              | Retained for the tooling's Zod 3 APIs; absent from the bundled runtime, whose Zod version is 4.6.6. Untrusted oversized inputs remain a risk when running that separate tooling. |
+
+These findings remain visible in `pnpm audit --prod`; no advisories are suppressed. Updating the separate hosted/code-generation tooling is a follow-up dependency migration, rather than forcing its older APIs onto incompatible versions for this CLI release.
+
+The bundled runtime's package/version inventory was checked against npm's bulk advisory endpoint, which returned no advisories. The archive excludes environment/session/database/cache files, package-manager traversal paths, and unintended raw app source; native dependency support is still verified only on macOS arm64, with real-provider and future-version upgrade checks remaining separate.
 
 ## Fix and verify
 

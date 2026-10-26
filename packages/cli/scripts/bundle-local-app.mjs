@@ -67,7 +67,7 @@ for (const name of Object.keys(sdkPackage.optionalDependencies)) {
 await cp(
   join(source, "standalone/apps/local/node_modules/material-icon-theme"),
   join(target, "apps/local/node_modules/material-icon-theme"),
-  { recursive: true },
+  { recursive: true, dereference: true },
 );
 // Preserve Next.js hashed aliases for external native packages.
 await cp(

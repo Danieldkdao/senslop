@@ -21,7 +21,16 @@ JavaScript/TypeScript has compiler-backed analysis; Python/Go has packaged parsi
 
 ## Try it locally
 
-The CLI package is currently private; the supported try-out path is this source checkout. Requires **Node.js 24.x or 26+**, **Git**, and **pnpm 12.8.1**.
+The public npm package name is `senslop`; until the first release is published, use the source checkout below. Requires **Node.js 24.x or 26+** and **Git**; source builds also require **pnpm 12.8.1**.
+
+After publication, install and start the CLI from a Git repository:
+
+```sh
+npm install --global senslop
+senslop app start
+```
+
+See the [release checklist](packages/cli/README.md#publishing) for packaging, verification, and manual publishing.
 
 Clone the repository or use your existing checkout, then build from its root:
 
@@ -29,7 +38,7 @@ Clone the repository or use your existing checkout, then build from its root:
 git clone https://github.com/Danieldkdao/senslop.git
 cd senslop
 pnpm install --frozen-lockfile
-pnpm exec turbo run build --filter=@senslop/cli
+pnpm exec turbo run build --filter=senslop
 ```
 
 Start the built app for an existing Git project:
@@ -80,7 +89,7 @@ The filtered build above includes shared package checks, compiles the frozen-sou
 
 ```sh
 pnpm --filter @senslop/local build
-pnpm --filter @senslop/cli build
+pnpm --filter senslop build
 ```
 
 For local UI development against the Senslop repository:

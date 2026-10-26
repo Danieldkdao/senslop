@@ -39,7 +39,7 @@ const nextConfig: NextConfig = {
       "./node_modules/@anthropic-ai/claude-agent-sdk/**/*",
       "../../node_modules/.pnpm/@anthropic-ai+claude-agent-sdk*/node_modules/@anthropic-ai/claude-agent-sdk*/**/*",
     ],
-    "/file-icons/*": [
+    "/file-icons/**": [
       "./node_modules/material-icon-theme/package.json",
       "./node_modules/material-icon-theme/icons/*.svg",
     ],
