@@ -1,4 +1,4 @@
-import { access, cp, readFile, rm, writeFile } from "node:fs/promises";
+import { access, cp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { basename, dirname, join } from "node:path";
@@ -31,6 +31,15 @@ await cp(
     filter: (path) => !/^sharp(?:-|$)/.test(basename(path)),
   },
 );
+// Root peer aliases such as React are absent from pnpm's flattened alias directory.
+for (const entry of await readdir(join(source, "standalone/node_modules"))) {
+  if (entry.startsWith(".")) continue;
+  await cp(
+    join(source, "standalone/node_modules", entry),
+    join(target, "node_modules", entry),
+    { recursive: true, dereference: true },
+  );
+}
 // pnpm keeps optional native executables beside the SDK rather than in its flattened aliases.
 const localRequire = createRequire(
   new URL("../../../apps/local/package.json", import.meta.url),
