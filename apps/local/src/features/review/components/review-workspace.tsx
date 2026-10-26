@@ -566,6 +566,7 @@ export const ReviewWorkspace = ({ children }: ReviewWorkspaceProps) => {
           <ReviewNotes
             key={preview?.id ?? "empty"}
             notes={reviewNotes}
+            review={identity}
             onDeleteNote={deleteNote}
             onEditNote={editNote}
             onSelectNote={(note) => {

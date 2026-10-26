@@ -1,5 +1,9 @@
 "use client";
 
+import { RememberDecision } from "../../memory/components/remember-decision";
+import type { ReviewIdentitySchema } from "@senslop/contracts";
+import { useSavedState } from "../../usability/hooks/use-saved-state";
+
 import { useState } from "react";
 import { Dot, MessageSquare, Trash2, Pencil } from "lucide-react";
 import { FileIcon } from "@/components/file-icon";
@@ -12,6 +16,7 @@ import type { ReviewNote } from "../types";
 
 type ReviewNotesProps = {
   notes: ReviewNote[];
+  review?: ReviewIdentitySchema | null;
   onDeleteNote: (id: string) => void | Promise<void>;
   onEditNote: (id: string, body: string) => void | Promise<void>;
   onSelectNote: (note: ReviewNote) => void;
@@ -19,11 +24,15 @@ type ReviewNotesProps = {
 
 export const ReviewNotes = ({
   notes,
+  review,
   onDeleteNote,
   onEditNote,
   onSelectNote,
 }: ReviewNotesProps) => {
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useSavedState(
+    `notes-search:${review?.id ?? "empty"}`,
+    "",
+  );
   const [editingId, setEditingId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
   const query = search.trim().toLowerCase();
@@ -37,21 +46,22 @@ export const ReviewNotes = ({
       aria-label="Review notes"
       className="flex h-full min-h-0 min-w-0 flex-col bg-sidebar text-sidebar-foreground text-base"
     >
-      <header className="flex shrink-0 flex-col gap-3 border-b p-4">
-        <h2 className="flex items-center gap-2 font-medium">
+      <header className="flex shrink-0 flex-col">
+        <h2 className="flex items-center gap-2 px-4 py-3 font-medium">
           <MessageSquare aria-hidden="true" className="size-4" />
           Notes
         </h2>
         <Input
+          variant="search"
           aria-label="Search notes"
           placeholder="Search notes…"
           value={search}
           onChange={(event) => setSearch(event.target.value)}
-          className="w-full text-base"
+          className="h-10 w-full px-4 text-base"
         />
       </header>
       <div
-        className="min-h-0 flex-1 overflow-auto overscroll-contain"
+        className="min-h-0 flex-1 scroll-fade-y overflow-auto overscroll-contain"
         aria-label="Saved notes"
       >
         <div className="flex flex-col">
@@ -90,6 +100,15 @@ export const ReviewNotes = ({
                   </span>
                 </Button>
                 <div className="flex shrink-0 gap-1 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100">
+                  {review && (
+                    <RememberDecision
+                      review={review}
+                      text={note.body}
+                      path={note.path}
+                      originId={note.id}
+                      originKind="note"
+                    />
+                  )}
                   <TooltipWrapper content="Edit note">
                     <Button
                       type="button"
@@ -125,6 +144,7 @@ export const ReviewNotes = ({
               {editingId === note.id ? (
                 <ReviewNoteForm
                   initialBody={note.body}
+                  draftKey={`edit-note:${note.id}`}
                   submitLabel="Save note"
                   onCancel={() => setEditingId(null)}
                   onSubmit={async ({ body }) => {
