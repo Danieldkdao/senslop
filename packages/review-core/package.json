@@ -28,7 +28,8 @@
     "./checkpoint": "./src/features/git-workflow/push-checkpoint.ts",
     "./git-process": "./src/features/git-workflow/git-process.ts",
     "./checkpoint-hook": "./src/features/git-workflow/checkpoint-hook.ts",
-    "./reports": "./src/features/reports/review-reports.ts"
+    "./reports": "./src/features/reports/review-reports.ts",
+    "./updates": "./src/features/updates/update-service.ts"
   },
   "scripts": {
     "build": "tsc --noEmit",
