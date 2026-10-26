@@ -21,7 +21,7 @@ JavaScript/TypeScript has compiler-backed analysis; Python/Go has packaged parsi
 
 ## Try it locally
 
-The public npm package name is `senslop`; until the first release is published, use the source checkout below. Requires **Node.js 24.x or 26+** and **Git**; source builds also require **pnpm 12.8.1**.
+The public npm package name is `senslop`; Requires **Node.js 24.x or 26+** and **Git**; source builds also require **pnpm 12.8.1**.
 
 After publication, install and start the CLI from a Git repository:
 
