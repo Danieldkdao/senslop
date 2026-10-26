@@ -1,3 +1,4 @@
+import { recordWorkOutcome } from "../notifications/notification-events";
 import { randomUUID } from "node:crypto";
 import { readFile, realpath } from "node:fs/promises";
 import { join, isAbsolute, relative } from "node:path";
@@ -60,6 +61,7 @@ export class CheckRunner {
         "INSERT INTO check_runs VALUES (?,?,?) ON CONFLICT(id) DO UPDATE SET body=excluded.body",
       )
       .run(run.id, run.review.id, JSON.stringify(savedRun));
+    recordWorkOutcome(this.store, this.repository, "checks", savedRun);
     return savedRun;
   };
 

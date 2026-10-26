@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+import { recordNotification } from "@senslop/review-core/notifications";
 import {
   getWorkspace,
   protectLocalRoute,
@@ -63,7 +65,23 @@ export const POST = async (request: Request) => {
       ],
       true,
     );
-    return agentStreamResponse(result.stream, abort);
+    return agentStreamResponse(
+      result.stream,
+      abort,
+      async (_message, status) => {
+        if (status === "complete")
+          try {
+            recordNotification(workspace.store, agents.repository, {
+              id: `explanation:${randomUUID()}`,
+              kind: "explanation",
+              reviewId: snapshot.id,
+              title: snapshot.title,
+            });
+          } catch {
+            /* Notification delivery must not fail a completed response. */
+          }
+      },
+    );
   } catch (error) {
     return new Response(formatAiError(error), { status: 422 });
   }

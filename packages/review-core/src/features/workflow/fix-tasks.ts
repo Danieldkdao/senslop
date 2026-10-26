@@ -1,3 +1,4 @@
+import { recordWorkOutcome } from "../notifications/notification-events";
 import { randomUUID } from "node:crypto";
 import {
   fixTaskSchema,
@@ -48,6 +49,7 @@ export class FixTasks {
         "INSERT INTO fix_tasks VALUES (?,?,?) ON CONFLICT(id) DO UPDATE SET body=excluded.body",
       )
       .run(savedTask.id, savedTask.review.id, JSON.stringify(savedTask));
+    recordWorkOutcome(this.store, this.repository, "fix", savedTask);
     return savedTask;
   };
   create = (

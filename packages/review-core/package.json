@@ -21,7 +21,8 @@
     "./runtime-paths": "./src/features/workflow/runtime-paths.ts",
     "./projects": "./src/features/workflow/project-registry.ts",
     "./verification": "./src/features/workflow/verification-store.ts",
-    "./maintenance": "./src/features/workflow/project-maintenance.ts"
+    "./maintenance": "./src/features/workflow/project-maintenance.ts",
+    "./notifications": "./src/features/notifications/notification-events.ts"
   },
   "scripts": {
     "build": "tsc --noEmit",

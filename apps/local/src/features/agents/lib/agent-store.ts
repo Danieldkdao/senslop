@@ -1,3 +1,7 @@
+import {
+  recordWorkOutcome,
+  recordNotification,
+} from "@senslop/review-core/notifications";
 import type { UIMessage } from "ai";
 import { randomUUID } from "node:crypto";
 import { PrecisionStore } from "@senslop/review-core/precision";
@@ -419,6 +423,10 @@ export class AgentStore {
     this.local.database
       .prepare("UPDATE ai_jobs SET body = ? WHERE id = ?")
       .run(JSON.stringify(updatedJob), id);
+    recordWorkOutcome(this.local, this.repository, updatedJob.kind, {
+      ...updatedJob,
+      review: { id: updatedJob.snapshotId },
+    });
     return updatedJob;
   };
 
@@ -729,6 +737,13 @@ export class AgentStore {
         if (timing.success)
           last.thinkingDurationMs = timing.data.thinkingDurationMs;
         last.updatedAt = new Date().toISOString();
+        if (status === "complete")
+          recordNotification(this.local, this.repository, {
+            id: `chat:${last.id}`,
+            kind: "chat",
+            reviewId: conversation.snapshotId,
+            title: conversation.title,
+          });
       }
     });
   };
