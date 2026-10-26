@@ -2,7 +2,7 @@
 
 Requires Node.js 24.x or 26+ and Git; source builds use pnpm 12.8.1. Senslop bundles the local browser app and its job engine. Local reviews do not require a hosted Senslop account.
 
-This reference describes the committed implementation at `738af5b`, reconciled October 26, 2026, including all approved delivery scopes and the UI/runtime follow-ups. The package remains private and unpublished. In a source checkout, build through the workspace task graph and substitute `node packages/cli/dist/index.js` for `senslop`; see the [root setup guide](../../README.md). The [technical spec](../../devpost/spec.md) describes the current architecture, while the [roadmap](../../devpost/local-review-roadmap.md) records delivered scopes, dated evidence, and remaining release work.
+This reference covers the complete local review workflow on `main`. The package remains private and unpublished. In a source checkout, build through the workspace task graph and substitute `node packages/cli/dist/index.js` for `senslop`; see the [root setup guide](../../README.md). The [technical spec](../../devpost/spec.md) describes the current architecture, while the [roadmap](../../devpost/local-review-roadmap.md) records delivered scopes, dated evidence, and remaining release work.
 
 ## Run the app and CLI separately
 

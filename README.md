@@ -32,7 +32,7 @@ pnpm install --frozen-lockfile
 pnpm exec turbo run build --filter=@senslop/cli
 ```
 
-Use the branch/revision containing the features you want to try; the current delivery status below describes `feat/finish-daily-workflow`, rather than a published release. Start the built app for an existing Git project:
+Start the built app for an existing Git project:
 
 ```sh
 node packages/cli/dist/index.js app start --repo /absolute/path/to/your/project
@@ -110,17 +110,8 @@ pnpm --filter @senslop/local lint
 
 Ordinary tests use deterministic fixtures; process/archive, OS-credential, and live-provider checks have separate prerequisites and opt-ins. Root `pnpm typecheck`, `pnpm lint`, and `pnpm build` include hosted workspaces, whose environment requirements also apply. See the [verification ledger](devpost/checklist.md) for recorded results and remaining release checks.
 
-## Project status and documentation
+## Documentation
 
-As of **October 26, 2026**, all 20 roadmap features have their approved implementation scopes in code. The daily-workflow delivery and subsequent UI/runtime fixes are committed on `feat/finish-daily-workflow`; package publication, additional-platform validation, broader live-provider compatibility, and model-quality promotion thresholds remain open.
-
-| Location                                                                                                       | Responsibility                                                                                    |
-| -------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| [apps/local](apps/local)                                                                                       | Local review UI, protected APIs, analysis, model services, jobs, and settings                     |
-| [packages/cli](packages/cli)                                                                                   | App lifecycle, structured commands, agent skill, and standalone packaging                         |
-| [packages/review-core](packages/review-core)                                                                   | Git capture/mutations, SQLite, workflows, checkpoints, memory, reports, and updates               |
-| [packages/contracts](packages/contracts)                                                                       | Shared Zod contracts and constants                                                                |
-| [packages/ui](packages/ui)                                                                                     | Shared components, themes, and shortcuts                                                          |
-| [apps/web](apps/web), [apps/connection-server](apps/connection-server), [packages/database](packages/database) | Separate hosted authentication/device/presence foundations; the hosted dashboard is a placeholder |
+The complete local review workflow is available on `main`.
 
 Read the [scope](devpost/scope.md), [PRD](devpost/prd.md), [technical spec](devpost/spec.md), [delivery roadmap](devpost/local-review-roadmap.md), and [CLI reference](packages/cli/README.md). Dated research documents preserve earlier investigations rather than define current behavior. This project uses the [MIT license](LICENSE.md).
