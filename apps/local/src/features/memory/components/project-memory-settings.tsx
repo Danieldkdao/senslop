@@ -1,12 +1,13 @@
 "use client";
 
 import { z } from "zod";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { History, Trash2, ExternalLink } from "lucide-react";
 import {
   memoryGuidanceSchema,
+  projectMemorySchema,
   type MemoryGuidanceSchema,
   type ProjectMemorySchema,
 } from "@senslop/contracts";
@@ -26,6 +27,10 @@ import { useProjectMemory } from "../hooks/use-project-memory";
 
 const MemoryEntry = ({ entry }: { entry: ProjectMemorySchema }) => {
   const memory = useProjectMemory();
+  const version = useRef(entry.version);
+  useEffect(() => {
+    version.current = Math.max(version.current, entry.version);
+  }, [entry.version]);
   const form = useForm<
     z.input<typeof memoryGuidanceSchema>,
     unknown,
@@ -38,13 +43,17 @@ const MemoryEntry = ({ entry }: { entry: ProjectMemorySchema }) => {
   useSettingsAutosave({
     form,
     schema: memoryGuidanceSchema,
-    save: (guidance) =>
-      memory.act({
-        action: "update",
-        id: entry.id,
-        version: entry.version,
-        guidance,
-      }),
+    save: async (guidance) => {
+      const updatedMemory = projectMemorySchema.parse(
+        await memory.act({
+          action: "update",
+          id: entry.id,
+          version: version.current,
+          guidance,
+        }),
+      );
+      version.current = updatedMemory.version;
+    },
   });
   const { confirm, ConfirmationDialog } = useConfirm(
     "Remove this guidance?",
@@ -96,7 +105,7 @@ const MemoryEntry = ({ entry }: { entry: ProjectMemorySchema }) => {
                   await memory.act({
                     action: "remove",
                     id: entry.id,
-                    version: entry.version,
+                    version: version.current,
                   });
               }}
             >
