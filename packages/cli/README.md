@@ -125,6 +125,32 @@ Source navigation/search always reads the saved before/after version. Python/Go 
 
 Default quality runs are deterministic synthetic contracts. `quality run --live --yes --json` explicitly sends the corpus plus saved grouping instructions to the selected Review model and may incur charges. Reports retain model/instructions and separate contract checks from live findings/grouping judgments. Unknown usage/cost remains unknown; no live-provider quality result is claimed by ordinary tests.
 
+## Finish a review
+
+```sh
+senslop memory list --json
+senslop memory apply --file guidance-action.json --json
+senslop reports generate REVIEW --round 1 --json
+senslop reports list REVIEW --json
+senslop reports export REPORT --format html --output report.html
+senslop git status --json
+senslop git diff src/example.ts --staged --json
+senslop git stage src/example.ts --expected-state IDENTITY --json
+senslop git commit --subject "fix: preserve documented behavior" --yes --json
+senslop git outgoing --remote origin --branch main --json
+senslop git push --remote origin --branch main --yes --json
+```
+
+Project memory is explicit, scoped guidance with origin/version history; it never automatically dismisses findings. Report versions retain captured rounds, distinguish missing evidence, and export without source excerpts by default; `--include-source` includes only permitted frozen excerpts. Export refuses to overwrite existing files.
+
+Git actions operate on live state independently of frozen reviews. Files/hunks can be staged or unstaged without rewriting working edits. Commits include the complete staged candidate, run configured hooks/signing, and stop if hooks change that candidate. Pull is fast-forward only with a clean tree; fetch/push use existing Git authentication. `git conflict PATH` reads base/local/incoming sides; `git abort-merge --yes` explicitly aborts a merge. No force push or history rewriting is provided.
+
+The optional checkpoint defaults off. Configure it using `checkpoint configure --file policy.json`, install its terminal wrapper using `checkpoint install --yes`, and remove it using `checkpoint remove --yes`. The wrapper preserves an existing pre-push hook and checks exact outgoing refs/objects without the browser app. `checkpoint check` reports unreviewed versions, unresolved findings, and required missing/stale checks. `checkpoint override --reason TEXT` records a short-lived object-specific override; `git push --reason TEXT --yes` records the same explicit exception for an app-connected push.
+
+`about` reports app/version diagnostics. `update check` reads release availability; `update` asks before installation, and JSON automation requires `--yes`. Ordinary interactive commands automatically offer Update now or Continue when a newer stable release exists. Global npm/pnpm installs use their matching manager after idle checks and a SQLite backup; source/archive copies use their original installation method. The package remains unpublished, so a real newer-release upgrade remains a release check.
+
+Browser Settings includes About with nearby sanitized diagnostics and opt-in desktop notifications. All notification categories start off, and permission must be granted before activation. App/CLI update notices remain automatic. Mod+K commands, focused reading, saved per-tab view state, and bounded 30-day note/chat/commit draft recovery support everyday work; shortcut customization is deferred beyond the first version. `/ai-test` is retired; provider checks remain metadata-only.
+
 ## Providers and credentials
 
 `providers list`, `providers save`, `providers default`, `providers test`, `providers models`, `providers delete`, and `providers cleanup` use the same services as the UI. For example:

@@ -2,7 +2,7 @@
 
 A local code review workspace for understanding changes and catching bugs before pushing. The CLI starts a protected browser app and local background job engine. Local review needs no Senslop account.
 
-Senslop captures Git changes, organizes related files into a suggested reading order, provides source-aware chat and selected-code explanations, and can run AI correctness reviews with original evidence and fix prompts. Saved reviews retain notes, progress, conversations, and analysis history.
+Senslop captures Git changes, organizes related files into a suggested reading order, provides source-aware chat and selected-code explanations, and can run AI correctness reviews with original evidence and fix prompts. Saved reviews retain notes, progress, conversations, and analysis history. Selected findings can be fixed in isolated worktrees and checked before staging, committing, and pushing through an optional review checkpoint.
 
 ## Run from a source checkout
 
@@ -84,3 +84,9 @@ Local review does not require hosted Postgres, Mailjet, OAuth, or a hosted infer
 Start with [scope](devpost/scope.md), [PRD](devpost/prd.md), and [technical spec](devpost/spec.md). They describe the current local application. [Checklist](devpost/checklist.md) separates implemented foundations from verification still outstanding.
 
 The [20-feature roadmap](devpost/local-review-roadmap.md) preserves the next-stage vision, acceptance criteria, code entry points, and new-chat handoff. Background reviews, explicit IDs, and concurrency are grouped as feature 1. Dated research notes are historical rationale, not alternate current architecture.
+
+## Finish the daily workflow
+
+The Git dialog separates live staged/unstaged changes from frozen review evidence and supports file/hunk staging, guarded commits, fetch, fast-forward pull, and normal push. The optional push checkpoint also works from terminal hooks, checks exact outgoing content, and records explicit overrides. Project memory retains deliberately promoted decisions with scope and provenance; immutable round reports consolidate findings, requirements, notes, checks, verification, and remaining work into HTML or JSON.
+
+Settings → Notifications starts off and requests browser permission before revealing opt-in activity categories. Update notices appear automatically in the app and CLI; Settings → About contains app/version information, confirmed update actions, and nearby diagnostics. Mod+K opens commands, focused reading hides side panels, and supported view state and drafts survive reconnects. Customizable shortcuts and publishing remain deferred. See the [roadmap evidence](devpost/local-review-roadmap.md#group-3-implementation-evidence--october-25-2026) for verification limits.
