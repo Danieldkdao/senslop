@@ -13,7 +13,7 @@ Senslop helps developers understand changes and find problems locally before pus
 
 This document describes the implementation at the recorded baseline. It replaces the previously interleaved hosted-upload plan and local follow-up notes. The [roadmap](local-review-roadmap.md) separately records proposed features; those are not presented here as delivered behavior.
 
-The recorded commit is the foundation. Feature 1 and the Fix and verify group update the behavior below. Group 1 is committed on `feat/fix-verify`; implementation evidence and verification limits are recorded in the roadmap. The Review with precision group is implemented locally on `feat/review-precision` and remains uncommitted. Completion notifications remain deferred.
+The recorded commit is the foundation. Feature 1 and the Fix and verify group update the behavior below. Groups 1–2 are merged; Group 3 is implemented locally on `feat/finish-daily-workflow`. Implementation evidence and release verification limits are recorded in the roadmap.
 
 ## Local setup and ownership
 
@@ -101,7 +101,7 @@ Settings → Review quality runs the declared synthetic corpus, stores the lates
 - Selected-code explanations stream from the configured Explain model. Selection must stay on a supported side of the diff. Users can stop/retry the response or add a note.
 - Snapshot chat has a model picker, streaming replies, stop/retry behavior, and saved conversation history.
 - Agents can inspect captured source, search, symbols, references, dependencies, and related tests as available. Static tooling does not execute the repository's test suite.
-- A consolidated final prompt/report assembled from all human notes is not currently implemented. AI finding fix prompts and structured review exports exist separately.
+- Immutable round reports consolidate human notes, AI findings, requirements, checks, verification, tasks, Git outcomes, and remaining work, with HTML/JSON export and frozen-evidence inspection.
 
 ## AI correctness reviews
 
@@ -164,9 +164,9 @@ Implemented feature 1 behavior:
 - Model calls share endpoint concurrency and rolling request/token quotas across repository processes in the same application-data namespace. A configurable total request ceiling defaults to four. Separate data directories and outside applications have independent limits.
 - The owner must remain running for execution. A client exit or wait timeout retains saved work. Restart recovers pending work; unavailable-owner feedback explains how to restart.
 - Automation retains explicit review/revision and job IDs. Follow-up review commands accept `--expected-hash` and `--expected-round`; conflicts require reload and reassessment. Shared `current` remains an interactive convenience.
-- Captures and re-sync operations are serialized within the workspace and verify source identity. They do not introduce Git mutations or coordinate external editors through a filesystem lock.
+- Captures, re-sync, task application, and Git mutations share repository coordination and verify source identity; independent external editors can still change files and invalidate a preview.
 
-The owner explicitly deferred completion notifications and notification preferences on October 24, 2026. This pass adds no background-completion notification system or daemon.
+The owner subsequently approved opt-in desktop notifications in Group 3; these require the local owner and an open workspace tab, without a permanent daemon.
 
 ## Providers, models, and settings
 
@@ -212,6 +212,10 @@ The repo retains hosted signup/login, email verification, device authorization, 
 
 ## Current omissions and next work
 
-The [roadmap](local-review-roadmap.md) is authoritative for proposed next-stage behavior. Current omissions include completion notifications, automatic external-agent launch adapters, in-app stage/commit/fetch/pull/push, and consolidated review reports. The precision corpus and saved comparison reports are implemented. Real-provider diagnosis quality and model-promotion thresholds remain unestablished.
+The [roadmap](local-review-roadmap.md) records the approved delivery groups and verification limits. Group 3 adds live Git staging/commits/fetch/fast-forward pull/normal push, optional exact-object push checkpoints with terminal hooks and reasoned overrides, scoped explicit project memory, and immutable per-round HTML/JSON reports. Hosted PR ingestion and team approval workflows remain outside the product direction.
 
-Git push/pull conveniences are accepted future direction. Hosted PR ingestion and team approval workflows are outside the current roadmap. Do not convert those future directions into claims about today's application.
+First-run setup explains project selection and optional inference. Mod+K opens commands; focused reading hides side panels while retaining navigation. Reading position, panel/tab/filter/search choices, and pending note/chat/commit drafts survive supported reconnects; tabs retain independent state. Drafts clear after submission/cancel and expire after 30 days. Customizable keyboard shortcuts are deferred beyond the first version.
+
+Settings → Notifications starts off, including every category. Turning it on requests Chrome permission directly; only a grant activates it, while denial/dismissal shows a toast without changing preferences. Independently opt into grouping, review, passed checks, verification, returned fixes, attention, chat, explanations, Git completion, and update desktop alerts. There is no reading-completed alert. Foreground alerts and project/review names are optional; duplicate tab delivery is coordinated.
+
+App and CLI update notices are automatic regardless of desktop notification settings. About shows app information, installed version, newer-release update action, and nearby diagnostics. CLI presents Update now or Continue; installation requires confirmation, idle state, and a database backup. Source/archive installs use their original method. Publishing and actual upgrades to a future published release remain deferred.

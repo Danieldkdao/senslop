@@ -2,7 +2,7 @@
 doc: local-review-roadmap
 status: active
 context-date: 2026-10-25
-implementation-baseline: 0860767
+implementation-baseline: 95b1b2f
 ---
 
 # Senslop: the ultimate local code review platform
@@ -11,11 +11,9 @@ implementation-baseline: 0860767
 
 This document preserves the owner's product direction, the implementation inspected during the discussion, and the full 20-feature roadmap. Read this section, the product direction, and the selected feature before planning implementation. Consult the code map and acceptance criteria for that feature as needed.
 
-The owner requested this roadmap after discussing existing functionality and multiple simultaneous CLI clients. They then explicitly requested that it be saved as Markdown for future chats. **Feature 1 and Groups 1–2 are implemented for their approved scopes: 15 of 20 features; 5 remain. Group 1 is committed on `feat/fix-verify`; Group 2 is local and uncommitted on `feat/review-precision`. Evidence and remaining verification limits are recorded below. The owner approved the three delivery groups and their order on October 24, 2026.** This file is the single source of truth for that decision. Group 3 is next. The quality harness supports explicit live runs; real-provider diagnosis quality and model-promotion thresholds remain unestablished. Recheck current code and the evidence below before continuing.
+The owner approved the three delivery groups and their order on October 24, 2026. **Feature 1 and all three groups now have their approved implementation scopes: 20 of 20 features. Groups 1–2 are merged; Group 3 is local on `feat/finish-daily-workflow`. Release and supported-platform verification remain separate from implementation, and publishing is deferred by the owner.** The evidence below records what was actually checked. The quality harness supports explicit live runs; model-promotion thresholds remain unestablished.
 
-To resume, a useful request is:
-
-> Read devpost/local-review-roadmap.md and the repository instructions. Feature 1 and Groups 1–2 are implemented. Review the October 25 evidence and disclosed platform/provider limits, inspect the uncommitted precision changes, then continue Group 3 in the approved order. Keep the evaluation corpus current. Preserve the local review direction and distinguish implemented behavior from planned behavior.
+To resume, inspect Git status and the Group 3 evidence, then finish any recorded release checks or owner feedback. Preserve the local review direction and distinguish implemented behavior from release certification.
 
 Before changing application code:
 
@@ -26,7 +24,7 @@ Before changing application code:
 5. Break implementation into coherent chunks, generally fewer than ten files, with an outcome and verification step. Write behavioral tests first when adding tests. Verify schemas through review and typechecking rather than dedicated schema tests.
 6. Update the feature's status and evidence only after implementation and verification. State which scenarios remain unverified. Provide the required flow-based review guide.
 
-**Feature 1 complete — October 24, 2026:** implemented and merged in `8963810`, including the follow-up fixes in `d598345`. CLI creation opens the first saved review automatically and otherwise prepares in the background, with `--open` forcing an explicit Open. Completion notifications and their preferences remain deferred to feature 19; daemon operation remains an open future decision. Read the progress record for implementation commits, verification evidence, and limits before extending this foundation.
+**Feature 1 complete — October 24, 2026:** implemented and merged in `8963810`, including the follow-up fixes in `d598345`. CLI creation opens the first saved review automatically and otherwise prepares in the background, with `--open` forcing an explicit Open. Feature 19 now provides opt-in desktop completion notifications; daemon operation remains an open future decision. Read the progress record for implementation commits, verification evidence, and limits before extending this foundation.
 
 ## Confirmed product direction
 
@@ -120,7 +118,7 @@ Cross-feature invariants:
 
 | ID  | Feature                                         | Starting point                                        | Approved delivery group              |
 | --- | ----------------------------------------------- | ----------------------------------------------------- | ------------------------------------ |
-| 1   | Background reviews, review IDs, and concurrency | Complete for approved scope; notifications deferred   | Complete                             |
+| 1   | Background reviews, review IDs, and concurrency | Complete; desktop alerts in feature 19                | Complete                             |
 | 2   | Individual finding management                   | Implemented durable findings                          | 1: Fix and verify                    |
 | 3   | Review rounds and fix verification              | Implemented rounds and verification                   | 1: Fix and verify                    |
 | 4   | Agent workflow for fixing findings              | Implemented persistent manual handoff                 | 1: Fix and verify                    |
@@ -131,14 +129,14 @@ Cross-feature invariants:
 | 9   | Change impact and risk guidance                 | Implemented evidence-backed impact                    | 2: Review with precision             |
 | 10  | Deeper navigation and diff tools                | Implemented frozen navigation and previews            | 2: Review with precision             |
 | 11  | Broader language understanding                  | Implemented Python/Go parsing and optional LSP        | 2: Review with precision             |
-| 12  | Git operations inside the app                   | New user-triggered mutation workflow                  | 3: Finish the daily workflow         |
-| 13  | Optional checkpoint before pushing              | New workflow using review/verification identity       | 3: Finish the daily workflow         |
+| 12  | Git operations inside the app                   | Implemented guarded live Git workflow                 | 3: Finish the daily workflow         |
+| 13  | Optional checkpoint before pushing              | Implemented exact-object coverage and hook            | 3: Finish the daily workflow         |
 | 14  | Multiple projects and worktrees                 | Implemented project/worktree workspace                | 1: Fix and verify                    |
 | 15  | Source and model access controls                | Implemented source/model controls                     | 1: Fix and verify                    |
 | 16  | Cost and resource visibility                    | Implemented usage and review budgets                  | 1: Fix and verify                    |
-| 17  | Useful project memory                           | New explicit knowledge workflow                       | 3: Finish the daily workflow         |
-| 18  | Complete review report                          | Extend notes, findings, and exports                   | 3: Finish the daily workflow         |
-| 19  | Everyday usability and distribution             | Extend existing UI and package                        | 3: Finish the daily workflow         |
+| 17  | Useful project memory                           | Implemented explicit scoped guidance                  | 3: Finish the daily workflow         |
+| 18  | Complete review report                          | Implemented immutable round HTML/JSON reports         | 3: Finish the daily workflow         |
+| 19  | Everyday usability and distribution             | Implemented; release/platform checks remain           | 3: Finish the daily workflow         |
 | 20  | Measured review quality                         | Initial deterministic corpus; full evaluation pending | 2: Review with precision; start in 1 |
 
 ## 1. Background reviews, review IDs, and concurrency
@@ -181,7 +179,7 @@ Cross-feature invariants:
 
 Extend [CLI app startup](../packages/cli/src/features/workspace/local-app.ts), [ownership/ports](../packages/cli/src/features/workspace/local-jobs.ts), [session records](../packages/cli/src/features/workspace/workspace-session.ts), and [client discovery](../packages/cli/src/features/workspace/workspace-client.ts). Then trace [CLI review operations](../packages/cli/src/features/reviews/commands.ts), [workspace operations](../apps/local/src/features/workspace/lib/local-workspace.ts), [local persistence](../packages/review-core/src/db/local-store.ts), [agent persistence](../apps/local/src/features/agents/lib/agent-store.ts), and [job dispatch](../apps/local/src/services/inngest/functions.ts). The principal UI consumers are [history](../apps/local/src/features/workspace/components/review-history.tsx), [toolbar](../apps/local/src/features/workspace/components/workspace-toolbar.tsx), and [live preview state](../apps/local/src/features/review/components/live-preview-provider.tsx).
 
-**Approved decisions:** first CLI review opens automatically; later captures stay in the background unless --open; explicit CLI Open launches a dedicated review-specific browser tab; browser Open affects its own tab. High priority gives queued runs a bounded two-minute preference without preemption. Capacity is coordinated across app processes in the same data directory. The owner process remains required; daemon operation and completion notifications are deferred.
+**Approved decisions:** first CLI review opens automatically; later captures stay in the background unless --open; explicit CLI Open launches a dedicated review-specific browser tab; browser Open affects its own tab. High priority gives queued runs a bounded two-minute preference without preemption. Capacity is coordinated across app processes in the same data directory. The owner process remains required; daemon operation remains deferred and feature 19 supplies opt-in desktop notifications.
 
 ## 2. Individual finding management
 
@@ -331,11 +329,11 @@ Extend [CLI app startup](../packages/cli/src/features/workspace/local-app.ts), [
 
 ## 12. Git operations inside the application
 
-**Delivery group:** [Group 3: Finish the daily workflow](#group-3-finish-the-daily-workflow). **Status:** not started.
+**Delivery group:** [Group 3: Finish the daily workflow](#group-3-finish-the-daily-workflow). **Status:** implemented October 25, 2026; release verification limits recorded below.
 
 **Outcome:** finish local review and perform convenient Git actions without changing the product into a hosted review service.
 
-**Starting point:** Git inspection currently reads changes. Staging, committing, fetching, pulling, and pushing from the UI are proposed additions, not enabled by existing inspection behavior.
+**Implementation:** live staged/unstaged file and hunk controls, guarded commits with existing hooks/signing, fetch, clean-tree fast-forward pull, normal push, exact outgoing coverage, conflict-side inspection, and confirmed merge abort are available separately from frozen review inspection.
 
 **Scope:** separate staged/unstaged views; stage selected files/hunks; preview and create focused commits; show branch, upstream, remote, and ahead/behind state; fetch, pull, and push through existing Git authentication. Associate reviewed content with resulting commits. Present conflicts and recovery choices. Coordinate working-tree/index mutations with capture, checks, and agent edits.
 
@@ -343,11 +341,11 @@ Extend [CLI app startup](../packages/cli/src/features/workspace/local-app.ts), [
 
 **Dependencies:** feature 1's operation coordination and feature 3's freshness identity. Reuse [shared Git infrastructure](../packages/review-core/src/features/git/repository.ts) with a distinct mutation boundary; extend CLI/API/UI consistently.
 
-**Open decisions:** pull policy, conflict UI, commit hooks, signing, and explicit handling of changed upstream/remote state.
+**Decisions:** pull is fast-forward only without automatic stashing. Hooks and signing remain configured by Git; a hook changing staged content stops the commit. Repository and outgoing-object identities reject stale previews. Merge conflicts expose base/local/incoming source, external-editor resolution, and explicit abort; other in-progress Git operations remain terminal-managed.
 
 ## 13. Optional checkpoint before pushing
 
-**Delivery group:** [Group 3: Finish the daily workflow](#group-3-finish-the-daily-workflow). **Status:** not started.
+**Delivery group:** [Group 3: Finish the daily workflow](#group-3-finish-the-daily-workflow). **Status:** implemented October 25, 2026; release verification limits recorded below.
 
 **Outcome:** see whether outgoing code is actually covered by the local review.
 
@@ -399,7 +397,7 @@ Extend [CLI app startup](../packages/cli/src/features/workspace/local-app.ts), [
 
 ## 17. Useful project memory
 
-**Delivery group:** [Group 3: Finish the daily workflow](#group-3-finish-the-daily-workflow). **Status:** not started.
+**Delivery group:** [Group 3: Finish the daily workflow](#group-3-finish-the-daily-workflow). **Status:** implemented October 25, 2026; release verification limits recorded below.
 
 **Outcome:** explicit reviewer decisions improve future reviews without hiding fresh bugs.
 
@@ -411,7 +409,7 @@ Extend [CLI app startup](../packages/cli/src/features/workspace/local-app.ts), [
 
 ## 18. Complete review report
 
-**Delivery group:** [Group 3: Finish the daily workflow](#group-3-finish-the-daily-workflow). **Status:** not started.
+**Delivery group:** [Group 3: Finish the daily workflow](#group-3-finish-the-daily-workflow). **Status:** implemented October 25, 2026; release verification limits recorded below.
 
 **Outcome:** a review has a readable, durable outcome that can be revisited or handed to an agent.
 
@@ -423,13 +421,13 @@ Extend [CLI app startup](../packages/cli/src/features/workspace/local-app.ts), [
 
 ## 19. Everyday usability and distribution
 
-**Delivery group:** [Group 3: Finish the daily workflow](#group-3-finish-the-daily-workflow). **Status:** not started.
+**Delivery group:** [Group 3: Finish the daily workflow](#group-3-finish-the-daily-workflow). **Status:** implemented October 25, 2026; release verification limits recorded below.
 
 **Outcome:** reaching a useful review and returning to it are easy, predictable operations.
 
-**Scope:** first-run path from installation to a real review; project/provider setup; reading-position, panel/filter/search persistence; customizable shortcuts; command palette; focused reading mode; notification preferences; draft-preserving retries; cross-platform updates and useful diagnostics. Keep the current buddy optional and configurable. Preserve existing themes, monospace paths, accessible controls, and input-aware hotkeys.
+**Scope:** first-run path from installation to a real review; project/provider setup; reading-position, panel/filter/search persistence; fixed input-aware shortcuts; command palette; focused reading mode; notification preferences; draft-preserving retries; cross-platform updates and useful diagnostics. Keep the current buddy optional and configurable. Preserve existing themes, monospace paths, accessible controls, and input-aware hotkeys.
 
-**Acceptance:** a clean install can reach an ordinary review without a cloud account or AI configuration; setup explains optional inference; reconnect/restart restores supported state; shortcut customization does not steal typing; updates preserve saved data and have a defined compatibility/migration policy.
+**Acceptance:** a clean install can reach an ordinary review without a cloud account or AI configuration; setup explains optional inference; reconnect/restart restores supported state; fixed shortcuts do not steal typing; updates preserve saved data and have a defined compatibility/migration policy.
 
 **Dependencies:** existing CLI packaging and UI preferences; feature 1 for independent reading state; feature 15 for diagnostic contents. Treat work as small targeted improvements rather than a simultaneous redesign.
 
@@ -509,13 +507,13 @@ When recording progress, update the feature's status, its group checklist/status
 
 ### Group 3: Finish the daily workflow
 
-**Status:** not started. **Owned features:**
+**Status:** implemented; release verification remains pending. **Owned features:**
 
-- [ ] [Feature 12: Git operations inside the application](#12-git-operations-inside-the-application)
-- [ ] [Feature 13: Optional checkpoint before pushing](#13-optional-checkpoint-before-pushing)
-- [ ] [Feature 17: Useful project memory](#17-useful-project-memory)
-- [ ] [Feature 18: Complete review report](#18-complete-review-report)
-- [ ] [Feature 19: Everyday usability and distribution](#19-everyday-usability-and-distribution)
+- [x] [Feature 12: Git operations inside the application](#12-git-operations-inside-the-application)
+- [x] [Feature 13: Optional checkpoint before pushing](#13-optional-checkpoint-before-pushing)
+- [x] [Feature 17: Useful project memory](#17-useful-project-memory)
+- [x] [Feature 18: Complete review report](#18-complete-review-report)
+- [x] [Feature 19: Everyday usability and distribution](#19-everyday-usability-and-distribution)
 
 **Why these belong together:** Git actions and push readiness can now consume stable review, hunk, and verification evidence. Project memory builds on deliberate finding decisions and inspectable rules. Reports collect the complete outcome, while onboarding, updates, diagnostics, and notifications make the workflow practical to use daily.
 
@@ -525,7 +523,7 @@ When recording progress, update the feature's status, its group checklist/status
 2. Implement feature 12 staging/commit behavior, then fetch/pull/push and recovery. Reuse group 1 workspace ownership/operation coordination and preserve the user's index and working tree on failure.
 3. Implement feature 13 against the exact outgoing refs/objects and reviewed content, including terminal pushes, missing/stale checks, optional enablement, and recorded overrides.
 4. Complete feature 18's immutable per-round HTML/JSON reports using the evidence contracts from groups 1–2; include requirements, findings, checks, limitations, and remaining work without treating missing evidence as a pass.
-5. Complete feature 19 onboarding, saved reading/preferences, shortcuts, focused reading, completion notifications/preferences deferred from feature 1, diagnostics, updates, and distribution verification.
+5. Complete feature 19 onboarding, saved reading/preferences, fixed shortcuts and command palette, focused reading, completion notifications/preferences deferred from feature 1, diagnostics, updates, and distribution verification.
 
 **Exit check:** use a clean install to review, fix, verify, stage exactly the intended changes, commit, inspect outgoing coverage, and push through the optional checkpoint. Export a useful report, retain scoped project knowledge, and verify restart/update data compatibility. Later unreviewed edits invalidate the relevant coverage.
 
@@ -559,7 +557,7 @@ Paths are relative to this document; recheck them after refactors.
 
 ## Deferred cleanup
 
-- [ ] After the remaining roadmap features are implemented, remove the development `/ai-test` page and its dedicated API, navigation, and feature code. Keep it available during this implementation; verify no stale links or imports remain when removing it.
+- [x] Removed the development `/ai-test` page, dedicated API, feature code, and isolated inference helper in Group 3; provider metadata checks remain and package verification asserts both retired routes return 404.
 
 ## Verification and maintenance
 
@@ -633,7 +631,7 @@ Implemented features **2, 3, 4, 5, 14, 15, and 16**, plus the initial feature 20
 
 **Commands:** `vitest run --exclude '**/schema*.test.*'`, `pnpm typecheck`, `pnpm lint`, `pnpm build`, the opt-in `RUN_LOCAL_AI_TESTS=1` workspace process tests, CLI rebuild/help smoke check, and `npm pack --dry-run --json --ignore-scripts`. Existing installed tools were used; the local engine's official native binary was restored after dependency-cache recovery. No dedicated schema tests were added or run.
 
-**Limits and owner review:** Chrome computer-use access was stopped, so no browser visual pass is claimed. Real-renderer/DOM interactions and layout assertions passed; the owner should still inspect wide/narrow layouts, chart tooltips, and spacing. Real paid-provider diagnosis quality, live hosted authentication/presence, real OS-credential writes, cross-platform process behavior, and a fresh archive installation remain unverified in this delivery. Independent external agents are outside Senslop's process/local-inference enforcement. Managed copies are bounded to 20 MiB and are not an OS sandbox; unsupported or unavailable inputs fail explicitly. Reliable model pricing is absent, so cost stays unknown. Full source archives begin with this migration; legacy runs may have only their original excerpt. Newer managed source edits are preserved for explicit review/cleanup rather than automatically discarded. `/ai-test` remains intentionally present until the [deferred cleanup](#deferred-cleanup) is scheduled.
+**Limits and owner review:** Chrome computer-use access was stopped, so no browser visual pass is claimed. Real-renderer/DOM interactions and layout assertions passed; the owner should still inspect wide/narrow layouts, chart tooltips, and spacing. Real paid-provider diagnosis quality, live hosted authentication/presence, real OS-credential writes, cross-platform process behavior, and a fresh archive installation remain unverified in this delivery. Independent external agents are outside Senslop's process/local-inference enforcement. Managed copies are bounded to 20 MiB and are not an OS sandbox; unsupported or unavailable inputs fail explicitly. Reliable model pricing is absent, so cost stays unknown. Full source archives begin with this migration; legacy runs may have only their original excerpt. Newer managed source edits are preserved for explicit review/cleanup rather than automatically discarded. At this historical Group 1 checkpoint `/ai-test` remained present; Group 3 has now removed it.
 
 ### Group 1 review corrections — October 25, 2026
 
@@ -667,6 +665,26 @@ Implemented features **6, 7, 8, 9, 10, 11, and 20** on `feat/review-precision` a
 **Automated evidence:** the ordinary suite passed **1,247 tests with zero failures and 13 opt-in checks skipped**. Repository TypeScript checks, lint and all eight production build tasks passed; lint retains only the two existing shared-UI warnings. The two selected packaged app/real-engine integration tests passed against an isolated deterministic loopback provider. They exercise captured `.senslop` rules and a text attachment, packaged Python parsing, region/file completion, a missing requirement through the real review worker, concurrent readers, and the original exact-round fix/check/verification workflow. Test cleanup stopped every service it started. CLI help smoke checks, diff whitespace, semantic lockfile equivalence and authored filename checks passed. No dedicated schema tests were added or run. The installed Inngest native executable was restored through its official existing postinstall before the packaged rerun.
 
 **Limits:** no paid-provider diagnosis run, real installed Pyright/gopls verification, cross-platform execution, or fresh archive installation is claimed. Live semantic grouping usefulness and model promotion thresholds still require human judgments and real-provider evidence. Requirement/round/fix-quality cases currently establish deterministic contracts rather than live-model accuracy. Unknown pricing/usage remains unknown. Browser checks cover the existing desktop Impact/organization interaction; full narrow-layout, form and preview visual acceptance remains for owner review. The running user app was reused; it was not started or stopped by this task.
+
+### Group 3 implementation evidence — October 25, 2026
+
+- Explicit finding/note promotion creates versioned common-Git project guidance with scope, assumptions, original revision, edit/remove controls, and policy-aware inclusion in future analysis; dismissing a finding alone never creates a rule.
+- A distinct Git service serializes mutations with capture/application, checks preview freshness, preserves working edits during staging, invokes configured hooks/signing, and records commit/review associations. Pull is clean-tree fast-forward only. Conflicts expose index sides and confirmed merge abort; force push and history rewriting are outside this scope.
+- The optional checkpoint defaults off, evaluates exact outgoing objects and intermediate versions, inspects unresolved findings and exact-input required checks, and records expiring object-specific overrides. The pre-push wrapper preserves the original hook and works without the browser app running.
+- Immutable per-round report versions include coverage, requirements, findings/decisions, notes, checks/artifacts, verification, tasks, Git outcomes, unresolved questions, limitations, and remaining work. Frozen-evidence inspection and HTML/JSON export reapply current source policy.
+- First-run setup, Mod+K commands, focused reading, saved per-tab reading/filter/panel state and draft recovery are available. Drafts expire after 30 days and clear after successful submission or explicit cancellation.
+- Desktop notifications and all ten activity categories default off. Chrome permission must be granted before enabling; denial/dismissal preserves preferences and shows an error. Categories cover grouping, correctness review, passed checks, finding verification, returned fixes, attention, chat, explanation, Git completion, and updates. Reading completion is deliberately excluded. A service worker opens the relevant local activity; an app owner and browser tab must remain running.
+- Automatic app/CLI update availability notices are independent of optional desktop permissions. About contains version, confirmed update, and nearby sanitized diagnostics. CLI offers Update now/Continue; supported installed copies update only after confirmation, idle checks, and a database backup. Source/archive copies retain installation-method instructions. Published-version upgrade and non-macOS runtime verification remain release checks because the package is private and unpublished.
+- `/ai-test`, its API, UI helpers, and isolated inference helper were removed; provider metadata checks remain. Customizable shortcuts are deferred beyond the first version. Publishing remains deferred.
+- Live manual verification used an isolated synthetic repository and Google Gemini 3.5 Flash-Lite, with no OpenRouter connection available in that fixture. Grouping and correctness analysis completed; the intentional null-cart bug was found, accepted, promoted to scoped guidance, fixed through an isolated task, inspected/applied in the browser, and re-synced. The exact regression check changed from failed to passed and inexpensive model verification returned apparently fixed; human resolution remains a separate decision.
+
+**Final verification:** `pnpm test` passed 1,292 tests with 13 opt-in skips; `pnpm typecheck`, `pnpm lint`, and `pnpm build` passed. Lint retains only the two existing shared-UI warnings. The separately enabled clean-archive and independent-CLI process suites each passed against the final bundle. The archive now preserves traced root React aliases, and packaged persistence assertions use explicit review IDs with isolated application data.
+
+**Manual results:** Chrome verified first-run setup, live grouping/correctness/chat, finding promotion, isolated fix inspection/application, round re-sync, recovered note submission, completion/focused reading, Mod+K commands, About/update confirmation cancellation, diagnostics download, and round-report generation/frozen original evidence/HTML and JSON export. Permission dismissal produced an error and left notifications off; granting Chrome permission exposed independent category switches, with chat left off while grouping/review/checks were enabled. A synthetic cached release exercised automatic update presentation and the CLI Continue option without invoking an installer; the fixture cache was then removed. The standalone exported HTML opened successfully from disk.
+
+**Git results:** the browser staged and committed exactly the reviewed README, retained its round-2 association, satisfied a required exact-input regression check, and pushed to a disposable local bare remote. A later unreviewed commit was blocked by the ordinary terminal hook for missing coverage and a stale check; an explicit exact-object override allowed the test push. The existing hook ran twice and was restored on removal. Regression tests also cover stale/unborn previews, hook-modified commit candidates, conflict inspection/abort, partial-hunk coverage, edited hook preservation, immutable reports, and compiler-enabled draft restoration.
+
+**Remaining release limits:** publishing is intentionally deferred; no actual future published-version installation or non-macOS execution is claimed. The live synthetic flow used Google Flash-Lite only; other providers/subscriptions and model-quality promotion remain unverified. OS banner visibility depends on system notification settings. Test-owned app/engine processes were stopped; the owner’s pre-existing development app was preserved.
 
 ## Primary references
 

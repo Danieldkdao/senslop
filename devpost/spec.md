@@ -13,7 +13,7 @@ This specification describes the existing local application at the recorded base
 
 Read [scope.md](scope.md) for the boundary, [prd.md](prd.md) for behavior, and [local-review-roadmap.md](local-review-roadmap.md) for proposed features and future implementation handoff. The roadmap does not mean its features are implemented. Recheck code and installed package versions before extending this baseline.
 
-The recorded commit is the foundation. Feature 1 was implemented on October 24, 2026 and updates the behavior below; completion notifications remain deferred. Its implementation commits and verification evidence are recorded in the roadmap progress record.
+The recorded commit is the foundation. Feature 1 was implemented on October 24, 2026 and updates the behavior below; completion notifications are implemented by Group 3. Its implementation commits and verification evidence are recorded in the roadmap progress record.
 
 ## Architecture
 
@@ -73,7 +73,7 @@ Stopping an ordinary client does not stop the app. Stopping the owner stops exec
 - CLI discovery retains the effective caller folder separately from the canonical Git root. Capture sends and validates that folder against the workspace. Browser capture uses the owner folder; keep-mode re-sync retains its original folder.
 - Mutation paths use captured hash/round expectations where implemented to reject stale operations. Results are associated with their originating revision rather than the latest selected UI row.
 
-Feature 1 implements background capture, independent reading views, caller-folder context, persisted list status, queue controls, recovery, and shared capacity. Completion notifications are explicitly deferred. CLI/browser bootstrap URLs carry review and optional file selection privately; returned public locations omit session capabilities.
+Feature 1 implements background capture, independent reading views, caller-folder context, persisted list status, queue controls, recovery, and shared capacity. Completion notifications use the Group 3 opt-in browser delivery layer. CLI/browser bootstrap URLs carry review and optional file selection privately; returned public locations omit session capabilities.
 
 ## Git capture and bounds
 
@@ -146,7 +146,7 @@ The analysis function currently limits active execution to two slots and to one 
 
 The existing adaptive process limiter is layered with a shared SQLite admission coordinator in ai-capacity.sqlite beside reviews.sqlite. It tracks queued requests, active slots, process IDs, and one-minute input/output/request reservations, using transactions across repository processes in that data namespace. Matching endpoint/account hashes share capacity without persisting credentials. A total machineConcurrency ceiling defaults to four, and active captured policies use the strictest applicable ceiling. Streaming retains admission through consumption/cancellation. Nested native-context requests reuse the parent slot while reserving their own quota. Dead process slots are reclaimed; usage reservations remain conservative until expiry. Separate data directories and outside clients are independent. Capacity preference changes, including the total ceiling, are rejected while queued/running saved jobs exist. Waiting clients time out without deleting jobs.
 
-Grouping preparation retains terminal fallback to original files. History projects the latest persisted job for each kind and exact review revision without returning model settings or result bodies. Readability and optional correctness state remain separate. Queued priority changes invalidate the previous dispatch and send a replacement with a bounded 120-second scheduling preference. Retries link through retryOf and preserve captured settings/revision/priority. Batch checkpoints are reused only within that retry lineage; an intentional completed-run re-analysis starts fresh. Dispatch generation plus owner-start identity reject old execution after reprioritization or restart. Existing active-view activity feedback is retained; background completion notifications are deferred.
+Grouping preparation retains terminal fallback to original files. History projects the latest persisted job for each kind and exact review revision without returning model settings or result bodies. Readability and optional correctness state remain separate. Queued priority changes invalidate the previous dispatch and send a replacement with a bounded 120-second scheduling preference. Retries link through retryOf and preserve captured settings/revision/priority. Batch checkpoints are reused only within that retry lineage; an intentional completed-run re-analysis starts fresh. Dispatch generation plus owner-start identity reject old execution after reprioritization or restart. Existing active-view activity feedback is retained; background completion notifications use the Group 3 event feed.
 
 ## Local API boundaries
 
@@ -161,7 +161,8 @@ These Next.js routes implement the current local surface; consult their request 
 | /api/agents                                  | Jobs/results, history, conversation/run mutations, cancellation, and fix-prompt exports |
 | /api/agents/chat, /api/agents/explain        | Snapshot chat/explanation streaming                                                     |
 | /api/agents/settings                         | AI settings reads and validated updates                                                 |
-| /api/ai-test                                 | Provider/model chat testing                                                             |
+| /api/about, /api/notifications               | Version/update diagnostics and persisted local activity                                 |
+| /api/git, /api/project-memory, /api/reports  | Guarded Git actions, explicit guidance, and immutable round reports                     |
 | /api/providers, /api/providers/models        | Connection operations and model metadata                                                |
 | /api/providers/subscriptions                 | Subscription sign-in/status/cancel/sign-out                                             |
 | /api/review-preferences, /api/ui-preferences | Persisted review and UI configuration                                                   |
@@ -254,4 +255,8 @@ Hosted development uses its own configured environment and services. Local revie
 
 See [checklist.md](checklist.md) for the current verification ledger and [README](../README.md) for commands. Local source/fixture tests, typechecks, opt-in process/package tests, real provider checks, and human browser exploration are different evidence.
 
-Future completion notifications, general Git mutations, and report generation are described in the [roadmap](local-review-roadmap.md). Group 1 finding decisions, verification, task application, and explicit check execution are committed on `feat/fix-verify`. Further implementation must extend the existing identities, storage, and lifecycle rather than silently substituting the old hosted design.
+Group 3 uses review-core modules for project memory, Git/checkpoints, reports, notifications, and updates, with shared contracts and protected local APIs. SQLite format 8 adds report/event/Git/checkpoint/lease records; existing databases receive a pre-migration backup. Git leases share the common Git directory and dead-owner recovery. Staged candidate identity, hook guards, and outgoing object identity prevent stale approval; pulls use ff-only without automatic stashing. The terminal pre-push wrapper replays existing hook input before evaluating the same checkpoint policy.
+
+Reports store immutable captured-round outcome versions; HTML escapes authored content with a restrictive CSP. Evidence and exports apply current source policy. Browser drafts use tab-local state plus a restart backup, bounded size and 30-day expiry. Notifications require secure loopback permission, category opt-in, event cursors, and a cross-tab Web Lock; the minimal service worker handles click navigation without source caching or a remote push service.
+
+Update checks use the stable @senslop/cli npm registry release with bounded requests and cached availability. Installation supports detected global npm/pnpm copies, validates a pinned version, rejects active work/running owners, backs up SQLite, and invokes argument-based package-manager commands after explicit confirmation. Source/archive copies do not self-replace. About owns diagnostics; `/ai-test` and its inference helper are retired. Fixed input-aware hotkeys remain; configurable shortcuts and publishing are deferred.

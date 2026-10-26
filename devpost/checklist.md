@@ -32,20 +32,18 @@ This ledger replaces the historical hosted-upload build slices and append-only p
 
 ## Known gaps, recorded without implying implementation
 
-- Completion notifications and notification preferences are explicitly deferred.
+- Desktop completion notifications are opt-in; the owner app and a browser tab must remain running.
 - Concurrent clients share the convenience `current`; explicit IDs and expected hash/round are the reliable automation target.
 - Machine/provider capacity is coordinated within the shared application-data namespace; outside clients and separate data directories remain independent.
-- Findings have no full individual decision/fix-verification lifecycle.
-- Grouping/completion is file-based rather than hunk-based.
-- No in-app source fixes, arbitrary project check execution, stage/commit/fetch/pull/push, or consolidated human/AI review report.
-- Strong compiler-backed analysis centers on JavaScript/TypeScript.
+- Automatic external-agent launch adapters remain future work; authorized selected fixes, local checks, Git operations, and consolidated reports are implemented.
+- Strong compiler-backed analysis centers on JavaScript/TypeScript; Python/Go parsing and optional semantic tools retain explicit limitations.
 - CLI publishing, supported-platform readiness, real subscription/provider compatibility, and model accuracy require evidence beyond source fixtures.
 
 See [roadmap features 1–20](local-review-roadmap.md#feature-overview) for detailed targets and acceptance criteria.
 
 ## Feature 1 implementation — October 24, 2026
 
-The owner approved background creation with automatic opening for the first review, explicit --open thereafter, and independent browser tabs. Implemented caller-folder capture, revision checks, persisted history status, queue cancellation/retry/priority, shared model admission, restart guards, and transactional owner/session cleanup. Completion notifications are deferred. Implementation commits separate durable jobs/shared capacity, concurrent review workflows, and compact history UI; the roadmap records their IDs. The new packaged background-workspace fixture passed against the real local engine without paid inference. Final regression counts and limitations are recorded in the roadmap progress record.
+The owner approved background creation with automatic opening for the first review, explicit --open thereafter, and independent browser tabs. Implemented caller-folder capture, revision checks, persisted history status, queue cancellation/retry/priority, shared model admission, restart guards, and transactional owner/session cleanup. Completion notifications were deferred at that checkpoint and are now implemented in Group 3. Implementation commits separate durable jobs/shared capacity, concurrent review workflows, and compact history UI; the roadmap records their IDs. The new packaged background-workspace fixture passed against the real local engine without paid inference. Final regression counts and limitations are recorded in the roadmap progress record.
 
 ## Historical verification evidence
 
@@ -120,3 +118,11 @@ The historical guided-learning wrap-up was not established by this documentation
 ## Documentation reconciliation — October 24, 2026
 
 The current-state refresh audits repository code, CLI command definitions, manifests, and document references. It replaces obsolete cloud-review instructions and distinguishes current implementation, historical test evidence, and proposed roadmap work. It changes documentation only. Record link/format verification for this pass in the final task response; do not mark runtime/release checks complete because prose was updated.
+
+## Finish the daily workflow — October 25, 2026
+
+Group 3 implements features 12, 13, 17, 18, and 19 plus the approved notification/update behavior. The roadmap records behavioral decisions and evidence; all changes remain local on `feat/finish-daily-workflow`. Publishing and upgrades to a future published release are deferred. Customizable keyboard shortcuts are excluded from the first version, and `/ai-test` is removed.
+
+Manual tests use a disposable repository and isolated data with allowed cheap providers only. The live Google Flash-Lite flow found an intentional null-cart bug, accepted/promoted it, returned an isolated fix, inspected/applied it in the browser, re-synced the round, passed the regression check, and obtained an apparently-fixed assessment. This validates that flow on macOS, not every provider or platform.
+
+Verified for this implementation: 1,292 passing tests with 13 opt-in skips; successful typecheck, lint, and production build; separately passing clean-archive and independent-CLI suites; Chrome notification permission/category, draft, focus/commands, update cancellation/diagnostics, report/evidence/export, and Git flows. A local bare remote verified checkpoint blocking, an explicit override, and existing-hook restoration. The roadmap has the detailed evidence and limits. Test-owned runtime processes were stopped; publishing, future published-version installation, and non-macOS execution remain unchecked.
