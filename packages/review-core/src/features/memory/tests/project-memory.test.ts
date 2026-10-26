@@ -69,3 +69,58 @@ test("remembered guidance is explicit, versioned, scoped and removable", () => {
     store.close();
   }
 });
+
+test("remembered guidance resolves origins across the same common Git project", () => {
+  const directory = mkdtempSync(join(tmpdir(), "senslop-shared-memory-"));
+  directories.push(directory);
+  const store = new LocalStore(join(directory, "state.sqlite"));
+  try {
+    for (const repository of ["/primary", "/linked"])
+      store.database
+        .prepare("INSERT INTO preferences VALUES (?,?)")
+        .run(`project_common:${repository}`, "/common.git");
+    const capture = (repository: string) =>
+      store.saveReview(
+        repository,
+        {
+          id: randomUUID(),
+          protocolVersion: 1,
+          source: {
+            kind: "working-tree",
+            base: "a".repeat(40),
+            head: null,
+            firstParent: false,
+          },
+          files: [],
+          excluded: [],
+        },
+        null,
+      );
+    const origin = capture("/primary");
+    const current = capture("/linked");
+    const memory = new ProjectMemory(store, "/primary").create({
+      text: "Preserve idempotency",
+      paths: ["**"],
+      assumption: "",
+      review: origin,
+      originId: null,
+      originKind: "review",
+    });
+    expect(new ProjectMemory(store, "/linked").list()).toContainEqual(memory);
+    expect(
+      readReviewInstructions(store, "/linked", current.id).rules.some(
+        (rule) => rule.id === memory.id,
+      ),
+    ).toBe(true);
+    store.database
+      .prepare("UPDATE preferences SET value=? WHERE name=?")
+      .run("/other.git", "project_common:/primary");
+    expect(
+      readReviewInstructions(store, "/linked", current.id).rules.some(
+        (rule) => rule.id === memory.id,
+      ),
+    ).toBe(false);
+  } finally {
+    store.close();
+  }
+});

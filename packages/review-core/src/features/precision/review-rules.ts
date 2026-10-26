@@ -264,7 +264,16 @@ export const readReviewInstructions = (
     .list()
     .filter((entry) => entry.enabled)
     .filter((entry) => {
-      const origin = store.getReview(repository, entry.review.id);
+      const originRepository = store.database
+        .prepare("SELECT repository FROM reviews WHERE id=?")
+        .get(entry.review.id)?.repository;
+      if (
+        typeof originRepository !== "string" ||
+        projectPreferenceKey(store, originRepository, "project_memory") !==
+          projectPreferenceKey(store, repository, "project_memory")
+      )
+        return false;
+      const origin = store.getReview(originRepository, entry.review.id);
       if (!origin) return false;
       if (entry.originKind === "note")
         return origin.notes.some(
