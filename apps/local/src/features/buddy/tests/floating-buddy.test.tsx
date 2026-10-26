@@ -83,7 +83,7 @@ test("selecting another buddy updates its accessible name and sprite sheet", () 
   expect(screen.queryByRole("button", { name: /move pip/i })).toBeNull();
   const buddy = screen.getByRole("button", { name: /move pebble/i });
   expect(
-    buddy.querySelector(".pip-sprite-fallback")?.getAttribute("style"),
+    buddy.querySelector(".pip-sprite")?.getAttribute("data-sprite-sheet"),
   ).toContain("/buddy/pebble-poses.png");
 });
 

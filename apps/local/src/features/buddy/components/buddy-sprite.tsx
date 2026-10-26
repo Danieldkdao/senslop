@@ -26,8 +26,9 @@ export const BuddySprite = ({
 }: BuddySpriteProps) => {
   const canvas = useRef<HTMLCanvasElement>(null);
   const { spriteSheet } = formatBuddyCharacter(character);
-  const [readySheet, setReadySheet] = useState<string | null>(null);
-  const ready = readySheet === spriteSheet;
+  const frameKey = `${spriteSheet}:${size}`;
+  const [readyFrame, setReadyFrame] = useState<string | null>(null);
+  const ready = readyFrame === frameKey;
   useEffect(() => {
     const target = canvas.current;
     if (!target) return;
@@ -60,7 +61,7 @@ export const BuddySprite = ({
         size,
         size,
       );
-      setReadySheet(spriteSheet);
+      setReadyFrame(frameKey);
     };
     const tint = () => {
       if (!loaded || stopped) return;
@@ -127,19 +128,14 @@ export const BuddySprite = ({
       observer.disconnect();
       image.onload = null;
     };
-  }, [mood, still, size, spriteSheet]);
+  }, [mood, still, size, spriteSheet, frameKey]);
   return (
     <span
       aria-hidden="true"
+      data-sprite-sheet={spriteSheet}
       className="pip-sprite"
       style={{ "--buddy-size": `${size}px` } as CSSProperties}
     >
-      {!ready && (
-        <span
-          className="pip-sprite-fallback"
-          style={{ backgroundImage: `url("${spriteSheet}")` }}
-        />
-      )}
       <canvas
         ref={canvas}
         width={size}
