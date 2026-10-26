@@ -80,16 +80,19 @@ export const ProjectSwitcher = () => {
               {workspace.data?.root?.split(/[\\/]/).at(-1) ?? "Projects"}
             </span>
           </PopoverTrigger>
-          <PopoverContent className="flex w-auto max-w-[calc(100vw-2rem)] flex-col gap-3 text-base">
-            <PopoverTitle>Projects & worktrees</PopoverTitle>
+          <PopoverContent className="flex w-auto max-w-lg flex-col gap-0 p-0 text-base">
+            <PopoverTitle className="px-4 py-3">
+              Projects & worktrees
+            </PopoverTitle>
             <Input
+              variant="search"
               aria-label="Search projects"
               placeholder="Search projects…"
-              className="w-full text-base"
+              className="h-10 w-full px-4 text-base"
               value={search}
               onChange={(event) => setSearch(event.target.value)}
             />
-            <div className="flex max-h-96 flex-col overflow-y-auto">
+            <div className="flex max-h-96 scroll-fade-y flex-col overflow-y-auto p-2">
               {projects.data
                 ?.filter((project) =>
                   `${project.name} ${project.root}`
@@ -254,7 +257,7 @@ export const ProjectSwitcher = () => {
             }}
           >
             <SelectTrigger
-              className="w-full text-base"
+              className="h-10 w-full px-4 text-base"
               aria-label="Saved project review"
             >
               <SelectValue>{archived.title}</SelectValue>
