@@ -9,9 +9,11 @@ import { randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 import { once } from "node:events";
 import {
+  lstat,
   mkdir,
   mkdtemp,
   readFile,
+  readlink,
   readdir,
   realpath,
   rm,
@@ -138,6 +140,9 @@ packageTest(
       { mode: 0o755 },
     );
     const packageDirectory = fileURLToPath(new URL("../", import.meta.url));
+    const engine = join(packageDirectory, "node_modules/inngest-cli");
+    const originalEngineLink = await readlink(engine);
+    const originalEngineTarget = await realpath(engine);
     const runtimeCache = join(
       packageDirectory,
       "dist/local-app/apps/local/.next/server/route-cache/packaging-test",
@@ -152,6 +157,12 @@ packageTest(
       ["pack", "--json", "--pack-destination", scratch],
       { cwd: packageDirectory, maxBuffer: 8 * 1024 * 1024 },
     ).finally(() => rm(runtimeCache, { recursive: true, force: true }));
+    expect((await lstat(engine)).isSymbolicLink()).toBe(true);
+    expect(await readlink(engine)).toBe(originalEngineLink);
+    expect(await realpath(engine)).toBe(originalEngineTarget);
+    await expect(
+      lstat(join(packageDirectory, "node_modules/.senslop-engine-source")),
+    ).rejects.toMatchObject({ code: "ENOENT" });
     const archive = JSON.parse(packed.stdout)[0] as {
       filename: string;
       name: string;
