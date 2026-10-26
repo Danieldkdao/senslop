@@ -48,7 +48,7 @@ export const ManualVerification = ({
   const display = formatVerificationOutcome(outcome);
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <TooltipWrapper content="Manual verification">
+      <TooltipWrapper content="Record evidence for this revision without changing the finding decision">
         <PopoverTrigger
           render={
             <Button
@@ -63,6 +63,10 @@ export const ManualVerification = ({
       </TooltipWrapper>
       <PopoverContent className="flex w-80 max-w-[calc(100vw-2rem)] flex-col gap-3 text-base">
         <PopoverTitle>Manual verification</PopoverTitle>
+        <p className="text-muted-foreground">
+          Record what you verified in this revision; the finding decision
+          remains separate.
+        </p>
         <form
           noValidate
           className="flex w-full flex-col gap-3"
