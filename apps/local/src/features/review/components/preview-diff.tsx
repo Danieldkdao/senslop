@@ -390,6 +390,7 @@ export const PreviewDiff = ({
         <div>
           <InlineComment
             key={`${commentTarget.side}:${commentTarget.lineNumber}`}
+            draftKey={`line-note:${snapshotId}:${file.path}:${file.afterHash}:${commentTarget.side}:${commentTarget.lineNumber}`}
             onCancel={closeComment}
             onSubmit={async (body) => {
               await onAddComment(body, {
