@@ -1,4 +1,5 @@
 import { scheduleGrouping } from "../../../services/inngest/functions";
+import { after } from "next/server";
 import { z } from "zod";
 import {
   getWorkspace,
@@ -23,7 +24,7 @@ export const GET = async (request: Request) => {
     const preview = id
       ? workspace.store.getReview(await workspace.root(), id)
       : await workspace.current();
-    if (preview) await scheduleGrouping(preview.id);
+    if (preview) after(() => scheduleGrouping(preview.id));
     const etag = `W/"${preview?.id ?? "empty"}-${preview?.revision ?? 0}"`;
     const headers = { "Cache-Control": "no-store", ETag: etag };
     if (request.headers.get("if-none-match") === etag)
@@ -50,7 +51,7 @@ export const POST = async (request: Request) => {
     );
   try {
     const preview = await getWorkspace().current();
-    if (preview) await scheduleGrouping(preview.id);
+    if (preview) after(() => scheduleGrouping(preview.id));
     return Response.json({ saved: true });
   } catch (error) {
     return Response.json(

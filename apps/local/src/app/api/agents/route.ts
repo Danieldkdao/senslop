@@ -3,7 +3,7 @@ import {
   protectLocalRoute,
   readLocalBody,
 } from "../../../features/workspace/lib/server-workspace";
-import { loadContext } from "../../../services/analysis/frozen-context";
+import { after } from "next/server";
 import { AgentStore } from "../../../features/agents/lib/agent-store";
 import { agentActionSchema } from "../../../features/agents/schemas";
 import { assignedModel } from "../../../services/ai/repository-agent";
@@ -117,7 +117,7 @@ export const GET = async (request: Request) => {
         ),
       );
     }
-    await scheduleGrouping(snapshotId);
+    after(() => scheduleGrouping(snapshotId));
     return Response.json({
       jobs: agents.jobs(snapshotId),
       conversations: agents.conversations(snapshotId),
@@ -147,7 +147,7 @@ export const POST = async (request: Request) => {
         const job = agents.createJob(previousJob.snapshotId, previousJob.kind, {
           retryOf: previousJob.id,
         });
-        await dispatchJobs(job.snapshotId);
+        after(() => dispatchJobs(job.snapshotId));
         return Response.json(job);
       }
       case "priority": {
@@ -195,13 +195,12 @@ export const POST = async (request: Request) => {
           throw new Error("Choose task models in Settings → AI first.");
         if (input.kind === "grouping")
           workspace.store.enableGrouping(agents.repository, input.snapshotId);
-        await loadContext(workspace.store, agents.repository, snapshot);
         const job = agents.createJob(input.snapshotId, input.kind, {
           hash: input.expectedHash,
           round: input.expectedRound,
           priority: input.priority,
         });
-        await dispatchJobs(input.snapshotId);
+        after(() => dispatchJobs(input.snapshotId));
         return Response.json(job);
       }
       case "cancel": {
@@ -211,12 +210,13 @@ export const POST = async (request: Request) => {
           status: "canceled",
           progress: "Canceled",
         });
-        await inngest
-          .send({
+        after(() =>
+          inngest.send({
             name: "senslop/analysis.canceled",
             data: { jobId: input.id, dispatchKey: job.dispatchKey },
           })
-          .catch(() => {});
+          .catch(() => {}),
+        );
         return Response.json({ saved: true });
       }
       case "create":

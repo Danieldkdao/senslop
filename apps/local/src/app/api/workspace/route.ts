@@ -4,6 +4,7 @@ import { AgentStore } from "../../../features/agents/lib/agent-store";
 import { jobPriorities } from "../../../features/agents/schemas";
 import { SnapshotLimitError } from "@senslop/review-core/git";
 import { scheduleGrouping } from "../../../services/inngest/functions";
+import { after } from "next/server";
 import {
   reviewChangeSchema,
   reviewStateSchema,
@@ -176,7 +177,7 @@ export const POST = async (request: Request) => {
           action.grouping,
           { directory: action.directory, activate: action.activate },
         );
-        await scheduleGrouping(insertedReview.id, action.priority);
+        after(() => scheduleGrouping(insertedReview.id, action.priority));
         return Response.json({
           ...insertedReview,
           activated:
@@ -195,7 +196,7 @@ export const POST = async (request: Request) => {
             directory: action.directory,
           },
         );
-        await scheduleGrouping(updatedReview.id, action.priority);
+        after(() => scheduleGrouping(updatedReview.id, action.priority));
         return Response.json(updatedReview);
       }
       case "open":
