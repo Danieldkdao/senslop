@@ -7,6 +7,12 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { beforeEach, afterEach, expect, test, vi } from "vitest";
+import {
+  savedReviewSchema,
+  projectPolicySchema,
+  trackedFindingSchema,
+} from "@senslop/contracts";
+import { toast } from "@/components/ui/toast";
 import { defaultUiPreferences } from "../../settings/constants";
 import { AgentPanel } from "../components/agent-panel";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -33,8 +39,16 @@ vi.mock("../../precision/hooks/use-review-intent", () => ({
     pending: false,
   }),
 }));
+const workflowFeedback = vi.hoisted(() => ({
+  data: undefined as
+    import("../../workflow/schemas").WorkflowStateSchema | undefined,
+  act: vi.fn(),
+}));
 vi.mock("../../workflow/hooks/use-review-workflow", () => ({
-  useReviewWorkflow: () => ({ state: {}, act: vi.fn() }),
+  useReviewWorkflow: () => ({
+    state: { data: workflowFeedback.data },
+    act: workflowFeedback.act,
+  }),
 }));
 vi.mock("../../settings/hooks/use-ui-preferences", () => ({
   useUiPreferences: () => ({ values: defaultUiPreferences }),
@@ -74,9 +88,15 @@ beforeEach(() =>
   ),
 );
 afterEach(() => {
+  workflowFeedback.data = undefined;
+  workflowFeedback.act.mockReset();
+  vi.restoreAllMocks();
+  localStorage.clear();
+  sessionStorage.clear();
   cleanup();
   vi.unstubAllGlobals();
 });
+
 test("agent tabs occupy the panel header without a separate title row", () => {
   render(
     <AgentPanel
@@ -642,5 +662,136 @@ test.each([
     expect(requirementEvidence.hasAttribute("disabled")).toBe(true);
     await user.click(requirementEvidence);
     expect(onEvidence).not.toHaveBeenCalled();
+  },
+);
+
+test.each(["task", "verification"])(
+  "finding %s actions show pending feedback and open the matching Work tab",
+  async (kind) => {
+    const review = savedReviewSchema.parse({
+      id: "a1b2c3d4-1234-4234-8234-123456789012",
+      protocolVersion: 1,
+      source: {
+        kind: "working-tree",
+        base: "a".repeat(40),
+        head: null,
+        firstParent: false,
+      },
+      files: [],
+      excluded: [],
+      title: "Fixture",
+      hash: "a".repeat(64),
+      fingerprint: "a".repeat(64),
+      round: 1,
+      createdAt: "2026-10-25T00:00:00.000Z",
+      updatedAt: "2026-10-25T00:00:00.000Z",
+      revision: 0,
+      notes: [],
+      completedPaths: [],
+      selectedPath: null,
+    });
+    const finding = trackedFindingSchema.parse({
+      id: "b1b2c3d4-1234-4234-8234-123456789012",
+      reviewId: review.id,
+      decision: "open",
+      observations: [
+        {
+          id: "c1b2c3d4-1234-4234-8234-123456789012",
+          jobId: "d1b2c3d4-1234-4234-8234-123456789012",
+          review: { id: review.id, hash: review.hash, round: 1 },
+          createdAt: review.createdAt,
+          evidence: {
+            title: "Missing guard",
+            severity: "high",
+            problem: "Missing guard crashes.",
+            path: "a.ts",
+            side: "after",
+            start: 1,
+            end: 1,
+            code: "input.value",
+            fixPrompt: "Add guard",
+            category: "correctness",
+          },
+        },
+      ],
+      history: [],
+      possibleMatches: [],
+      duplicateOf: null,
+      assessment: null,
+    });
+    workflowFeedback.data = {
+      findings: [finding],
+      tasks: [],
+      checks: [],
+      verifications: [],
+      suggestedCommands: [],
+      rounds: [review],
+      policy: projectPolicySchema.parse({}),
+      usage: [],
+    };
+    let finish!: (value: unknown) => void;
+    workflowFeedback.act.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const info = vi.spyOn(toast, "info");
+    const success = vi.spyOn(toast, "success");
+    render(
+      <AgentPanel
+        snapshotId={review.id}
+        snapshot={{
+          ...review,
+          status: "ready",
+          expectedFiles: review.files.length,
+          error: null,
+        }}
+        agents={{ state: { data: { jobs: [] } } } as never}
+        onEvidence={vi.fn()}
+      />,
+    );
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("tab", { name: "Work" }));
+    await user.click(screen.getByRole("tab", { name: "Checks" }));
+    await user.click(screen.getByRole("tab", { name: "Review" }));
+    await user.click(
+      screen.getByRole("checkbox", { name: "Select Missing guard" }),
+    );
+    if (kind === "task") {
+      await user.click(screen.getByRole("button", { name: "Create fix task" }));
+      await user.click(
+        within(screen.getByRole("dialog")).getByRole("button", {
+          name: "Create fix task",
+        }),
+      );
+    } else {
+      const verify = screen.getByRole("button", {
+        name: "Verify selected findings",
+      });
+      await user.click(verify);
+      expect(verify.hasAttribute("disabled")).toBe(true);
+      await user.click(verify);
+    }
+    expect(workflowFeedback.act).toHaveBeenCalledTimes(1);
+    expect(info).toHaveBeenCalledWith(
+      kind === "task" ? "Creating fix task…" : "Queueing verification…",
+    );
+    finish({ id: "accepted" });
+    await waitFor(() =>
+      expect(
+        screen.getByRole("tab", { name: "Work" }).getAttribute("aria-selected"),
+      ).toBe("true"),
+    );
+    expect(
+      screen
+        .getByRole("tab", {
+          name: kind === "task" ? "Fix tasks" : "Verification",
+        })
+        .getAttribute("aria-selected"),
+    ).toBe("true");
+    expect(success).toHaveBeenCalledWith(
+      kind === "task" ? "Fix task created." : "Verification queued.",
+    );
   },
 );

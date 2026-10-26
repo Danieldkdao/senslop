@@ -1,10 +1,13 @@
 "use client";
 
+import { useSavedState } from "../../usability/hooks/use-saved-state";
+
 import { formatReviewProfile } from "../../precision/lib/formatters";
 import { cn } from "@/lib/utils";
 import { ChevronDown, Wrench, ScanSearch, X } from "lucide-react";
 import { useState } from "react";
 import { Checkbox } from "@/components/ui/checkbox";
+import { LoadingSwap } from "@/components/ui/loading-swap";
 import { Button } from "@/components/ui/button";
 import { TooltipWrapper } from "@/components/ui/tooltip-wrapper";
 import { FindingHistoryEvidence } from "../../workflow/components/finding-history-evidence";
@@ -56,7 +59,11 @@ export const ReviewResults = ({
   groups?: { title: string; files: { path: string }[] }[];
   className?: string;
 }) => {
-  const [filters, setFilters] = useState(emptyFindingFilters);
+  const [verifying, setVerifying] = useState(false);
+  const [filters, setFilters] = useSavedState(
+    `finding-filters:${snapshot?.id ?? "empty"}`,
+    emptyFindingFilters,
+  );
   const [selected, setSelected] = useState<string[]>([]);
   const selectedIds = selected.filter((id) =>
     trackedFindings.some(
@@ -121,12 +128,6 @@ export const ReviewResults = ({
       : [];
   return (
     <div className={cn("flex flex-col gap-6 p-4", className)}>
-      <FindingFilters
-        values={filters}
-        onChange={setFilters}
-        files={[...new Set(findings.map((finding) => finding.path))]}
-        groups={groups.map((group) => group.title)}
-      />
       {!!findings.length && result.summary && (
         <p className="text-base text-foreground">{result.summary}</p>
       )}
@@ -144,6 +145,12 @@ export const ReviewResults = ({
           analysis limitations below.
         </p>
       )}
+      <FindingFilters
+        values={filters}
+        onChange={setFilters}
+        files={[...new Set(findings.map((finding) => finding.path))]}
+        groups={groups.map((group) => group.title)}
+      />
       {findingSeverities.map((severity) => {
         const findings = visible.filter(
           (finding) => finding.severity === severity,
@@ -174,7 +181,7 @@ export const ReviewResults = ({
                     display.cardClassName,
                   )}
                 >
-                  <div className="flex items-start gap-1">
+                  <div className="flex items-start gap-3 px-3 py-4">
                     {saved && (
                       <Checkbox
                         aria-label={`Select ${finding.title}`}
@@ -187,13 +194,13 @@ export const ReviewResults = ({
                               : ids.filter((id) => id !== saved.id),
                           )
                         }
-                        className="ml-3 mt-4 shrink-0"
+                        className="mt-1 shrink-0"
                       />
                     )}
                     <h4 className="min-w-0 flex-1">
                       <CollapsibleTrigger
                         className={cn(
-                          "group/finding flex w-full items-start gap-3 p-4 text-left text-base font-semibold outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+                          "group/finding flex w-full items-start gap-3 text-left text-base font-semibold outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
                           display.className,
                         )}
                       >
@@ -297,7 +304,12 @@ export const ReviewResults = ({
                       {observation && (
                         <FindingHistoryEvidence observation={observation} />
                       )}
-                      <FixPrompt prompt={findingFixPrompt(finding)} secondary />
+                      {(!saved || !onAction) && (
+                        <FixPrompt
+                          prompt={findingFixPrompt(finding)}
+                          secondary
+                        />
+                      )}
                       {saved && onAction && (
                         <FindingControls
                           finding={saved}
@@ -312,7 +324,12 @@ export const ReviewResults = ({
                               : undefined
                           }
                           onAction={onAction}
-                        />
+                        >
+                          <FixPrompt
+                            prompt={findingFixPrompt(finding)}
+                            secondary
+                          />
+                        </FindingControls>
                       )}
                     </div>
                   </CollapsibleContent>
@@ -347,14 +364,27 @@ export const ReviewResults = ({
                 size="icon"
                 variant="outline"
                 aria-label="Verify selected findings"
-                onClick={() =>
-                  void onAction({
-                    action: "verify-findings",
-                    findingIds: selectedIds,
-                  }).catch(() => {})
-                }
+                aria-busy={verifying}
+                disabled={verifying}
+                onClick={async () => {
+                  setVerifying(true);
+                  try {
+                    await onAction({
+                      action: "verify-findings",
+                      findingIds: selectedIds,
+                    });
+                  } catch {
+                  } finally {
+                    setVerifying(false);
+                  }
+                }}
               >
-                <ScanSearch aria-hidden="true" className="size-4" />
+                <LoadingSwap
+                  isLoading={verifying}
+                  className="flex items-center justify-center gap-2"
+                >
+                  <ScanSearch aria-hidden="true" className="size-4" />
+                </LoadingSwap>
               </Button>
             </TooltipWrapper>
           )}

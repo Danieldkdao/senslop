@@ -1,5 +1,7 @@
 "use client";
 
+import { useSavedState } from "../../usability/hooks/use-saved-state";
+
 import {
   ExpandingTabs,
   ExpandingTabsPanel,
@@ -17,7 +19,7 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { ClipboardList, ListChecks } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ChevronDown, History, Plus } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { matchesJobSnapshot } from "../lib/job-snapshots";
@@ -49,6 +51,9 @@ import { AgentReviewHistory } from "./agent-review-history";
 import { useReviewWorkflow } from "../../workflow/hooks/use-review-workflow";
 import { FixTaskForm } from "../../workflow/components/fix-task-form";
 import { WorkPanel } from "../../workflow/components/work-panel";
+import { toast } from "@/components/ui/toast";
+import type { WorkflowActionSchema } from "../../workflow/schemas";
+import type { ReviewIdentitySchema } from "@senslop/contracts";
 import { savedReviewSchema } from "@senslop/contracts";
 import { UsagePopover } from "../../workflow/components/usage-popover";
 
@@ -106,13 +111,58 @@ export const AgentPanel = ({
   });
   const { settings } = useAiSettings();
   const configured = !!assignedModel(settings.data, "review");
-  const [tab, setTab] = useState("chat");
+  const [resultTab, setResultTab] = useSavedState(
+    `review-results:${snapshotId}`,
+    "findings",
+  );
+  const [tab, setTab] = useSavedState(`agent-panel:${snapshotId}`, "chat");
+  const [workTab, setWorkTab] = useSavedState(
+    `work-panel:${snapshotId}`,
+    typeof location === "undefined"
+      ? "tasks"
+      : (new URLSearchParams(location.search).get("work") ?? "tasks"),
+  );
+  const handleWorkflowAction = async (
+    operation: WorkflowActionSchema,
+    target?: ReviewIdentitySchema,
+  ) => {
+    if (operation.action === "create-task") toast.info("Creating fix task…");
+    if (operation.action === "verify-findings")
+      toast.info("Queueing verification…");
+    const result = await workflow.act(operation, target);
+    if (
+      result &&
+      (operation.action === "create-task" ||
+        operation.action === "verify-findings")
+    ) {
+      setWorkTab(operation.action === "create-task" ? "tasks" : "verification");
+      setTab("work");
+      toast.success(
+        operation.action === "create-task"
+          ? "Fix task created."
+          : "Verification queued.",
+      );
+    }
+    return result;
+  };
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const panel = params.get("panel");
+    if (
+      params.get("review") === snapshotId &&
+      ["review", "work", "chat"].includes(panel ?? "")
+    )
+      requestAnimationFrame(() => setTab(panel!));
+  }, [snapshotId, setTab]);
   const [fixIds, setFixIds] = useState<string[] | null>(null);
   const savedSnapshot = savedReviewSchema.safeParse(snapshot);
   const [selectedRun, setSelectedRun] = useState<JobSchema | null>(null);
   const [stopping, setStopping] = useState(false);
   const [history, setHistory] = useState(false);
-  const [reviewControlsOpen, setReviewControlsOpen] = useState(true);
+  const [reviewControlsOpen, setReviewControlsOpen] = useSavedState(
+    `review-controls:${snapshotId}`,
+    true,
+  );
   const reviews =
     agents.state.data?.jobs.filter((job) => job.kind === "review") ?? [];
   const currentReviews = reviews.filter((job) =>
@@ -265,7 +315,7 @@ export const AgentPanel = ({
                       <UsagePopover
                         usage={workflow.state.data.usage}
                         policy={workflow.state.data.policy}
-                        onAction={workflow.act}
+                        onAction={handleWorkflowAction}
                         onOpenSettings={() => onOpenSettings?.("usage")}
                       />
                     )}
@@ -284,7 +334,7 @@ export const AgentPanel = ({
                       instructions={intent.state.data?.instructions}
                       loading={intent.state.isPending}
                       error={intent.state.error?.message}
-                      onAction={workflow.act}
+                      onAction={handleWorkflowAction}
                       onBrief={() => setBriefOpen(true)}
                       onRules={() => setRulesOpen(true)}
                     />
@@ -370,6 +420,8 @@ export const AgentPanel = ({
             </Collapsible>
             <ExpandingTabs
               aria-label="Review results"
+              value={resultTab}
+              onValueChange={setResultTab}
               variant="transparent"
               items={[
                 {
@@ -394,7 +446,7 @@ export const AgentPanel = ({
               >
                 <section
                   aria-label="Review findings"
-                  className="min-h-0 flex-1 overflow-y-auto"
+                  className="min-h-0 flex-1 scroll-fade-y overflow-y-auto"
                 >
                   {displayed?.status === "completed" ? (
                     <>
@@ -419,7 +471,7 @@ export const AgentPanel = ({
                         snapshot={snapshot}
                         onEvidence={olderResult ? undefined : onEvidence}
                         trackedFindings={workflow.state.data?.findings}
-                        onAction={workflow.act}
+                        onAction={handleWorkflowAction}
                         onFix={
                           savedSnapshot.success
                             ? (ids) => setFixIds(ids)
@@ -441,7 +493,7 @@ export const AgentPanel = ({
                       snapshot={snapshot}
                       trackedFindings={workflow.state.data.findings}
                       includeTracked
-                      onAction={workflow.act}
+                      onAction={handleWorkflowAction}
                       onFix={(ids) => setFixIds(ids)}
                       className="pt-0"
                     />
@@ -494,7 +546,12 @@ export const AgentPanel = ({
             value="work"
             className="flex min-h-0 flex-1 flex-col overflow-hidden text-base"
           >
-            <WorkPanel state={workflow.state.data} onAction={workflow.act} />
+            <WorkPanel
+              state={workflow.state.data}
+              onAction={handleWorkflowAction}
+              tab={workTab}
+              onTabChange={setWorkTab}
+            />
           </TabsContent>
         </div>
       </Tabs>
@@ -555,11 +612,7 @@ export const AgentPanel = ({
         <FixTaskForm
           review={savedSnapshot.data}
           findingIds={fixIds}
-          onAction={async (operation) => {
-            const result = await workflow.act(operation);
-            setTab("work");
-            return result;
-          }}
+          onAction={handleWorkflowAction}
           onClose={() => setFixIds(null)}
         />
       )}

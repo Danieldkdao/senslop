@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, Send } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   Collapsible,
@@ -40,22 +40,34 @@ const PromptContent = ({ prompt }: { prompt: string }) => {
 export const FixPrompt = ({
   prompt,
   secondary = false,
+  flat = false,
   label = "Fix with agent prompt",
 }: {
   prompt: string;
   secondary?: boolean;
+  flat?: boolean;
   label?: string;
 }) => (
   <Collapsible
     className={cn(
       "min-w-0 overflow-hidden rounded-md border",
-      secondary
-        ? "border-transparent bg-secondary text-secondary-foreground"
-        : "bg-background text-foreground",
+      flat
+        ? "rounded-none border-0 border-t pt-3 bg-transparent [&_svg]:size-5 [&_svg]:shrink-0"
+        : secondary
+          ? "border-transparent bg-secondary text-secondary-foreground"
+          : "bg-background text-foreground",
     )}
   >
-    <CollapsibleTrigger className="group/fix flex w-full items-center justify-between gap-2 px-4 py-2 text-base font-medium outline-none hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
-      <span>{label}</span>
+    <CollapsibleTrigger
+      className={cn(
+        "group/fix flex w-full items-center justify-between gap-2 text-base font-medium outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+        flat ? "px-0 hover:bg-transparent" : "px-4 py-2 hover:bg-muted/50",
+      )}
+    >
+      <span className="flex items-center gap-2">
+        {flat && <Send aria-hidden="true" className="size-5 shrink-0" />}
+        {label}
+      </span>
       <ChevronDown
         aria-hidden="true"
         className="size-4 shrink-0 transition-transform group-data-panel-open/fix:rotate-180 motion-reduce:transition-none"
