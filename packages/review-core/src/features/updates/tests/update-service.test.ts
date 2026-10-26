@@ -57,3 +57,29 @@ test("updating refuses to replace files while another local app owns a session",
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test("installation detection follows the executable symlink for global npm installs", async () => {
+  const { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, rmSync } =
+    await import("node:fs");
+  const { join } = await import("node:path");
+  const { tmpdir } = await import("node:os");
+  const { detectInstallation } = await import("../update-service");
+  const directory = mkdtempSync(join(tmpdir(), "senslop-installation-"));
+  try {
+    const entry = join(
+      directory,
+      "lib/node_modules/@senslop/cli/dist/index.js",
+    );
+    mkdirSync(join(directory, "bin"), { recursive: true });
+    mkdirSync(join(directory, "lib/node_modules/@senslop/cli/dist"), {
+      recursive: true,
+    });
+    writeFileSync(entry, "");
+    const executable = join(directory, "bin/senslop");
+    symlinkSync(entry, executable);
+    expect(detectInstallation(executable)).toBe("npm");
+    expect(detectInstallation(join(directory, "missing"))).toBe("unknown");
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});

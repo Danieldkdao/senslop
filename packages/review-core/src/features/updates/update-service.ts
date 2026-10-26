@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync } from "node:fs";
+import { readdirSync, readFileSync, realpathSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { execFile } from "node:child_process";
 import { backup } from "node:sqlite";
@@ -92,7 +92,11 @@ export const cachedRelease = async (
 };
 
 export const detectInstallation = (entry: string): InstallationKind => {
-  const path = entry.replaceAll("\\", "/");
+  let resolved = entry;
+  try {
+    resolved = realpathSync(entry);
+  } catch {}
+  const path = resolved.replaceAll("\\", "/");
   if (/\/pnpm\/global\//.test(path)) return "pnpm";
   if (/\/(?:lib|npm)\/node_modules\/@senslop\/cli\//.test(path)) return "npm";
   if (/\/packages\/cli\//.test(path)) return "source";
