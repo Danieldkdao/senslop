@@ -1,5 +1,7 @@
 "use client";
 
+import { NotificationListener } from "../../notifications/components/notification-listener";
+
 import { formatWhitespaceMode } from "../lib/formatters";
 
 import {
@@ -1095,6 +1097,7 @@ export const ReviewWorkspace = ({ children }: ReviewWorkspaceProps) => {
 
   return (
     <div className="fixed inset-0 overflow-clip bg-background text-base text-foreground">
+      <NotificationListener />
       {preview && (
         <FileSearchDialog
           review={identity}
