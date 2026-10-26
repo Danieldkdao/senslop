@@ -11,6 +11,11 @@ export const serverEnv = createEnv({
     INNGEST_EVENT_KEY: z.string().optional(),
     INNGEST_SIGNING_KEY: z.string().optional(),
     SENSLOP_INNGEST_APP_ID: z.string().optional(),
+    SENSLOP_CLI_COMMAND: z.string().optional(),
+    SENSLOP_APP_VERSION: z.string().optional(),
+    SENSLOP_INSTALLATION: z
+      .enum(["npm", "pnpm", "source", "unknown"])
+      .default("unknown"),
     SENSLOP_LOCAL_STARTED_AT: z.iso.datetime().optional(),
     SENSLOP_LOCAL_ORIGIN: z.url().optional(),
     SENSLOP_LOCAL_WORKER_TOKEN: z
@@ -32,6 +37,9 @@ export const serverEnv = createEnv({
     INNGEST_EVENT_KEY: process.env.INNGEST_EVENT_KEY,
     INNGEST_SIGNING_KEY: process.env.INNGEST_SIGNING_KEY,
     SENSLOP_INNGEST_APP_ID: process.env.SENSLOP_INNGEST_APP_ID,
+    SENSLOP_CLI_COMMAND: process.env.SENSLOP_CLI_COMMAND,
+    SENSLOP_APP_VERSION: process.env.SENSLOP_APP_VERSION,
+    SENSLOP_INSTALLATION: process.env.SENSLOP_INSTALLATION,
     SENSLOP_LOCAL_STARTED_AT: process.env.SENSLOP_LOCAL_STARTED_AT,
     SENSLOP_LOCAL_ORIGIN: process.env.SENSLOP_LOCAL_ORIGIN,
     SENSLOP_LOCAL_WORKER_TOKEN: process.env.SENSLOP_LOCAL_WORKER_TOKEN,
