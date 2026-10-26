@@ -464,8 +464,7 @@ packageTest(
       expect(probeRequests).toBe(2);
       expect((await fetch(`${origin}/ai-test`)).status).toBe(403);
       const aiPage = await fetch(`${origin}/ai-test`, { headers });
-      expect(aiPage.status).toBe(200);
-      expect(await aiPage.text()).toContain("AI test");
+      expect(aiPage.status).toBe(404);
       const catalog = await fetch(
         `${origin}/api/providers/models?connectionId=${connectionId}`,
         { headers },
@@ -477,13 +476,12 @@ packageTest(
         ],
         source: "live",
       });
-      const reply = await post("/api/ai-test", {
-        connectionId,
-        modelId: "packaged-model",
-        messages: [{ role: "user", content: "Test packaged inference" }],
+      const removedTestApi = await fetch(`${origin}/api/ai-test`, {
+        method: "POST",
+        headers,
       });
-      expect(reply).toEqual({ text: "Packaged AI fixture response" });
-      expect(inferenceRequests).toBe(1);
+      expect(removedTestApi.status).toBe(404);
+      expect(inferenceRequests).toBe(0);
 
       const settingsPage = await fetch(`${origin}/settings/providers`, {
         headers,
