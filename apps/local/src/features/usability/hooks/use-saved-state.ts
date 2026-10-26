@@ -1,6 +1,12 @@
 "use client";
 
-import { useEffect, useState, useCallback, type SetStateAction } from "react";
+import {
+  useEffect,
+  useState,
+  useCallback,
+  useSyncExternalStore,
+  type SetStateAction,
+} from "react";
 
 const readSaved = <T>(key: string, fallback: T): T => {
   try {
@@ -11,15 +17,26 @@ const readSaved = <T>(key: string, fallback: T): T => {
   }
 };
 
+const subscribeHydration = () => () => {};
+const clientHydrated = () => true;
+const serverHydrated = () => false;
+
 export const useSavedState = <T>(name: string, fallback: T) => {
   const key = `senslop:view:${name}`;
+  const hydrated = useSyncExternalStore(
+    subscribeHydration,
+    clientHydrated,
+    serverHydrated,
+  );
   const [state, setState] = useState(() => ({
     key,
-    value: readSaved(key, fallback),
+    value: fallback,
+    loaded: false,
   }));
-  if (state.key !== key) setState({ key, value: readSaved(key, fallback) });
+  if (hydrated && (!state.loaded || state.key !== key))
+    setState({ key, value: readSaved(key, fallback), loaded: true });
   useEffect(() => {
-    if (state.key !== key) return;
+    if (!state.loaded || state.key !== key) return;
     try {
       const value = JSON.stringify(state.value);
       sessionStorage.setItem(key, value);
@@ -30,12 +47,17 @@ export const useSavedState = <T>(name: string, fallback: T) => {
     (next: SetStateAction<T>) =>
       setState((current) => ({
         key,
+        loaded: true,
         value:
           typeof next === "function"
-            ? (next as (value: T) => T)(current.value)
+            ? (next as (value: T) => T)(
+                current.key === key && current.loaded
+                  ? current.value
+                  : readSaved(key, fallback),
+              )
             : next,
       })),
-    [key],
+    [key, fallback],
   );
   return [state.key === key ? state.value : fallback, setValue] as const;
 };
