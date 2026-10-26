@@ -2,7 +2,7 @@
 doc: spec
 status: approved
 last-reconciled: 2026-10-26
-implementation-baseline: 738af5b
+implementation-baseline: 6d3fde6
 ---
 
 # Senslop — Current Technical Specification
@@ -278,3 +278,13 @@ Group 3 uses review-core modules for project memory, Git/checkpoints, reports, n
 Reports store immutable captured-round outcome versions; HTML escapes authored content with a restrictive CSP. Evidence and exports apply current source policy. Browser form drafts use tab-local state plus a restart backup, bounded size and 30-day expiry; successful submissions clear them, and note cancellation also clears its draft. Notifications require browser permission, category opt-in, event cursors, and atomic server-side event claims; Web Locks serialize local delivery when available, with direct delivery using the same claims otherwise. Notification-worker preparation has a ten-second timeout; browser submission itself is awaited without a misleading timeout because it cannot be canceled. Completion events are recorded at job publication/failure, without requiring a later rename; the minimal service worker handles click navigation without source caching or a remote push service.
 
 Update checks use the stable @senslop/cli npm registry release with bounded requests and cached availability. Installation supports detected global npm/pnpm copies, validates a pinned version, rejects active work/running owners, backs up SQLite, and invokes argument-based package-manager commands after explicit confirmation. Source/archive copies do not self-replace. About owns diagnostics; `/ai-test` and its inference helper are retired. Fixed input-aware hotkeys remain; configurable shortcuts and publishing are deferred.
+
+## Review-defect corrections — October 26, 2026
+
+The follow-up source baseline `6d3fde6` corrects checkpoint, report, memory, update, and browser-state defects without expanding the approved product scope. Checkpoints resolve the configured push destination, inspect the complete tip against the empty tree for new branches when history is disabled, and match unresolved findings across saved reviews/rounds against exact outgoing file hashes. Check evidence uses raw-byte hashes for both binary and text content; Git blob digests stream independently of the former 25 MiB buffer bound. Whole-file rename unstaging restores both index paths, and exact-object pushes explicitly configure tracking for the local branch after success.
+
+Project guidance resolves its origin within the common Git project, and queued memory autosaves advance their version from each server response even after settings close. Reports prefer job-captured briefs or inherited earlier-round briefs, retain verification evidence paths, and apply current policy to reads/exports, including older pathless verification records. The report dialog resets revision-specific selection and rejects cross-review report data.
+
+Notification claims are renewable two-minute leases, distinct from a completed delivery acknowledgement; abandoned leases can be recovered, and pending claims elsewhere do not advance the browser cursor. Delivery retries every three seconds even when polling returns structurally identical data. Explicit valid Work-tab links override saved tab selection, while view-state restoration uses a matching server/hydration snapshot before reading browser storage. Global-install detection resolves the executable real path before classifying the package manager.
+
+The [verification ledger](checklist.md#review-findings-follow-up--october-26-2026) records focused regressions and the full-suite result; no live notification banner or provider inference was exercised by this follow-up.

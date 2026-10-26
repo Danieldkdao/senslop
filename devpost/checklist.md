@@ -2,7 +2,7 @@
 doc: checklist
 status: current-baseline
 last-reconciled: 2026-10-26
-implementation-baseline: 738af5b
+implementation-baseline: 6d3fde6
 ---
 
 # Senslop — Implementation and Verification Ledger
@@ -17,7 +17,7 @@ This ledger replaces the historical hosted-upload build slices and append-only p
 
 All 20 roadmap features have their approved implementation scopes present. Groups 1–2 are merged; the daily-workflow delivery and UI/runtime refinements are committed on `feat/finish-daily-workflow` through `738af5b`. The 49-topic-commit split accounted for all 211 changed paths without changing file contents and left a clean working tree. Publication and full release/platform/provider acceptance remain open.
 
-Latest recorded verification for that source baseline:
+Recorded verification at the original `738af5b` source baseline follows; the [review-findings follow-up](#review-findings-follow-up--october-26-2026) records the newer fixes and test results:
 
 | Check                                                                | Observed result                             | Boundary                                                                                                                                                                                  |
 | -------------------------------------------------------------------- | ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -160,3 +160,35 @@ At the October 25 checkpoint: 1,292 passing tests with 13 opt-in skips; successf
 Scope, PRD, spec, roadmap, and both README files are reconciled against `738af5b`, package scripts, CLI help, runtime/capture constants, and the recorded verification above. The refresh updates source/development setup, SQLite v8, execution streaming, notification claims, timeout policies, Work history, UI behavior, and committed delivery status; dated research and the private onboarding profile remain historical.
 
 Validation for this documentation pass uses formatting, relative-link/anchor checks, CLI-help checks, and a dry run of the local build task graph; it does not start the app, invoke inference, or claim a new acceptance-suite run. Record the result in the final task response and commit the documentation after review.
+
+## Review findings follow-up — October 26, 2026
+
+All 17 reported findings were confirmed through failing regression cases before the fixes. The fixes are committed through source baseline `6d3fde6`; the two pre-existing matching favicon edits have their own asset commit.
+
+| Issue | Confirmed defect and resulting behavior                                                                                                                               | Fix commit |
+| ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
+| 1     | Checkpoint finding lookup no longer depends on one review/hash; unresolved findings match exact outgoing content across reviews and archived rounds.                  | `0470318`  |
+| 2     | Binary check evidence compares hashes and uses `afterHash` to identify deletion.                                                                                      | `0470318`  |
+| 3     | Git blob digests stream large unchanged assets without the previous 25 MiB buffer limit.                                                                              | `0470318`  |
+| 4     | New destination branches without historical checking compare the complete tip tree with the empty tree.                                                               | `0470318`  |
+| 5     | Outgoing inspection uses the push URL, and fetch-side tracking refs cannot suppress a new destination's history checks; multiple push URLs require explicit handling. | `0470318`  |
+| 6     | Whole-file rename unstaging restores both the old and new index paths.                                                                                                | `00f7ac7`  |
+| 7     | Project memory origins resolve across worktrees of the same common Git project and reject unrelated projects.                                                         | `3c42eea`  |
+| 8     | Queued memory autosaves use the returned version after an earlier save, including after settings unmount.                                                             | `ffef785`  |
+| 9     | Verification report items retain evidence paths and honor current policy in new, saved, and legacy pathless reports.                                                  | `012a9b3`  |
+| 10    | Reports use the analysis job's captured brief or inherit the applicable earlier-round brief.                                                                          | `012a9b3`  |
+| 11    | Report selection resets on review/revision changes and report queries validate review ownership.                                                                      | `c196083`  |
+| 12    | Update installation detection resolves global executable symlinks.                                                                                                    | `051a98a`  |
+| 13    | Exact-object pushes set tracking for the local branch after success.                                                                                                  | `00f7ac7`  |
+| 14    | Failed notification delivery explicitly retries an unchanged event feed.                                                                                              | `6e119cb`  |
+| 15    | Valid notification Work-tab parameters override persisted tab state.                                                                                                  | `7f19be5`  |
+| 16    | Notification claims expire, renew during delivery, and become completed only after browser submission is acknowledged.                                                | `6e119cb`  |
+| 17    | Saved view state restores after a matching hydration render without replacing server content.                                                                         | `d979d42`  |
+
+Verification executed for this follow-up:
+
+- Focused regressions used disposable real Git repositories/check worktrees, SQLite stores/connections, deferred autosaves, browser component tests, and actual server rendering/hydration; each reported failure mode was observed before its fix.
+- The full ordinary `pnpm test` run recorded 1,368 passes, 13 skips, and 16 sandbox-only `listen EPERM` failures across the four loopback integration files. Re-running those four files with localhost access passed all 18 active tests and one opt-in skip; two tests overlap the first run, giving **1,384 unique passing tests and 13 skips** overall.
+- The permitted rerun used `pnpm exec vitest run apps/connection-server/tests/server.test.ts packages/cli/src/features/workspace/tests/local-app.test.ts packages/cli/src/features/workspace/tests/local-jobs.test.ts packages/cli/src/features/workspace/tests/workspace-client.test.ts`.
+- `pnpm --filter @senslop/review-core typecheck`, `pnpm exec tsc --project apps/local/tsconfig.json --noEmit`, and `pnpm exec tsc --project tsconfig.tests.json --noEmit` passed. Changed-file ESLint, Prettier, filename checks, and `git diff --check` complete the static verification.
+- No live provider inference, system notification banner check, or new production/package build was performed; earlier build/live evidence remains separately dated. Tests clean up their disposable runtimes, and no development app was started for this follow-up.
