@@ -23,7 +23,7 @@ JavaScript/TypeScript has compiler-backed analysis; Python/Go has packaged parsi
 
 The public npm package name is `senslop`; Requires **Node.js 24.x or 26+** and **Git**; source builds also require **pnpm 12.8.1**.
 
-After publication, install and start the CLI from a Git repository:
+Install and start the CLI from a Git repository:
 
 ```sh
 npm install --global senslop
