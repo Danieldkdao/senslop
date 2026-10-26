@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { isAbsolute } from "node:path";
 import type { LocalStore } from "../../db/local-store";
@@ -97,16 +97,21 @@ export const gitBlobDigest = (
   path: string,
 ): Promise<string | null> =>
   new Promise((resolve, reject) => {
-    // Preserve raw binary bytes when comparing frozen content with outgoing Git objects.
-    execFile(
-      "git",
-      ["show", `${revision}:${path}`],
-      { cwd: repository, encoding: "buffer", maxBuffer: 25 * 1024 * 1024 },
-      (error, stdout) => {
-        if (error) {
-          if (error.code === 128) resolve(null);
-          else reject(error);
-        } else resolve(createHash("sha256").update(stdout).digest("hex"));
-      },
-    );
+    const hash = createHash("sha256");
+    const child = spawn("git", ["show", `${revision}:${path}`], {
+      cwd: repository,
+      timeout: 120000,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stderr = "";
+    child.stdout.on("data", (bytes: Buffer) => hash.update(bytes));
+    child.stderr.on("data", (bytes: Buffer) => {
+      stderr = (stderr + bytes.toString()).slice(-12000);
+    });
+    child.once("error", reject);
+    child.once("close", (code) => {
+      if (code === 0) resolve(hash.digest("hex"));
+      else if (code === 128) resolve(null);
+      else reject(new Error(stderr || "Git blob hashing failed."));
+    });
   });

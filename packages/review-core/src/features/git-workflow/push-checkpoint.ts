@@ -60,12 +60,27 @@ export class PushCheckpoint {
     const localOid = (
       await gitProcess(this.repository, ["rev-parse", "HEAD"])
     ).trim();
+    const pushUrls = (
+      await gitProcess(this.repository, [
+        "remote",
+        "get-url",
+        "--push",
+        "--all",
+        remote,
+      ])
+    )
+      .trim()
+      .split("\n");
+    if (pushUrls.length !== 1 || !pushUrls[0])
+      throw new Error(
+        "Inspect remotes with multiple push destinations explicitly.",
+      );
     const advertised = (
       await gitProcess(this.repository, [
         "ls-remote",
         "--refs",
         "--",
-        remote,
+        pushUrls[0],
         `refs/heads/${branch}`,
       ])
     ).trim();
@@ -117,6 +132,9 @@ export class PushCheckpoint {
       .map((row) => savedReviewSchema.parse(JSON.parse(String(row.body))));
     const workflow = new WorkflowStore(this.store, this.repository);
     const sourcePolicy = readProjectPolicy(this.store, this.repository);
+    const unresolved = [...new Set(reviews.map((review) => review.id))]
+      .flatMap((reviewId) => workflow.findings(reviewId))
+      .filter((finding) => ["open", "accepted"].includes(finding.decision));
     const processed = new Set<string>();
     for (const ref of refs) {
       if (
@@ -136,7 +154,7 @@ export class PushCheckpoint {
       }
       try {
         const revision = /^0+$/.test(ref.remoteOid)
-          ? [ref.localOid, "--not", `--remotes=${remote}`]
+          ? [ref.localOid]
           : [`${ref.remoteOid}..${ref.localOid}`];
         const all = (
           await gitProcess(this.repository, [
@@ -186,7 +204,13 @@ export class PushCheckpoint {
           const compare = policy.requireHistory
             ? parent
             : /^0+$/.test(ref.remoteOid)
-              ? undefined
+              ? (
+                  await gitProcess(
+                    this.repository,
+                    ["hash-object", "-t", "tree", "--stdin"],
+                    { input: "" },
+                  )
+                ).trim()
               : ref.remoteOid;
           const paths = (
             await gitProcess(this.repository, [
@@ -247,6 +271,39 @@ export class PushCheckpoint {
               afterText,
               beforeText,
             );
+            const limit = workflowSeverities.indexOf(policy.blockingSeverity);
+            for (const finding of unresolved) {
+              const reviewId = finding.reviewId;
+              const observation = finding.observations.find((entry) => {
+                if (
+                  entry.evidence.path !== path ||
+                  workflowSeverities.indexOf(entry.evidence.severity) > limit
+                )
+                  return false;
+                const observed = reviews
+                  .find(
+                    (review) =>
+                      review.id === reviewId &&
+                      review.hash === entry.review.hash &&
+                      review.round === entry.review.round,
+                  )
+                  ?.files.find((file) => file.path === path);
+                return (
+                  observed &&
+                  observed.afterHash === afterHash &&
+                  (afterHash !== null || observed.beforeHash === beforeHash)
+                );
+              });
+              if (observation)
+                result.issues.push({
+                  kind: "finding",
+                  reviewId,
+                  path,
+                  commit: oid,
+                  message: observation.evidence.title,
+                });
+            }
+
             if (
               !matched ||
               !allowsSourcePath(sourcePolicy, path) ||
@@ -264,27 +321,6 @@ export class PushCheckpoint {
               continue;
             }
             result.reviewed++;
-            const limit = workflowSeverities.indexOf(policy.blockingSeverity);
-            for (const finding of workflow.findings(matched.id)) {
-              const observation = finding.observations.find(
-                (entry) =>
-                  entry.review.hash === matched.hash &&
-                  entry.evidence.path === path,
-              );
-              if (
-                observation &&
-                ["open", "accepted"].includes(finding.decision) &&
-                workflowSeverities.indexOf(observation.evidence.severity) <=
-                  limit
-              )
-                result.issues.push({
-                  kind: "finding",
-                  reviewId: matched.id,
-                  path,
-                  commit: oid,
-                  message: observation.evidence.title,
-                });
-            }
           }
         }
         for (const command of policy.requiredChecks) {
@@ -343,11 +379,12 @@ export class PushCheckpoint {
             if (!snapshot || !manifest.files.length) matches = false;
             if (snapshot)
               for (const file of snapshot.syncBaseline ?? snapshot.files) {
-                const bytes = await gitProcess(this.repository, [
-                  "show",
-                  `${ref.localOid}:${file.path}`,
-                ]).catch(() => null);
-                if (bytes !== file.after) {
+                const digest = await gitBlobDigest(
+                  this.repository,
+                  ref.localOid,
+                  file.path,
+                );
+                if (digest !== file.afterHash) {
                   matches = false;
                   break;
                 }
@@ -368,7 +405,7 @@ export class PushCheckpoint {
                 (path) =>
                   !manifest.files.some((file) => file.path === path) &&
                   !snapshot?.files.some(
-                    (file) => file.path === path && file.after === null,
+                    (file) => file.path === path && file.afterHash === null,
                   ),
               )
             )
