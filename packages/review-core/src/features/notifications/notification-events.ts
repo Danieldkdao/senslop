@@ -85,9 +85,15 @@ export const claimNotification = (
 ) =>
   store.database
     .prepare(
-      "UPDATE notification_events SET body=json_set(body,'$.delivery',?) WHERE repository=? AND id=? AND json_extract(body,'$.delivery') IS NULL",
+      "UPDATE notification_events SET body=json_set(body,'$.delivery',json(?)) WHERE repository=? AND id=? AND json_extract(body,'$.delivery.completed') IS NULL AND (json_type(body,'$.delivery') IS NULL OR json_type(body,'$.delivery')='text' OR json_extract(body,'$.delivery.expiresAt')<=? OR json_extract(body,'$.delivery.owner')=?)",
     )
-    .run(owner, repository, id).changes === 1;
+    .run(
+      JSON.stringify({ owner, expiresAt: Date.now() + 120000 }),
+      repository,
+      id,
+      Date.now(),
+      owner,
+    ).changes === 1;
 
 export const releaseNotification = (
   store: LocalStore,
@@ -97,7 +103,30 @@ export const releaseNotification = (
 ) => {
   store.database
     .prepare(
-      "UPDATE notification_events SET body=json_remove(body,'$.delivery') WHERE repository=? AND id=? AND json_extract(body,'$.delivery')=?",
+      "UPDATE notification_events SET body=json_remove(body,'$.delivery') WHERE repository=? AND id=? AND json_extract(body,'$.delivery.owner')=? AND json_extract(body,'$.delivery.completed') IS NULL",
     )
     .run(repository, id, owner);
 };
+
+export const completeNotification = (
+  store: LocalStore,
+  repository: string,
+  id: string,
+  owner: string,
+) =>
+  store.database
+    .prepare(
+      "UPDATE notification_events SET body=json_set(body,'$.delivery.completed',1) WHERE repository=? AND id=? AND json_extract(body,'$.delivery.owner')=?",
+    )
+    .run(repository, id, owner).changes === 1;
+
+export const notificationCompleted = (
+  store: LocalStore,
+  repository: string,
+  id: string,
+) =>
+  !!store.database
+    .prepare(
+      "SELECT 1 FROM notification_events WHERE repository=? AND id=? AND json_extract(body,'$.delivery.completed')=1",
+    )
+    .get(repository, id);

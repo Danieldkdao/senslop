@@ -42,6 +42,7 @@ export const NotificationListener = () => {
   useEffect(() => {
     if (!enabled || !feed.data) return;
     let stopped = false;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
     const deliver = async () => {
       if (stopped) return;
       for (const event of feed.data!.events) {
@@ -59,9 +60,10 @@ export const NotificationListener = () => {
           const display = formatNotificationKind(event.kind);
           const owner = crypto.randomUUID();
           let claimed = false;
-          let claimedElsewhere = false;
+          let completedElsewhere = false;
+          let renewal: ReturnType<typeof setInterval> | undefined;
           let delivered = false;
-          const claim = async (action: "claim" | "release") => {
+          const claim = async (action: "claim" | "release" | "complete") => {
             const response = await fetch("/api/notifications", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
@@ -69,7 +71,10 @@ export const NotificationListener = () => {
             });
             if (!response.ok)
               throw new Error("Notification delivery unavailable.");
-            return response.json() as Promise<{ claimed?: boolean }>;
+            return response.json() as Promise<{
+              claimed?: boolean;
+              completed?: boolean;
+            }>;
           };
           try {
             delivered = await showDesktopNotification(
@@ -83,28 +88,45 @@ export const NotificationListener = () => {
               },
               async () => {
                 if (stopped) return false;
-                claimed = (await claim("claim")).claimed === true;
-                claimedElsewhere = !claimed;
+                const result = await claim("claim");
+                claimed = result.claimed === true;
+                completedElsewhere = result.completed === true;
+                if (claimed)
+                  renewal = setInterval(() => {
+                    void claim("claim").catch(() => {});
+                  }, 30000);
                 return claimed && !stopped;
               },
             );
+            if (delivered && !(await claim("complete")).completed) return true;
           } catch {
-            return;
+            return true;
           } finally {
+            clearInterval(renewal);
             if (claimed && !delivered) await claim("release").catch(() => {});
           }
-          if (!delivered && !claimedElsewhere) return;
+          if (!delivered && !completedElsewhere) return true;
         }
         localStorage.setItem(cursorKey, String(event.sequence));
       }
     };
-    if (navigator.locks)
-      void navigator.locks
-        .request("senslop-notifications", deliver)
-        .catch(() => {});
-    else void deliver().catch(() => {});
+    const attempt = () => {
+      if (stopped) return;
+      const pending = navigator.locks
+        ? navigator.locks.request("senslop-notifications", deliver)
+        : deliver();
+      void pending
+        .then((retry) => {
+          if (retry && !stopped) retryTimer = setTimeout(attempt, 3000);
+        })
+        .catch(() => {
+          if (!stopped) retryTimer = setTimeout(attempt, 3000);
+        });
+    };
+    attempt();
     return () => {
       stopped = true;
+      clearTimeout(retryTimer);
     };
   }, [enabled, feed.data, preferences]);
   return null;

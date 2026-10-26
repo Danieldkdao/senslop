@@ -50,22 +50,22 @@ test("the protected notification API claims once, rejects other projects and rel
     state.root = "/other";
     expect(
       await (await action({ action: "claim", id: "event", owner })).json(),
-    ).toEqual({ claimed: false });
+    ).toMatchObject({ claimed: false });
     state.root = "/repo";
     expect(
       await (await action({ action: "claim", id: "event", owner })).json(),
-    ).toEqual({ claimed: true });
+    ).toMatchObject({ claimed: true });
     expect(
       await (
         await action({ action: "claim", id: "event", owner: randomUUID() })
       ).json(),
-    ).toEqual({ claimed: false });
+    ).toMatchObject({ claimed: false });
     await action({ action: "release", id: "event", owner });
     expect(
       await (
         await action({ action: "claim", id: "event", owner: randomUUID() })
       ).json(),
-    ).toEqual({ claimed: true });
+    ).toMatchObject({ claimed: true });
     const feed = await (
       await GET(new Request("http://localhost/api/notifications?after=0"))
     ).json();

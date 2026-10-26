@@ -1,6 +1,8 @@
 import { z } from "zod";
 import {
   claimNotification,
+  completeNotification,
+  notificationCompleted,
   releaseNotification,
   listNotifications,
 } from "@senslop/review-core/notifications";
@@ -41,7 +43,11 @@ export const GET = async (request: Request) => {
 };
 
 const notificationActionSchema = z.object({
-  action: z.union([z.literal("claim"), z.literal("release")]),
+  action: z.union([
+    z.literal("claim"),
+    z.literal("release"),
+    z.literal("complete"),
+  ]),
   id: z.string().min(1).max(500),
   owner: z.uuid(),
 });
@@ -57,9 +63,22 @@ export const POST = async (request: Request) => {
     const input = notificationActionSchema.parse(await readLocalBody(request));
     const workspace = getWorkspace();
     const root = await workspace.root();
-    if (input.action === "claim")
+    if (input.action === "claim") {
+      const claimed = claimNotification(
+        workspace.store,
+        root,
+        input.id,
+        input.owner,
+      );
       return Response.json({
-        claimed: claimNotification(
+        claimed,
+        completed:
+          !claimed && notificationCompleted(workspace.store, root, input.id),
+      });
+    }
+    if (input.action === "complete")
+      return Response.json({
+        completed: completeNotification(
           workspace.store,
           root,
           input.id,
