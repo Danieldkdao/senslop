@@ -22,7 +22,8 @@ import {
   projectPolicySchema,
   type ProjectPolicySchema,
 } from "@senslop/contracts";
-import { analyzeSources, snapshotAnalysisVersion } from "./snapshot-analysis";
+import { analyzeSources } from "./source-analysis";
+import { snapshotAnalysisVersion } from "./constants";
 
 type CapturableSnapshot = {
   source: PreviewSourceSchema;

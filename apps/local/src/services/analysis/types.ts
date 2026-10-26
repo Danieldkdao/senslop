@@ -1,6 +1,11 @@
 import type { LanguageCapabilitySchema } from "@senslop/contracts";
 
 export type SourceMap = Record<string, string>;
+export type SourceAnalysisRequest = {
+  sources: SourceMap;
+  changed: string[];
+  settings: import("@senslop/contracts").LanguageSettingsSchema;
+};
 export type DependencyEdge = {
   from: string;
   to: string;

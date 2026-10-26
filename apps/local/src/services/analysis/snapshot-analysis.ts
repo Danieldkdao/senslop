@@ -19,7 +19,8 @@ import type {
 
 import { frozenCompiler } from "./frozen-compiler";
 
-export const snapshotAnalysisVersion = 4;
+import { snapshotAnalysisVersion } from "./constants";
+export { snapshotAnalysisVersion } from "./constants";
 
 const scriptPath = (path: string) => /\.[cm]?[jt]sx?$/.test(path);
 const virtualRoot = "/senslop-frozen/";

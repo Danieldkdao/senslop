@@ -7,7 +7,7 @@ import {
 import type { LocalStore } from "@senslop/review-core/storage";
 import type { ReviewIdentitySchema, SourceSide } from "@senslop/contracts";
 import { loadContext } from "./frozen-context";
-import { analyzeSources } from "./snapshot-analysis";
+import { analyzeSources } from "./source-analysis";
 import { readLanguageSettings } from "./language-settings";
 import { changeImpact } from "./change-impact";
 import type { AnalysisContext } from "./types";
