@@ -12,3 +12,11 @@
   --buddy-light: color-mix(in srgb, var(--primary) 55%, #ffffff);
   --buddy-shine: color-mix(in srgb, var(--primary) 8%, #ffffff);
 }
+
+@layer components {
+  [data-slot="command-list"],
+  [data-slot="combobox-list"],
+  [data-slot="select-content"] > [role="listbox"] {
+    @apply scroll-fade-y;
+  }
+}

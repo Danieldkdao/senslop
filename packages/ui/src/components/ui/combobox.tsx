@@ -1,5 +1,6 @@
 "use client";
 
+import { Input } from "@/components/ui/input";
 import * as React from "react";
 import { Combobox as ComboboxPrimitive } from "@base-ui/react";
 import { cn } from "cn";
@@ -58,11 +59,22 @@ function ComboboxInput({
   disabled = false,
   showTrigger = true,
   showClear = false,
+  variant = "default",
   ...props
 }: ComboboxPrimitive.Input.Props & {
+  variant?: "default" | "search";
   showTrigger?: boolean;
   showClear?: boolean;
 }) {
+  if (variant === "search")
+    return (
+      <ComboboxPrimitive.Input
+        render={<Input variant="search" />}
+        disabled={disabled}
+        className={className}
+        {...props}
+      />
+    );
   return (
     <InputGroup className={cn("w-auto", className)}>
       <ComboboxPrimitive.Input

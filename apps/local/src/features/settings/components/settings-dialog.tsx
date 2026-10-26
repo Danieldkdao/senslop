@@ -164,17 +164,18 @@ export const SettingsDialog = ({
         <div className="flex min-h-0 h-full flex-col sm:flex-row">
           <aside
             aria-label="Settings contents"
-            className="shrink-0 border-b sm:border-b-0 sm:border-r sm:w-56 bg-sidebar p-4 flex flex-col gap-4 min-h-0"
+            className="shrink-0 border-b sm:border-b-0 sm:border-r sm:w-56 bg-sidebar flex flex-col min-h-0"
           >
             <div className="relative shrink-0">
               <Search
                 aria-hidden="true"
-                className="absolute left-2 top-2.5 size-4 text-muted-foreground"
+                className="absolute left-4 top-1/2 size-5 -translate-y-1/2 text-muted-foreground"
               />
               <Input
+                variant="search"
                 aria-label="Search settings"
                 placeholder="Search settings"
-                className="pl-8 text-base"
+                className="h-14 border-t-0 pl-12 pr-4 text-base"
                 value={search}
                 onChange={(event) => {
                   setSearch(event.target.value);
@@ -185,7 +186,7 @@ export const SettingsDialog = ({
             </div>
             <nav
               aria-label="Settings sections"
-              className="flex sm:flex-1 sm:flex-col gap-1 overflow-auto min-h-0 max-h-40 sm:max-h-none"
+              className="flex sm:flex-1 sm:flex-col gap-1 overflow-auto p-3 min-h-0 max-h-40 sm:max-h-none"
             >
               {sections
                 .filter((section) => section.visible !== false)
@@ -198,7 +199,9 @@ export const SettingsDialog = ({
                   />
                 ))}
             </nav>
-            <SettingsSaveIndicator />
+            <div className="p-4">
+              <SettingsSaveIndicator />
+            </div>
           </aside>
           <div className="flex flex-1 min-w-0 min-h-0 flex-col">
             <nav
