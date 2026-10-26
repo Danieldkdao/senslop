@@ -631,8 +631,14 @@ export class GitOperations {
           case "stage":
           case "unstage": {
             validateGitPath(operation.path);
-            if (!state.files.some((file) => file.path === operation.path))
-              throw new Error("File is no longer changed.");
+            const selected = state.files.find(
+              (file) => file.path === operation.path,
+            );
+            if (!selected) throw new Error("File is no longer changed.");
+            const selectedPaths = [
+              operation.path,
+              ...(selected.oldPath ? [validateGitPath(selected.oldPath)] : []),
+            ];
             if (operation.hunk !== undefined) {
               const patch = (
                 await this.preview(
@@ -670,7 +676,7 @@ export class GitOperations {
                 "restore",
                 "--staged",
                 "--",
-                operation.path,
+                ...selectedPaths,
               ]);
             else
               record.output = await gitProcess(this.repository, [
@@ -755,9 +761,18 @@ export class GitOperations {
               await beforePush?.(operation);
               record.output = await gitProcess(this.repository, [
                 "push",
-                "--set-upstream",
                 operation.remote,
                 `${state.head}:refs/heads/${operation.branch}`,
+              ]);
+              await gitProcess(this.repository, [
+                "config",
+                `branch.${state.branch}.remote`,
+                operation.remote,
+              ]);
+              await gitProcess(this.repository, [
+                "config",
+                `branch.${state.branch}.merge`,
+                `refs/heads/${operation.branch}`,
               ]);
             } else
               record.output = await gitProcess(this.repository, [

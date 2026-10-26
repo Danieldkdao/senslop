@@ -280,3 +280,47 @@ test("binary preview hashes preserve non-UTF8 Git object bytes", async () => {
     store.close();
   }
 });
+
+test("unstaging a rename restores both index paths without changing working files", async () => {
+  const { directory, git, store, service } = setup();
+  try {
+    git("mv", "one.txt", "renamed.txt");
+    const state = await service.status();
+    expect(
+      state.files.find((file) => file.path === "renamed.txt")?.oldPath,
+    ).toBe("one.txt");
+    await service.act({
+      action: "unstage",
+      path: "renamed.txt",
+      expected: state.identity,
+    });
+    expect(git("diff", "--cached", "--name-only")).toBe("");
+    expect(readFileSync(join(directory, "renamed.txt"), "utf8")).toBe("one\n");
+  } finally {
+    store.close();
+  }
+});
+
+test("exact-object push sets tracking for the current local branch", async () => {
+  const { git, store, service } = setup();
+  const remote = mkdtempSync(join(tmpdir(), "senslop-tracking-"));
+  paths.push(remote);
+  try {
+    execFileSync("git", ["init", "--bare", "-q", remote]);
+    git("remote", "add", "origin", remote);
+    const branch = git("branch", "--show-current");
+    await service.act({
+      action: "push",
+      remote: "origin",
+      branch: "published",
+      expected: (await service.status()).identity,
+    });
+    expect(git("config", `branch.${branch}.remote`)).toBe("origin");
+    expect(git("config", `branch.${branch}.merge`)).toBe(
+      "refs/heads/published",
+    );
+    expect(git("rev-parse", "@{upstream}")).toBe(git("rev-parse", "HEAD"));
+  } finally {
+    store.close();
+  }
+});
