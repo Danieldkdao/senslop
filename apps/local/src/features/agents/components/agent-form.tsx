@@ -1,5 +1,7 @@
 "use client";
 
+import { useFormDraft } from "../../usability/hooks/use-form-draft";
+
 import { Button } from "@/components/ui/button";
 import { LoadingSwap } from "@/components/ui/loading-swap";
 import { Textarea } from "@/components/ui/textarea";
@@ -14,6 +16,7 @@ import { agentFormSchema, type AgentFormSchema } from "../schemas";
 
 type AgentFormProps = {
   initialContent?: string;
+  draftKey?: string;
   model: ModelSelection | null;
   onModelChange: (model: ModelSelection | null) => void;
   busy: boolean;
@@ -24,6 +27,7 @@ type AgentFormProps = {
 
 export const AgentForm = ({
   initialContent = "",
+  draftKey,
   model,
   onModelChange,
   busy,
@@ -32,21 +36,24 @@ export const AgentForm = ({
   onStop,
 }: AgentFormProps) => {
   const id = useId();
+  const form = useForm<AgentFormSchema>({
+    resolver: zodResolver(agentFormSchema),
+    defaultValues: { content: initialContent },
+  });
   const {
     control,
     handleSubmit,
     reset,
     formState: { errors, isSubmitting },
-  } = useForm<AgentFormSchema>({
-    resolver: zodResolver(agentFormSchema),
-    defaultValues: { content: initialContent },
-  });
+  } = form;
+  const draft = useFormDraft(form, draftKey);
   const { field } = useController({ control, name: "content" });
   const submit = async ({ content }: AgentFormSchema) => {
     if (!model || busy) return;
     try {
       await onSend(content);
       reset({ content: "" });
+      draft.clear();
     } catch (error) {
       toast.error(
         error instanceof Error

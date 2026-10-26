@@ -53,6 +53,8 @@ vi.mock("../components/agent-markdown", () => ({
   AgentMarkdown: ({ children }: { children: string }) => <p>{children}</p>,
 }));
 afterEach(() => {
+  localStorage.clear();
+  sessionStorage.clear();
   cleanup();
   vi.clearAllMocks();
   vi.unstubAllGlobals();

@@ -20,7 +20,13 @@ export default defineConfig({
       enforce: "pre",
       transform(code, id) {
         // Plain JSX tests missed the stale field binding caused by production memoization.
-        if (!id.endsWith("/features/agents/components/agent-form.tsx")) return;
+        if (
+          ![
+            "/features/agents/components/agent-form.tsx",
+            "/features/review/components/review-note-form.tsx",
+          ].some((path) => id.endsWith(path))
+        )
+          return;
         return babel.transformSync(code, {
           filename: id,
           parserOpts: { plugins: ["typescript", "jsx"] },

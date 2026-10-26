@@ -253,6 +253,7 @@ export const AgentChat = ({ snapshotId, agents }: AgentChatProps) => {
         <AgentForm
           key={composerRevision}
           initialContent={pendingUser}
+          draftKey={`chat:${snapshotId}:${id ?? "new"}`}
           model={selectedModel}
           onModelChange={setModel}
           busy={chat.busy}
