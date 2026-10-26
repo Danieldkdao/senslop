@@ -27,6 +27,7 @@
     "./git-workflow": "./src/features/git-workflow/git-operations.ts",
     "./checkpoint": "./src/features/git-workflow/push-checkpoint.ts",
     "./git-process": "./src/features/git-workflow/git-process.ts",
+    "./checkpoint-hook": "./src/features/git-workflow/checkpoint-hook.ts",
     "./reports": "./src/features/reports/review-reports.ts"
   },
   "scripts": {
