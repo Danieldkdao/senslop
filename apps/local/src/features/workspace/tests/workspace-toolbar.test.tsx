@@ -705,7 +705,7 @@ test.each([
         .hasAttribute("disabled"),
     ).toBe(true),
   );
-  expect(await screen.findByLabelText(reason)).toBeTruthy();
+  expect(await screen.findByLabelText(`${reason} (Shift+S)`)).toBeTruthy();
   expect(fetcher.mock.calls.some((call) => call[1]?.method === "POST")).toBe(
     false,
   );
@@ -737,7 +737,7 @@ test("a failed metadata refresh disables re-sync even with previously cached dat
   await waitFor(() => expect(button().hasAttribute("disabled")).toBe(true));
   expect(
     await screen.findByLabelText(
-      "Repository unavailable. Check Git and refresh the repository.",
+      "Repository unavailable. Check Git and refresh the repository. (Shift+S)",
     ),
   ).toBeTruthy();
 });

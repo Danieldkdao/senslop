@@ -149,7 +149,9 @@ test("editor settings survive reopening the workspace instead of resetting to de
   ).toBe("true");
 });
 vi.mock("../../workspace/components/workspace-toolbar", () => ({
-  WorkspaceToolbar: () => null,
+  WorkspaceToolbar: ({ groupingAction }: { groupingAction?: ReactNode }) => (
+    <div>{groupingAction}</div>
+  ),
 }));
 vi.mock("../components/live-preview-provider", async () => {
   const React = await import("react");
@@ -270,6 +272,7 @@ beforeEach(() => {
   });
   vi.resetAllMocks();
   localStorage.clear();
+  localStorage.setItem("senslop:setup-dismissed", "true");
   state.autoAdvance = false;
   state.jobs = [];
   state.act.mockResolvedValue({});
@@ -1053,10 +1056,10 @@ test("only header actions have tooltips and mobile drawers still open", async ()
   );
   const user = userEvent.setup();
   for (const [label, hint] of [
-    ["Previous file", "Previous file"],
-    ["Next file", "Next file"],
+    ["Previous file", "Previous file (←)"],
+    ["Next file", "Next file (→)"],
     ["Find a file", "Find a file (K)"],
-    ["Add note", "Add note"],
+    ["Add note", "Add note (N)"],
   ]) {
     const button = screen.getByRole("button", { name: label });
     const trigger = button.hasAttribute("disabled")
