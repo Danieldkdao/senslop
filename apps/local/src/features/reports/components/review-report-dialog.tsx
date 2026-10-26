@@ -93,11 +93,38 @@ export const ReviewReportDialog = ({
     window.addEventListener("senslop-report", show);
     return () => window.removeEventListener("senslop-report", show);
   }, []);
-  const [round, setRound] = useState(review.round);
-  const [reportId, setReportId] = useState<string | null>(null);
+  const [selection, setSelection] = useState({
+    reviewId: review.id,
+    currentRound: review.round,
+    round: review.round,
+    reportId: null as string | null,
+  });
+  const matches =
+    selection.reviewId === review.id && selection.currentRound === review.round;
+  if (!matches)
+    setSelection({
+      reviewId: review.id,
+      currentRound: review.round,
+      round: review.round,
+      reportId: null,
+    });
+  const round = matches ? selection.round : review.round;
+  const reportId = matches ? selection.reportId : null;
+  const setRound = (round: number) =>
+    setSelection((current) => ({ ...current, round, reportId: null }));
+  const setReportId = (reportId: string | null) =>
+    setSelection((current) =>
+      current.reviewId === review.id && current.currentRound === review.round
+        ? { ...current, reportId }
+        : current,
+    );
   const [includeSource, setIncludeSource] = useState(false);
   const reports = useReviewReports(review.id, open, reportId);
-  const report = reports.report.data;
+  const report =
+    reports.report.data?.review.id === review.id &&
+    reports.report.data.review.round === round
+      ? reports.report.data
+      : null;
   const download = async (format: "html" | "json") => {
     if (!report) return;
     try {

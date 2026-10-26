@@ -39,7 +39,7 @@ export const useReviewReports = (
     networkMode: "always",
   });
   const report = useQuery({
-    queryKey: ["report", reportId],
+    queryKey: ["report", reviewId, reportId],
     enabled: enabled && !!reportId,
     queryFn: async ({ signal }) => {
       const response = await fetch(`/api/reports?id=${reportId}&source=true`, {
@@ -47,7 +47,10 @@ export const useReviewReports = (
         cache: "no-store",
       });
       if (!response.ok) throw new Error("Report unavailable.");
-      return reviewReportSchema.parse(await response.json());
+      const report = reviewReportSchema.parse(await response.json());
+      if (report.review.id !== reviewId)
+        throw new Error("Report belongs to a different review.");
+      return report;
     },
     retry: false,
     networkMode: "always",
