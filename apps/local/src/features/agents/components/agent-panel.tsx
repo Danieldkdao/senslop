@@ -19,6 +19,8 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { ClipboardList, ListChecks } from "lucide-react";
+import { FileIcon } from "@/components/file-icon";
+import { WorkflowDisclosure } from "../../workflow/components/workflow-disclosure";
 import { useEffect, useState } from "react";
 import { ChevronDown, History, Plus } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -41,6 +43,7 @@ import {
   formatJobModel,
   formatReviewName,
   formatJobStatusAppearance,
+  formatJobProgress,
 } from "../lib/formatters";
 import { useWorkspaceMetadata } from "../../workspace/hooks/use-workspace-metadata";
 import type { LivePreview } from "../../review/types";
@@ -181,6 +184,8 @@ export const AgentPanel = ({
   const status = latest ? formatJobStatusAppearance(latest.status) : null;
   const StatusIcon = status?.Icon;
   const statusLabel = latest ? formatJobStatus(latest.status) : "New review";
+  const progress =
+    running && latest?.progress ? formatJobProgress(latest.progress) : null;
   return (
     <aside
       aria-label="Agents"
@@ -360,6 +365,31 @@ export const AgentPanel = ({
                       {latest.error}
                     </p>
                   )}
+                  {!!progress?.details.length && (
+                    <WorkflowDisclosure
+                      title={`${progress.detailsLabel} (${progress.details.length})`}
+                      Icon={progress.Icon}
+                    >
+                      <ul
+                        aria-label={progress.detailsLabel}
+                        className="flex max-h-48 min-w-0 flex-col gap-2 overflow-y-auto scroll-fade-y"
+                      >
+                        {progress.details.map((path) => (
+                          <li
+                            key={path}
+                            className="flex min-w-0 items-start gap-2 text-base leading-6"
+                          >
+                            <span className="flex h-lh shrink-0 items-center">
+                              <FileIcon fileName={path} />
+                            </span>
+                            <span className="min-w-0 wrap-break-word font-mono">
+                              {path}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </WorkflowDisclosure>
+                  )}
                 </header>
               </CollapsibleContent>
               <div className="flex w-full px-4 py-2">
@@ -371,32 +401,30 @@ export const AgentPanel = ({
                     render={
                       <Button
                         variant="ghost"
-                        className="group/review flex h-auto min-h-9 w-full items-center justify-between gap-2 py-2 whitespace-normal pl-0! hover:bg-transparent! dark:hover:bg-transparent!"
+                        className="group/review flex h-auto min-h-9 w-full items-start justify-between gap-2 py-2 text-base leading-6 whitespace-normal pl-0! hover:bg-transparent! dark:hover:bg-transparent!"
                         aria-label={`Review controls: ${statusLabel}`}
                       >
                         {latest ? (
                           <span
                             role="status"
                             className={cn(
-                              "flex min-w-0 items-center gap-2 text-left text-base!",
+                              "flex min-w-0 items-start gap-2 text-left text-base! leading-6",
                               status?.className,
                             )}
                           >
                             {StatusIcon && (
-                              <StatusIcon
-                                aria-hidden="true"
-                                className={cn(
-                                  "size-4.5 shrink-0",
-                                  status?.loading && "animate-spin",
-                                )}
-                              />
+                              <span className="flex h-lh shrink-0 items-center">
+                                <StatusIcon
+                                  aria-hidden="true"
+                                  className={cn(
+                                    "size-5 shrink-0",
+                                    status?.loading && "animate-spin",
+                                  )}
+                                />
+                              </span>
                             )}
-                            <span className="min-w-0 wrap-break-word">
-                              {running &&
-                              latest.progress &&
-                              latest.progress !== statusLabel
-                                ? latest.progress
-                                : statusLabel}
+                            <span className="min-w-0 line-clamp-2 wrap-break-word">
+                              {progress?.label ?? statusLabel}
                             </span>
                           </span>
                         ) : (
@@ -408,10 +436,12 @@ export const AgentPanel = ({
                             {statusLabel}
                           </span>
                         )}
-                        <ChevronDown
-                          aria-hidden="true"
-                          className="size-4 shrink-0 transition-transform group-data-panel-open/review:rotate-180 motion-reduce:transition-none"
-                        />
+                        <span className="flex h-lh shrink-0 items-center">
+                          <ChevronDown
+                            aria-hidden="true"
+                            className="size-5 shrink-0 transition-transform group-data-panel-open/review:rotate-180 motion-reduce:transition-none"
+                          />
+                        </span>
                       </Button>
                     }
                   />

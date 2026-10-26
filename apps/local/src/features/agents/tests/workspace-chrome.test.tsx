@@ -97,6 +97,41 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+test("long repair progress stays compact while affected paths are available in a closed disclosure", async () => {
+  const paths = Array.from(
+    { length: 40 },
+    (_, index) =>
+      `apps/local/src/features/workflow/components/long-file-${index}.tsx`,
+  );
+  const job = {
+    id: "repair",
+    snapshotId: "snapshot",
+    kind: "review",
+    status: "running",
+    progress: `Repairing review defects: ${paths.join(", ")}`,
+    settings: { separate: false, shared: { name: "Model" } },
+  };
+  render(
+    <AgentPanel
+      snapshotId="snapshot"
+      agents={{ state: { data: { jobs: [job] } } } as never}
+      onEvidence={vi.fn()}
+    />,
+  );
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("tab", { name: "Review" }));
+  const toggle = screen.getByRole("button", {
+    name: "Review controls: Analyzing changes",
+  });
+  expect(toggle.textContent).not.toContain(paths[0]);
+  expect(toggle.textContent!.length).toBeLessThan(100);
+  const details = screen.getByRole("button", {
+    name: "Files being checked (40)",
+  });
+  expect(details.getAttribute("aria-expanded")).toBe("false");
+  await user.click(details);
+  expect(await screen.findByText(paths[0]!)).toBeTruthy();
+});
 test("agent tabs occupy the panel header without a separate title row", () => {
   render(
     <AgentPanel
