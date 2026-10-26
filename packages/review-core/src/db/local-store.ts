@@ -25,11 +25,18 @@ export class LocalStore {
       this.database.exec(
         "PRAGMA busy_timeout = 5000; PRAGMA foreign_keys = ON; PRAGMA secure_delete = ON; PRAGMA journal_mode = WAL;",
       );
+      const previousVersion = Number(
+        this.database.prepare("PRAGMA user_version").get()?.user_version,
+      );
+      if (previousVersion > 0 && previousVersion < 8)
+        this.database
+          .prepare("VACUUM INTO ?")
+          .run(`${path}.before-v8-${Date.now()}`);
       this.transaction(() => {
         const version = Number(
           this.database.prepare("PRAGMA user_version").get()?.user_version,
         );
-        if (version > 7)
+        if (version > 8)
           throw new Error(
             "Local data was created by a newer Senslop. Upgrade the CLI to open it.",
           );
@@ -85,6 +92,16 @@ export class LocalStore {
           this.database.exec(
             "CREATE TABLE review_precision (review_id TEXT NOT NULL REFERENCES reviews(id) ON DELETE CASCADE, round INTEGER NOT NULL, body TEXT NOT NULL, PRIMARY KEY (review_id, round)) STRICT; CREATE TABLE review_briefs (review_id TEXT NOT NULL REFERENCES reviews(id) ON DELETE CASCADE, version INTEGER NOT NULL, body TEXT NOT NULL, PRIMARY KEY (review_id, version)) STRICT; PRAGMA user_version=7;",
           );
+        if (version < 8)
+          this.database.exec(`
+          CREATE TABLE notification_events (sequence INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT UNIQUE NOT NULL, repository TEXT NOT NULL, review_id TEXT REFERENCES reviews(id) ON DELETE CASCADE, body TEXT NOT NULL) STRICT;
+          CREATE INDEX notification_events_repository ON notification_events(repository,sequence);
+          CREATE TABLE review_reports (id TEXT PRIMARY KEY, review_id TEXT NOT NULL REFERENCES reviews(id) ON DELETE CASCADE, round INTEGER NOT NULL, body TEXT NOT NULL) STRICT;
+          CREATE TABLE git_operations (id TEXT PRIMARY KEY, repository TEXT NOT NULL, body TEXT NOT NULL) STRICT;
+          CREATE TABLE checkpoint_records (id TEXT PRIMARY KEY, repository TEXT NOT NULL, body TEXT NOT NULL) STRICT;
+          CREATE TABLE repository_leases (repository TEXT PRIMARY KEY, owner TEXT NOT NULL, pid INTEGER NOT NULL) STRICT;
+          PRAGMA user_version=8;
+        `);
       });
     } catch (error) {
       this.database.close();

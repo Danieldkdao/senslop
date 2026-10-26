@@ -115,3 +115,8 @@ export * from "./compatible-models";
 export * from "./provider-formatters";
 export * from "./workflow";
 export * from "./precision";
+export * from "./project-memory";
+export * from "./notifications";
+export * from "./git-workflow";
+export * from "./review-reports";
+export * from "./app-updates";
