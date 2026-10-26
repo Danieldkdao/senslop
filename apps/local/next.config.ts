@@ -29,9 +29,13 @@ const nextConfig: NextConfig = {
   outputFileTracingIncludes: {
     "/*": [
       "./src/app/fonts/cascadia-code-license.txt",
+      // The compiler worker and its runtime dependencies must ship with the standalone app.
+      "./.analysis/**/*.mjs",
+      "./node_modules/typescript/**/*",
       "./node_modules/tree-sitter/**/*",
       "./node_modules/tree-sitter-python/**/*",
       "./node_modules/tree-sitter-go/**/*",
+      "./node_modules/node-gyp-build/**/*",
       "./node_modules/@anthropic-ai/claude-agent-sdk/**/*",
       "../../node_modules/.pnpm/@anthropic-ai+claude-agent-sdk*/node_modules/@anthropic-ai/claude-agent-sdk*/**/*",
     ],

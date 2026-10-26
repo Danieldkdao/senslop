@@ -76,3 +76,6 @@ playwright-report/
 /blob-report/
 /backups/
 /tmp/
+
+# Local compiler worker build
+**/.analysis/
