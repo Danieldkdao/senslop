@@ -13,6 +13,12 @@ export const agentStreamTimeout = {
   chunkMs: 2 * 60 * 1000,
 };
 
+export const analysisStreamTimeout = {
+  totalMs: 15 * 60 * 1000,
+  firstChunkMs: 8 * 60 * 1000,
+  chunkMs: 8 * 60 * 1000,
+};
+
 export const defaultAnalysisExecutionPolicy = {
   groupingInputTokens: 32000,
   groupingMaxFiles: 12,
