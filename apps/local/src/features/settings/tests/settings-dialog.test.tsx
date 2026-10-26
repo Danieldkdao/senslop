@@ -20,6 +20,15 @@ import { parseDiffFromFile } from "@pierre/diffs";
 import type { MultiFileDiffProps } from "@pierre/diffs/react";
 import type { ProviderId, PublicConnectionSchema } from "@senslop/contracts";
 
+vi.mock("../../memory/components/project-memory-settings", () => ({
+  ProjectMemorySettings: () => <p>Project memory</p>,
+}));
+vi.mock("../../about/components/about-settings", () => ({
+  AboutSettings: () => <p>App information</p>,
+}));
+vi.mock("../../git/components/push-checkpoint-settings", () => ({
+  PushCheckpointSettings: () => <p>Push checkpoint</p>,
+}));
 vi.mock("../../evaluations/hooks/use-review-quality", () => ({
   useReviewQuality: () => ({
     state: { data: [] },
@@ -578,11 +587,15 @@ test("one settings dialog orders appearance/editor/AI, search navigates nested l
     .getAllByRole("heading", { level: 2 })
     .map((heading) => heading.textContent);
   expect(headings.slice(1)).toEqual([
+    "About",
     "AI",
     "Appearance",
     "Data & privacy",
     "Editor",
+    "Git",
     "Language support",
+    "Notifications",
+    "Project memory",
     "Review Preferences",
     "Review quality",
     "Rules & profiles",

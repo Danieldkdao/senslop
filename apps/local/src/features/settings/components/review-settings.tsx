@@ -1,5 +1,10 @@
 "use client";
 
+import { AboutSettings } from "../../about/components/about-settings";
+import { PushCheckpointSettings } from "../../git/components/push-checkpoint-settings";
+import { NotificationSettings } from "../../notifications/components/notification-settings";
+
+import { ProjectMemorySettings } from "../../memory/components/project-memory-settings";
 import type { ReviewIdentitySchema } from "@senslop/contracts";
 import { LanguageSupportSettings } from "../../precision/components/language-support-settings";
 import { ReviewQuality } from "../../evaluations/components/review-quality";
@@ -67,6 +72,13 @@ export const ReviewSettings = ({
         const query = search.toLowerCase().trim();
         const providers = getProviderSettingsSection(navigation, "");
         const sections: SettingsSection[] = [
+          {
+            id: "about",
+            label: "About",
+            keywords:
+              "about app information version update diagnostics runtime health",
+            content: <AboutSettings />,
+          },
           {
             id: "appearance",
             label: "Appearance",
@@ -168,6 +180,24 @@ export const ReviewSettings = ({
             keywords:
               "language python go typescript javascript semantic parsing tree sitter pyright gopls",
             content: <LanguageSupportSettings review={review} />,
+          },
+          {
+            id: "git",
+            label: "Git",
+            keywords: "git push checkpoint hooks coverage commit remote",
+            content: <PushCheckpointSettings />,
+          },
+          {
+            id: "notifications",
+            label: "Notifications",
+            keywords: "notification desktop permission alerts background",
+            content: <NotificationSettings />,
+          },
+          {
+            id: "project-memory",
+            label: "Project memory",
+            keywords: "memory remembered guidance decisions exceptions project",
+            content: <ProjectMemorySettings />,
           },
           {
             id: "rules-profiles",
