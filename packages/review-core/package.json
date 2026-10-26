@@ -21,7 +21,15 @@
     "./runtime-paths": "./src/features/workflow/runtime-paths.ts",
     "./projects": "./src/features/workflow/project-registry.ts",
     "./verification": "./src/features/workflow/verification-store.ts",
-    "./maintenance": "./src/features/workflow/project-maintenance.ts"
+    "./maintenance": "./src/features/workflow/project-maintenance.ts",
+    "./memory": "./src/features/memory/project-memory.ts",
+    "./notifications": "./src/features/notifications/notification-events.ts",
+    "./git-workflow": "./src/features/git-workflow/git-operations.ts",
+    "./checkpoint": "./src/features/git-workflow/push-checkpoint.ts",
+    "./git-process": "./src/features/git-workflow/git-process.ts",
+    "./checkpoint-hook": "./src/features/git-workflow/checkpoint-hook.ts",
+    "./reports": "./src/features/reports/review-reports.ts",
+    "./updates": "./src/features/updates/update-service.ts"
   },
   "scripts": {
     "build": "tsc --noEmit",

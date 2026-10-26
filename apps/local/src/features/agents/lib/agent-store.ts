@@ -1,3 +1,7 @@
+import {
+  recordWorkOutcome,
+  recordNotification,
+} from "@senslop/review-core/notifications";
 import type { UIMessage } from "ai";
 import { randomUUID } from "node:crypto";
 import { PrecisionStore } from "@senslop/review-core/precision";
@@ -358,6 +362,30 @@ export class AgentStore {
       return job;
     });
 
+  cancelGrouping = (snapshotId: string, hash?: string, round?: number) =>
+    this.local.transaction(() => {
+      const snapshot = this.snapshot(snapshotId);
+      if (
+        (hash !== undefined && snapshot.hash !== hash) ||
+        (round !== undefined && snapshot.round !== round)
+      )
+        throw new Error("Review contents changed. Reload and retry.");
+      const existingJob = this.jobs(snapshotId).find(
+        (job) => job.kind === "grouping" && matchesJobSnapshot(job, snapshot),
+      );
+      if (
+        existingJob &&
+        ["completed", "failed", "canceled"].includes(existingJob.status)
+      )
+        return existingJob;
+      const job =
+        existingJob ?? this.createJob(snapshotId, "grouping", { hash, round });
+      return this.updateJob(job.id, {
+        status: "canceled",
+        progress: "Canceled",
+      })!;
+    });
+
   prioritizeJob = (id: string, priority: JobPriority) =>
     this.local.transaction(() => {
       const existingJob = this.job(id);
@@ -419,6 +447,10 @@ export class AgentStore {
     this.local.database
       .prepare("UPDATE ai_jobs SET body = ? WHERE id = ?")
       .run(JSON.stringify(updatedJob), id);
+    recordWorkOutcome(this.local, this.repository, updatedJob.kind, {
+      ...updatedJob,
+      review: { id: updatedJob.snapshotId },
+    });
     return updatedJob;
   };
 
@@ -729,6 +761,13 @@ export class AgentStore {
         if (timing.success)
           last.thinkingDurationMs = timing.data.thinkingDurationMs;
         last.updatedAt = new Date().toISOString();
+        if (status === "complete")
+          recordNotification(this.local, this.repository, {
+            id: `chat:${last.id}`,
+            kind: "chat",
+            reviewId: conversation.snapshotId,
+            title: conversation.title,
+          });
       }
     });
   };

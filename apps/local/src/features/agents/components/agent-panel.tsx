@@ -1,5 +1,7 @@
 "use client";
 
+import { useSavedState } from "../../usability/hooks/use-saved-state";
+
 import {
   ExpandingTabs,
   ExpandingTabsPanel,
@@ -17,7 +19,9 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { ClipboardList, ListChecks } from "lucide-react";
-import { useState } from "react";
+import { FileIcon } from "@/components/file-icon";
+import { WorkflowDisclosure } from "../../workflow/components/workflow-disclosure";
+import { useEffect, useState } from "react";
 import { ChevronDown, History, Plus } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { matchesJobSnapshot } from "../lib/job-snapshots";
@@ -39,6 +43,7 @@ import {
   formatJobModel,
   formatReviewName,
   formatJobStatusAppearance,
+  formatJobProgress,
 } from "../lib/formatters";
 import { useWorkspaceMetadata } from "../../workspace/hooks/use-workspace-metadata";
 import type { LivePreview } from "../../review/types";
@@ -49,6 +54,9 @@ import { AgentReviewHistory } from "./agent-review-history";
 import { useReviewWorkflow } from "../../workflow/hooks/use-review-workflow";
 import { FixTaskForm } from "../../workflow/components/fix-task-form";
 import { WorkPanel } from "../../workflow/components/work-panel";
+import { toast } from "@/components/ui/toast";
+import type { WorkflowActionSchema } from "../../workflow/schemas";
+import type { ReviewIdentitySchema } from "@senslop/contracts";
 import { savedReviewSchema } from "@senslop/contracts";
 import { UsagePopover } from "../../workflow/components/usage-popover";
 
@@ -106,13 +114,59 @@ export const AgentPanel = ({
   });
   const { settings } = useAiSettings();
   const configured = !!assignedModel(settings.data, "review");
-  const [tab, setTab] = useState("chat");
+  const [resultTab, setResultTab] = useSavedState(
+    `review-results:${snapshotId}`,
+    "findings",
+  );
+  const [tab, setTab] = useSavedState(`agent-panel:${snapshotId}`, "chat");
+  const [workTab, setWorkTab] = useSavedState(
+    `work-panel:${snapshotId}`,
+    "tasks",
+  );
+  const handleWorkflowAction = async (
+    operation: WorkflowActionSchema,
+    target?: ReviewIdentitySchema,
+  ) => {
+    if (operation.action === "create-task") toast.info("Creating fix task…");
+    if (operation.action === "verify-findings")
+      toast.info("Queueing verification…");
+    const result = await workflow.act(operation, target);
+    if (
+      result &&
+      (operation.action === "create-task" ||
+        operation.action === "verify-findings")
+    ) {
+      setWorkTab(operation.action === "create-task" ? "tasks" : "verification");
+      setTab("work");
+      toast.success(
+        operation.action === "create-task"
+          ? "Fix task created."
+          : "Verification queued.",
+      );
+    }
+    return result;
+  };
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const panel = params.get("panel");
+    if (params.get("review") !== snapshotId) return;
+    const work = params.get("work");
+    const frame = requestAnimationFrame(() => {
+      if (["review", "work", "chat"].includes(panel ?? "")) setTab(panel!);
+      if (["tasks", "checks", "verification"].includes(work ?? ""))
+        setWorkTab(work!);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [snapshotId, setTab, setWorkTab]);
   const [fixIds, setFixIds] = useState<string[] | null>(null);
   const savedSnapshot = savedReviewSchema.safeParse(snapshot);
   const [selectedRun, setSelectedRun] = useState<JobSchema | null>(null);
   const [stopping, setStopping] = useState(false);
   const [history, setHistory] = useState(false);
-  const [reviewControlsOpen, setReviewControlsOpen] = useState(true);
+  const [reviewControlsOpen, setReviewControlsOpen] = useSavedState(
+    `review-controls:${snapshotId}`,
+    true,
+  );
   const reviews =
     agents.state.data?.jobs.filter((job) => job.kind === "review") ?? [];
   const currentReviews = reviews.filter((job) =>
@@ -131,6 +185,8 @@ export const AgentPanel = ({
   const status = latest ? formatJobStatusAppearance(latest.status) : null;
   const StatusIcon = status?.Icon;
   const statusLabel = latest ? formatJobStatus(latest.status) : "New review";
+  const progress =
+    running && latest?.progress ? formatJobProgress(latest.progress) : null;
   return (
     <aside
       aria-label="Agents"
@@ -265,7 +321,7 @@ export const AgentPanel = ({
                       <UsagePopover
                         usage={workflow.state.data.usage}
                         policy={workflow.state.data.policy}
-                        onAction={workflow.act}
+                        onAction={handleWorkflowAction}
                         onOpenSettings={() => onOpenSettings?.("usage")}
                       />
                     )}
@@ -284,7 +340,7 @@ export const AgentPanel = ({
                       instructions={intent.state.data?.instructions}
                       loading={intent.state.isPending}
                       error={intent.state.error?.message}
-                      onAction={workflow.act}
+                      onAction={handleWorkflowAction}
                       onBrief={() => setBriefOpen(true)}
                       onRules={() => setRulesOpen(true)}
                     />
@@ -310,6 +366,31 @@ export const AgentPanel = ({
                       {latest.error}
                     </p>
                   )}
+                  {!!progress?.details.length && (
+                    <WorkflowDisclosure
+                      title={`${progress.detailsLabel} (${progress.details.length})`}
+                      Icon={progress.Icon}
+                    >
+                      <ul
+                        aria-label={progress.detailsLabel}
+                        className="flex max-h-48 min-w-0 flex-col gap-2 overflow-y-auto scroll-fade-y"
+                      >
+                        {progress.details.map((path) => (
+                          <li
+                            key={path}
+                            className="flex min-w-0 items-start gap-2 text-base leading-6"
+                          >
+                            <span className="flex h-lh shrink-0 items-center">
+                              <FileIcon fileName={path} />
+                            </span>
+                            <span className="min-w-0 wrap-break-word font-mono">
+                              {path}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </WorkflowDisclosure>
+                  )}
                 </header>
               </CollapsibleContent>
               <div className="flex w-full px-4 py-2">
@@ -321,32 +402,30 @@ export const AgentPanel = ({
                     render={
                       <Button
                         variant="ghost"
-                        className="group/review flex h-auto min-h-9 w-full items-center justify-between gap-2 py-2 whitespace-normal pl-0! hover:bg-transparent! dark:hover:bg-transparent!"
+                        className="group/review flex h-auto min-h-9 w-full items-start justify-between gap-2 py-2 text-base leading-6 whitespace-normal pl-0! hover:bg-transparent! dark:hover:bg-transparent!"
                         aria-label={`Review controls: ${statusLabel}`}
                       >
                         {latest ? (
                           <span
                             role="status"
                             className={cn(
-                              "flex min-w-0 items-center gap-2 text-left text-base!",
+                              "flex min-w-0 items-start gap-2 text-left text-base! leading-6",
                               status?.className,
                             )}
                           >
                             {StatusIcon && (
-                              <StatusIcon
-                                aria-hidden="true"
-                                className={cn(
-                                  "size-4.5 shrink-0",
-                                  status?.loading && "animate-spin",
-                                )}
-                              />
+                              <span className="flex h-lh shrink-0 items-center">
+                                <StatusIcon
+                                  aria-hidden="true"
+                                  className={cn(
+                                    "size-5 shrink-0",
+                                    status?.loading && "animate-spin",
+                                  )}
+                                />
+                              </span>
                             )}
-                            <span className="min-w-0 wrap-break-word">
-                              {running &&
-                              latest.progress &&
-                              latest.progress !== statusLabel
-                                ? latest.progress
-                                : statusLabel}
+                            <span className="min-w-0 line-clamp-2 wrap-break-word">
+                              {progress?.label ?? statusLabel}
                             </span>
                           </span>
                         ) : (
@@ -358,10 +437,12 @@ export const AgentPanel = ({
                             {statusLabel}
                           </span>
                         )}
-                        <ChevronDown
-                          aria-hidden="true"
-                          className="size-4 shrink-0 transition-transform group-data-panel-open/review:rotate-180 motion-reduce:transition-none"
-                        />
+                        <span className="flex h-lh shrink-0 items-center">
+                          <ChevronDown
+                            aria-hidden="true"
+                            className="size-5 shrink-0 transition-transform group-data-panel-open/review:rotate-180 motion-reduce:transition-none"
+                          />
+                        </span>
                       </Button>
                     }
                   />
@@ -370,6 +451,8 @@ export const AgentPanel = ({
             </Collapsible>
             <ExpandingTabs
               aria-label="Review results"
+              value={resultTab}
+              onValueChange={setResultTab}
               variant="transparent"
               items={[
                 {
@@ -394,7 +477,7 @@ export const AgentPanel = ({
               >
                 <section
                   aria-label="Review findings"
-                  className="min-h-0 flex-1 overflow-y-auto"
+                  className="min-h-0 flex-1 scroll-fade-y overflow-y-auto"
                 >
                   {displayed?.status === "completed" ? (
                     <>
@@ -419,7 +502,7 @@ export const AgentPanel = ({
                         snapshot={snapshot}
                         onEvidence={olderResult ? undefined : onEvidence}
                         trackedFindings={workflow.state.data?.findings}
-                        onAction={workflow.act}
+                        onAction={handleWorkflowAction}
                         onFix={
                           savedSnapshot.success
                             ? (ids) => setFixIds(ids)
@@ -441,7 +524,7 @@ export const AgentPanel = ({
                       snapshot={snapshot}
                       trackedFindings={workflow.state.data.findings}
                       includeTracked
-                      onAction={workflow.act}
+                      onAction={handleWorkflowAction}
                       onFix={(ids) => setFixIds(ids)}
                       className="pt-0"
                     />
@@ -494,7 +577,12 @@ export const AgentPanel = ({
             value="work"
             className="flex min-h-0 flex-1 flex-col overflow-hidden text-base"
           >
-            <WorkPanel state={workflow.state.data} onAction={workflow.act} />
+            <WorkPanel
+              state={workflow.state.data}
+              onAction={handleWorkflowAction}
+              tab={workTab}
+              onTabChange={setWorkTab}
+            />
           </TabsContent>
         </div>
       </Tabs>
@@ -555,11 +643,7 @@ export const AgentPanel = ({
         <FixTaskForm
           review={savedSnapshot.data}
           findingIds={fixIds}
-          onAction={async (operation) => {
-            const result = await workflow.act(operation);
-            setTab("work");
-            return result;
-          }}
+          onAction={handleWorkflowAction}
           onClose={() => setFixIds(null)}
         />
       )}

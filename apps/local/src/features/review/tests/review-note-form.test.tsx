@@ -50,3 +50,17 @@ test.each([false, true])(
     );
   },
 );
+
+test("a closed note restores its persisted text when the editor is mounted again", async () => {
+  localStorage.clear();
+  sessionStorage.clear();
+  const user = userEvent.setup();
+  const props = { onSubmit: vi.fn(), draftKey: "note:production-restore" };
+  const first = render(<ReviewNoteForm {...props} />);
+  await user.type(screen.getByLabelText("Note"), "Persist this note");
+  first.unmount();
+  render(<ReviewNoteForm {...props} />);
+  expect((screen.getByLabelText("Note") as HTMLTextAreaElement).value).toBe(
+    "Persist this note",
+  );
+});

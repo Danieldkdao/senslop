@@ -14,6 +14,8 @@ import {
 } from "./diagnostics";
 import { estimateTokens, schemaTokens } from "./context-budget";
 import type { AiDiagnosticContext } from "./types";
+import { analysisStreamTimeout } from "./constants";
+import { assertModelCompletion } from "./model-stream";
 
 export const generateStructuredAnalysis = async ({
   agent,
@@ -53,6 +55,9 @@ export const generateStructuredAnalysis = async ({
   for (let attempt = 0; attempt < 2; attempt++) {
     signal.throwIfAborted();
     const finalizing = attempt > 0;
+    const streaming =
+      diagnostics.provider === "vercel" ||
+      diagnostics.provider === "chatgpt-subscription";
     const logger = createAiRequestLogger(
       { ...diagnostics, parentRequestId },
       {
@@ -60,7 +65,7 @@ export const generateStructuredAnalysis = async ({
         maxOutputTokens,
         maxSteps: finalizing ? 1 : maxSteps,
         maxRetries: 2,
-        timeoutMs: 480000,
+        timeoutMs: analysisStreamTimeout.totalMs,
         responseFormat: "structured-output",
         promptCharacters: finalizing ? 0 : prompt.length,
         toolNames: toolsEnabled && !finalizing ? Object.keys(agent.tools) : [],
@@ -70,10 +75,19 @@ export const generateStructuredAnalysis = async ({
     onRequest(logger.context.requestId);
     let finalReasoning: string | undefined;
     try {
-      const result = await agent.generate({
+      // Streaming keeps remote transports active while reasoning and preserves stall detection.
+      const run = streaming
+        ? agent.stream.bind(agent)
+        : agent.generate.bind(agent);
+      const result = await run({
         ...(correctionMessages ? { messages: correctionMessages } : { prompt }),
         abortSignal: signal,
-        timeout: 480000,
+        timeout: streaming
+          ? analysisStreamTimeout
+          : {
+              totalMs: analysisStreamTimeout.totalMs,
+              stepMs: analysisStreamTimeout.firstChunkMs,
+            },
         options: {
           schema,
           maxSteps: finalizing ? 1 : maxSteps,
@@ -119,17 +133,24 @@ export const generateStructuredAnalysis = async ({
               : undefined;
         },
       });
-      if (result.finishReason === "length") throw new AiOutputLimitError();
-      const output = result.output;
+      assertModelCompletion({
+        unified: await result.finishReason,
+        raw: undefined,
+      });
+      const output = await result.output;
+      const steps = await result.steps;
+      const finalStep = await result.finalStep;
       logger.info("validated", {
         agent: agent.id,
         resultSource: "structured-output",
         resultAttempt: attempt + 1,
-        steps: result.steps.length,
-        ...getProviderResponseDiagnostics(result.finalStep.response),
+        steps: steps.length,
+        transport: streaming ? "stream" : "buffered",
+        ...getProviderResponseDiagnostics(finalStep.response),
       });
       return output;
     } catch (error) {
+      signal.throwIfAborted();
       let reasoningOnly = false;
       if (NoObjectGeneratedError.isInstance(error)) {
         if (error.finishReason === "length") {

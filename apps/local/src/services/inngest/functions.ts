@@ -1,4 +1,4 @@
-import { loadContext } from "../analysis/frozen-context";
+import { assignedModel } from "../../features/agents/lib/model-selection";
 import { inngest } from "./client";
 import { executeJob } from "./jobs";
 import { analysisRetryDelaysMs } from "../../features/agents/constants";
@@ -313,12 +313,8 @@ export const scheduleGrouping = async (
       .some(
         (job) => job.kind === "grouping" && matchesJobSnapshot(job, snapshot),
       ) &&
-    (await import("../ai/repository-agent")).assignedModel(
-      agents.settings(),
-      "grouping",
-    )
+    assignedModel(agents.settings(), "grouping")
   ) {
-    await loadContext(agents.local, agents.repository, snapshot);
     agents.createJob(snapshotId, "grouping", { priority });
   }
   await dispatchJobs(snapshotId);

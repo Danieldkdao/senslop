@@ -1,8 +1,9 @@
 import { createHash, randomUUID } from "node:crypto";
+import { createReadStream } from "node:fs";
 import {
   lstat,
   mkdir,
-  readFile,
+  chmod,
   realpath,
   rm,
   writeFile,
@@ -17,16 +18,23 @@ import {
 } from "@senslop/contracts";
 import type { LocalStore } from "../../db/local-store";
 import { listSourcePaths, readRepository } from "../git/repository";
-import { readBlobBatch, localBytes } from "../git/snapshot";
+import { localBytes } from "../git/snapshot";
 import {
   readProjectPolicy,
   allowsSourcePath,
   sourcePolicyHash,
 } from "./project-policy";
 import { WorkflowStore } from "./workflow-store";
+import { writeExecutionGitSources } from "./execution-git-sources";
 
 export const hashExecutionBytes = (value: string | Buffer) =>
   createHash("sha256").update(value).digest("hex");
+
+const hashExecutionFile = async (path: string) => {
+  const hash = createHash("sha256");
+  for await (const bytes of createReadStream(path)) hash.update(bytes);
+  return hash.digest("hex");
+};
 export const readExecutionManifest = (
   store: LocalStore,
   repository: string,
@@ -84,57 +92,17 @@ export const materializeReview = async (
   const id = randomUUID();
   await mkdir(parent, { recursive: true, mode: 0o700 });
   const directory = join(await realpath(parent), id);
-  const paths = (await listSourcePaths(root, base)).filter((path) =>
-    allowsSourcePath(policy, path),
+  const removedPaths = new Set(
+    sourceSide === "base"
+      ? []
+      : capturedChanges.flatMap((file) => [
+          ...(file.oldPath && file.oldPath !== file.path ? [file.oldPath] : []),
+          ...(file.afterHash === null ? [file.path] : []),
+        ]),
   );
-  const captured = await readBlobBatch(
-    root,
-    base,
-    paths,
-    20 * 1024 * 1024,
-    true,
+  const paths = (await listSourcePaths(root, base)).filter(
+    (path) => allowsSourcePath(policy, path) && !removedPaths.has(path),
   );
-  if (captured.limited || captured.unavailable.length)
-    throw new Error(
-      `Execution inputs exceed capture limits or contain unsupported files: ${captured.unavailable.join(", ") || "20 MiB execution source limit"}.`,
-    );
-  const contents = new Map(Object.entries(captured.binarySources));
-  const modes = new Map(Object.entries(captured.modes));
-  for (const file of sourceSide === "base" ? [] : capturedChanges) {
-    if (file.oldPath && file.oldPath !== file.path) {
-      contents.delete(file.oldPath);
-      modes.delete(file.oldPath);
-    }
-    if (file.afterHash === null) {
-      contents.delete(file.path);
-      modes.delete(file.path);
-      continue;
-    }
-    let bytes: Buffer;
-    if (file.binary) {
-      const live = await localBytes(root, file.path, 20 * 1024 * 1024);
-      if (!live.bytes || hashExecutionBytes(live.bytes) !== file.afterHash)
-        throw new Error(
-          `Exact binary execution input unavailable: ${file.path}`,
-        );
-      bytes = live.bytes;
-    } else {
-      if (file.after === null)
-        throw new Error(`Execution input unavailable: ${file.path}`);
-      bytes = Buffer.from(file.after);
-    }
-    contents.set(file.path, bytes);
-    if (review.source.kind === "working-tree")
-      modes.set(file.path, (await lstat(join(root, file.path))).mode & 0o777);
-    else modes.set(file.path, modes.get(file.path) ?? 0o644);
-  }
-  if (
-    [...contents.values()].reduce((size, bytes) => size + bytes.length, 0) >
-    20 * 1024 * 1024
-  )
-    throw new Error(
-      "Execution source exceeds 20 MiB. No partial execution was started.",
-    );
   const git = simpleGit(root);
   await git.raw([
     "worktree",
@@ -145,11 +113,38 @@ export const materializeReview = async (
     base,
   ]);
   try {
-    for (const [path, bytes] of contents) {
-      const destination = join(directory, path);
+    const capturedFiles = new Map(
+      (await writeExecutionGitSources(root, base, paths, directory)).map(
+        (file) => [file.path, file],
+      ),
+    );
+    for (const file of sourceSide === "base" ? [] : capturedChanges) {
+      if (file.afterHash === null) continue;
+      let bytes: Buffer;
+      if (file.binary) {
+        const live = await localBytes(root, file.path, 20 * 1024 * 1024);
+        if (!live.bytes || hashExecutionBytes(live.bytes) !== file.afterHash)
+          throw new Error(
+            `Exact binary execution input unavailable: ${file.path}`,
+          );
+        bytes = live.bytes;
+      } else {
+        if (file.after === null)
+          throw new Error(`Execution input unavailable: ${file.path}`);
+        bytes = Buffer.from(file.after);
+      }
+      const mode =
+        review.source.kind === "working-tree"
+          ? (await lstat(join(root, file.path))).mode & 0o777
+          : (capturedFiles.get(file.path)?.mode ?? 0o644);
+      const destination = join(directory, file.path);
       await mkdir(dirname(destination), { recursive: true, mode: 0o700 });
-      await writeFile(destination, bytes, {
-        mode: (modes.get(path) ?? 0o644) & 0o777,
+      await writeFile(destination, bytes, { mode });
+      await chmod(destination, mode);
+      capturedFiles.set(file.path, {
+        path: file.path,
+        hash: hashExecutionBytes(bytes),
+        mode,
       });
     }
     await simpleGit(directory).raw(["read-tree", base]);
@@ -162,13 +157,9 @@ export const materializeReview = async (
         "Repository changed during source materialization. Re-sync and retry.",
       );
     new WorkflowStore(store, root).requireReview(review.id, review);
-    const files = [...contents]
-      .map(([path, bytes]) => ({
-        path,
-        hash: hashExecutionBytes(bytes),
-        mode: (modes.get(path) ?? 0o644) & 0o777,
-      }))
-      .sort((a, b) => a.path.localeCompare(b.path));
+    const files = [...capturedFiles.values()].sort((a, b) =>
+      a.path.localeCompare(b.path),
+    );
     const dependencyHash = hashExecutionBytes(
       files
         .filter((file) =>
@@ -211,7 +202,7 @@ export const executionSourceChanged = async (
       const info = await lstat(path);
       if (
         !info.isFile() ||
-        hashExecutionBytes(await readFile(path)) !== file.hash ||
+        (await hashExecutionFile(path)) !== file.hash ||
         (info.mode & 0o777) !== file.mode
       )
         return true;

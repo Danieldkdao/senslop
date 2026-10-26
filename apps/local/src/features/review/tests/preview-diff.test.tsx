@@ -101,6 +101,8 @@ const settings = {
 const handlers = { notes: [], onAddComment: vi.fn(), onDeleteNote: vi.fn() };
 
 afterEach(() => {
+  localStorage.clear();
+  sessionStorage.clear();
   cleanup();
   vi.clearAllMocks();
 });

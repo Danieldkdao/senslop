@@ -92,11 +92,12 @@ export const FindingFilters = ({
   ];
   const active = fields.filter((field) => values[field.key] !== "all").length;
   return (
-    <div className="flex w-full min-w-0 items-center gap-2">
+    <div className="-mx-4 flex min-w-0 items-center gap-2 border-y pr-2">
       <Input
+        variant="search"
         aria-label="Search findings"
         placeholder="Search findings…"
-        className="w-full text-base"
+        className="h-10 w-full border-0 px-4 text-base"
         value={values.search}
         onChange={(event) =>
           onChange({ ...values, search: event.target.value })

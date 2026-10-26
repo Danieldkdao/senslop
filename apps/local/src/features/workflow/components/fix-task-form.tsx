@@ -54,6 +54,10 @@ export const FixTaskForm = ({
       workspaceKind: "managed",
     },
   });
+  const workspaceKind = useWatch({
+    control: form.control,
+    name: "workspaceKind",
+  });
   const noteIds = useWatch({ control: form.control, name: "noteIds" });
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
@@ -124,6 +128,11 @@ export const FixTaskForm = ({
               )}
             />
           </label>
+          <p className="text-base text-muted-foreground">
+            {workspaceKind === "managed"
+              ? "An isolated source copy; inspect edits before applying them back."
+              : "Your active checkout; agent edits affect these files directly."}
+          </p>
           <label className="flex w-full flex-col gap-2">
             Constraints
             <Textarea

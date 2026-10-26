@@ -20,7 +20,6 @@ import {
   SquareCheck,
   TimerOff,
   Unplug,
-  Wrench,
   History,
   Link2,
   RotateCcw,
@@ -42,44 +41,61 @@ import {
 
 export const formatFindingDecision = (
   status: FindingDecision,
-): { label: string; Icon: LucideIcon } => {
+): { label: string; Icon: LucideIcon; loading: boolean } => {
   switch (status) {
     case "open":
-      return { label: "Open", Icon: Circle };
+      return { loading: false, label: "Open", Icon: Circle };
     case "accepted":
-      return { label: "Accepted", Icon: Handshake };
+      return { loading: false, label: "Accepted", Icon: Handshake };
     case "dismissed":
-      return { label: "Dismissed", Icon: CircleMinus };
+      return { loading: false, label: "Dismissed", Icon: CircleMinus };
     case "resolved":
-      return { label: "Resolved", Icon: CircleCheckBig };
+      return { loading: false, label: "Resolved", Icon: CircleCheckBig };
   }
 };
 export const formatVerificationOutcome = (status: VerificationOutcome) => {
   switch (status) {
     case "present":
-      return { label: "Still present", Icon: Eye };
+      return { loading: false, label: "Still present", Icon: Eye };
     case "apparently-fixed":
-      return { label: "Apparently fixed", Icon: CircleCheck };
+      return { loading: false, label: "Apparently fixed", Icon: CircleCheck };
     case "not-applicable":
-      return { label: "No longer applicable", Icon: GitPullRequestClosed };
+      return {
+        loading: false,
+        label: "No longer applicable",
+        Icon: GitPullRequestClosed,
+      };
     case "unverified":
-      return { label: "Unverified", Icon: ShieldQuestion };
+      return { loading: false, label: "Unverified", Icon: ShieldQuestion };
   }
 };
+export const formatVerificationNextStep = (outcome: VerificationOutcome) => {
+  switch (outcome) {
+    case "present":
+      return "The reported issue remains; inspect the evidence and create a fix task.";
+    case "apparently-fixed":
+      return "Source suggests a fix; run a targeted check before resolving the finding.";
+    case "not-applicable":
+      return "The failure condition no longer applies; inspect the evidence before dismissing it.";
+    case "unverified":
+      return "The evidence is inconclusive; inspect the source or run a targeted check.";
+  }
+};
+
 export const formatFixTaskStatus = (status: FixTaskStatus) => {
   switch (status) {
     case "ready":
-      return { label: "Ready", Icon: Clock };
+      return { loading: false, label: "Ready", Icon: Clock };
     case "in-progress":
-      return { label: "In progress", Icon: Wrench };
+      return { loading: true, label: "In progress", Icon: LoaderCircle };
     case "returned":
-      return { label: "Changes returned", Icon: Eye };
+      return { loading: false, label: "Changes returned", Icon: Eye };
     case "reviewed":
-      return { label: "Reviewed", Icon: SquareCheck };
+      return { loading: false, label: "Reviewed", Icon: SquareCheck };
     case "failed":
-      return { label: "Failed", Icon: CircleX };
+      return { loading: false, label: "Failed", Icon: CircleX };
     case "canceled":
-      return { label: "Canceled", Icon: CircleMinus };
+      return { loading: false, label: "Canceled", Icon: CircleMinus };
   }
 };
 
@@ -89,7 +105,7 @@ export const formatFindingActivity = (event: FindingEventSchema) => {
       const decision = findingDecisions.find((value) => value === event.label);
       return decision
         ? formatFindingDecision(decision)
-        : { label: event.label, Icon: Pencil };
+        : { loading: false, label: event.label, Icon: Pencil };
     }
     case "assessment": {
       const outcome = verificationOutcomes.find(
@@ -97,38 +113,80 @@ export const formatFindingActivity = (event: FindingEventSchema) => {
       );
       return outcome
         ? formatVerificationOutcome(outcome)
-        : { label: event.label, Icon: ScanSearch };
+        : { loading: false, label: event.label, Icon: ScanSearch };
     }
     case "duplicate":
-      return { label: event.label, Icon: Link2 };
+      return { loading: false, label: event.label, Icon: Link2 };
     case "recurrence":
-      return { label: event.label, Icon: RotateCcw };
+      return { loading: false, label: event.label, Icon: RotateCcw };
   }
 };
 
 export const formatTaskActivity = (label: string) => {
   const status = fixTaskStatuses.find((value) => value === label);
-  return status ? formatFixTaskStatus(status) : { label, Icon: History };
+  return status
+    ? formatFixTaskStatus(status)
+    : { loading: false, label, Icon: History };
 };
 
 export const formatCheckStatus = (status: CheckStatus) => {
   switch (status) {
     case "queued":
-      return { label: "Queued", Icon: Clock, loading: false };
+      return {
+        className: "text-muted-foreground",
+        label: "Queued",
+        Icon: Clock,
+        loading: false,
+      };
     case "running":
-      return { label: "Running", Icon: LoaderCircle, loading: true };
+      return {
+        className: "text-primary",
+        label: "Running",
+        Icon: LoaderCircle,
+        loading: true,
+      };
     case "passed":
-      return { label: "Passed", Icon: CircleCheck, loading: false };
+      return {
+        className: "text-success",
+        label: "Passed",
+        Icon: CircleCheck,
+        loading: false,
+      };
     case "failed":
-      return { label: "Failed", Icon: CircleX, loading: false };
+      return {
+        className: "text-destructive",
+        label: "Failed",
+        Icon: CircleX,
+        loading: false,
+      };
     case "blocked":
-      return { label: "Blocked", Icon: CircleHelp, loading: false };
+      return {
+        className: "text-destructive",
+        label: "Blocked",
+        Icon: CircleHelp,
+        loading: false,
+      };
     case "canceled":
-      return { label: "Canceled", Icon: CircleMinus, loading: false };
+      return {
+        className: "text-muted-foreground",
+        label: "Canceled",
+        Icon: CircleMinus,
+        loading: false,
+      };
     case "timed-out":
-      return { label: "Timed out", Icon: TimerOff, loading: false };
+      return {
+        className: "text-destructive",
+        label: "Timed out",
+        Icon: TimerOff,
+        loading: false,
+      };
     case "interrupted":
-      return { label: "Interrupted", Icon: Unplug, loading: false };
+      return {
+        className: "text-destructive",
+        label: "Interrupted",
+        Icon: Unplug,
+        loading: false,
+      };
   }
 };
 export const formatFindingCategory = (category: string) => {
@@ -208,34 +266,52 @@ export const formatCheckComparison = (
 ) => {
   switch (comparison) {
     case "pending":
-      return { label: "Waiting for base comparison", Icon: Clock };
+      return {
+        loading: false,
+        label: "Waiting for base comparison",
+        Icon: Clock,
+      };
     case "unavailable":
-      return { label: "Base comparison unavailable", Icon: CircleHelp };
+      return {
+        loading: false,
+        label: "Base comparison unavailable",
+        Icon: CircleHelp,
+      };
     case "pre-existing-failure":
       return {
+        loading: false,
         label: "Both revisions fail; inspect output for the same failure",
         Icon: Eye,
       };
     case "regression":
       return {
+        loading: false,
         label: "Potential regression: base passed, changed source failed",
         Icon: CircleX,
       };
     case "improved":
-      return { label: "Changed source passed; base failed", Icon: CircleCheck };
+      return {
+        loading: false,
+        label: "Changed source passed; base failed",
+        Icon: CircleCheck,
+      };
     case "passed":
-      return { label: "Both revisions passed", Icon: CircleCheckBig };
+      return {
+        loading: false,
+        label: "Both revisions passed",
+        Icon: CircleCheckBig,
+      };
   }
 };
 
 export const formatModelRoute = (local: boolean | null) => {
   switch (local) {
     case true:
-      return { label: "Local endpoint", Icon: HardDrive };
+      return { loading: false, label: "Local endpoint", Icon: HardDrive };
     case false:
-      return { label: "Remote inference", Icon: Cloud };
+      return { loading: false, label: "Remote inference", Icon: Cloud };
     case null:
-      return { label: "Unassigned model", Icon: CircleHelp };
+      return { loading: false, label: "Unassigned model", Icon: CircleHelp };
   }
 };
 
@@ -245,6 +321,7 @@ export const formatAnalysisMode = (
   switch (mode) {
     case "quick":
       return {
+        loading: false,
         label: "Quick",
         Icon: Zap,
         description:
@@ -252,6 +329,7 @@ export const formatAnalysisMode = (
       };
     case "thorough":
       return {
+        loading: false,
         label: "Thorough",
         Icon: ScanSearch,
         description:
@@ -264,9 +342,9 @@ export const formatInferencePolicy = (
 ) => {
   switch (policy) {
     case "local-only":
-      return { label: "Local inference only", Icon: HardDrive };
+      return { loading: false, label: "Local inference only", Icon: HardDrive };
     case "configured":
-      return { label: "Configured providers", Icon: Cloud };
+      return { loading: false, label: "Configured providers", Icon: Cloud };
   }
 };
 export const formatWorkspaceKind = (
@@ -274,8 +352,8 @@ export const formatWorkspaceKind = (
 ) => {
   switch (kind) {
     case "managed":
-      return { label: "Managed worktree", Icon: FolderGit2 };
+      return { loading: false, label: "Managed worktree", Icon: FolderGit2 };
     case "current":
-      return { label: "Current worktree", Icon: Pencil };
+      return { loading: false, label: "Current worktree", Icon: Pencil };
   }
 };

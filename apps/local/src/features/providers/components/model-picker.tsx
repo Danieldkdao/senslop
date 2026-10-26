@@ -239,6 +239,7 @@ export const ModelPicker = ({
         </ComboboxTrigger>
         <ComboboxContent className="w-[min(28rem,calc(100vw-2rem))] min-w-0 text-base">
           <ComboboxInput
+            variant="search"
             aria-label="Search models"
             placeholder="Select a model…"
             showTrigger={false}

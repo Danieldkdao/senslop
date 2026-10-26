@@ -4,15 +4,26 @@ const state = vi.hoisted(() => ({
   rename: vi.fn((id: string, title: string) => ({ id, title })),
   deleteReview: vi.fn(),
   schedule: vi.fn(async () => {}),
-  create: vi.fn(() => {
-    throw new Error("Grouping disabled");
-  }),
+  create: vi.fn<(...args: unknown[]) => { id: string; snapshotId: string }>(
+    () => {
+      throw new Error("Grouping disabled");
+    },
+  ),
+}));
+const preparation = vi.hoisted(() => vi.fn(() => new Promise<void>(() => {})));
+vi.mock("../../../services/analysis/frozen-context", () => ({
+  loadContext: preparation,
+}));
+vi.mock("next/server", () => ({
+  after: (callback: () => Promise<unknown>) => {
+    void callback();
+  },
 }));
 vi.mock("../../../features/workspace/lib/server-workspace", () => ({
   protectLocalRoute: () => true,
   readLocalBody: (request: Request) => request.json(),
   getWorkspace: () => ({
-    store: {},
+    store: { enableGrouping: vi.fn() },
     root: async () => "/repo",
     repository: async () => ({ fingerprint: state.fingerprint }),
   }),
@@ -91,4 +102,24 @@ test("saved review history mutations dispatch to review storage without starting
   expect(deleted.status).toBe(200);
   expect(state.deleteReview).toHaveBeenCalledWith(id);
   expect(state.create).not.toHaveBeenCalled();
+});
+
+test("starting a job returns its cancelable record before frozen source preparation", async () => {
+  const id = "00000000-0000-4000-8000-000000000001";
+  state.create.mockReturnValueOnce({ id, snapshotId: id });
+  const response = await Promise.race([
+    POST(
+      new Request("http://localhost/api/agents", {
+        method: "POST",
+        body: JSON.stringify({
+          action: "job",
+          snapshotId: id,
+          kind: "grouping",
+        }),
+      }),
+    ),
+    new Promise<null>((resolve) => setTimeout(() => resolve(null), 50)),
+  ]);
+  expect(response?.status).toBe(200);
+  expect(preparation).not.toHaveBeenCalled();
 });

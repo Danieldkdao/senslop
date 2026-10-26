@@ -1,3 +1,4 @@
+import { recordWorkOutcome } from "../notifications/notification-events";
 import { randomUUID } from "node:crypto";
 import {
   verificationRunSchema,
@@ -44,6 +45,7 @@ export class VerificationStore {
         "INSERT INTO finding_verifications VALUES (?,?,?) ON CONFLICT(id) DO UPDATE SET body=excluded.body",
       )
       .run(run.id, run.review.id, JSON.stringify(savedRun));
+    recordWorkOutcome(this.store, this.repository, "verification", savedRun);
     return savedRun;
   };
   create = (review: ReviewIdentitySchema, findingIds: string[]) =>

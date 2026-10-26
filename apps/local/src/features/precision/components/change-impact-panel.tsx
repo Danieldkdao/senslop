@@ -5,8 +5,8 @@ import {
   CollapsibleTrigger,
   CollapsibleContent,
 } from "@/components/ui/collapsible";
-import { ChevronDown } from "lucide-react";
-import { ArrowRight, GitBranch } from "lucide-react";
+import { ArrowRight, Braces, ChevronDown, GitBranch } from "lucide-react";
+import { cn } from "@/lib/utils";
 import type {
   ChangeImpactSchema,
   LanguageCapabilitySchema,
@@ -46,7 +46,7 @@ export const ChangeImpactPanel = ({
       >
         <TooltipWrapper content={`${display.label}: ${item.explanation}`}>
           <display.Icon
-            className="h-lh w-4 shrink-0 text-muted-foreground"
+            className="size-5 shrink-0 text-muted-foreground"
             aria-label={display.label}
           />
         </TooltipWrapper>
@@ -72,29 +72,24 @@ export const ChangeImpactPanel = ({
   return (
     <section
       aria-label="Change impact and source navigation"
-      className="flex shrink-0 flex-col gap-2 border-b px-4 py-2 text-base"
+      className="flex shrink-0 flex-col text-base"
     >
-      <Collapsible className="flex min-w-0 flex-col">
-        <CollapsibleTrigger
-          render={
-            <Button
-              variant="ghost"
-              className="group flex h-11 w-full shrink-0 items-center justify-start gap-2 px-0 text-left text-base font-medium hover:bg-transparent! dark:hover:bg-transparent!"
-            />
-          }
-        >
-          <span className="inline-flex items-center gap-2">
-            <GitBranch className="size-4" />
-            Impact
-            {impact?.reasons.length ? ` (${impact.reasons.length})` : ""}
+      <Collapsible className={cn("min-w-0", !!symbols.length && "border-b")}>
+        <CollapsibleTrigger className="flex min-h-12 w-full items-center gap-2 px-4 py-3 text-left text-base font-medium text-foreground outline-none transition-colors hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
+          <GitBranch
+            aria-hidden="true"
+            className="size-5 shrink-0 text-primary"
+          />
+          <span>
+            Impact{impact?.reasons.length ? ` (${impact.reasons.length})` : ""}
           </span>
           <ChevronDown
             aria-hidden="true"
-            className="ml-auto size-4 shrink-0 text-muted-foreground transition-transform group-data-panel-open:rotate-180 motion-reduce:transition-none"
+            className="ml-auto size-5 shrink-0 text-muted-foreground transition-transform duration-200 group-data-[panel-open]/collapsible-trigger:rotate-180 motion-reduce:transition-none"
           />
         </CollapsibleTrigger>
-        <CollapsibleContent className="h-(--collapsible-panel-height) overflow-hidden transition-[height,opacity] duration-200 data-starting-style:h-0 data-starting-style:opacity-0 data-ending-style:h-0 data-ending-style:opacity-0 motion-reduce:transition-none">
-          <div className="flex max-h-[35dvh] flex-col gap-3 overflow-auto scroll-fade-y py-3">
+        <CollapsibleContent>
+          <div className="flex max-h-[35dvh] scroll-fade-y flex-col gap-3 overflow-auto px-4 pb-3">
             {impact?.reasons.length ? (
               impact.reasons.map((reason) => <p key={reason}>{reason}</p>)
             ) : (
@@ -119,14 +114,14 @@ export const ChangeImpactPanel = ({
               const display = formatRelationshipKind(kind);
               return (
                 <Collapsible key={kind}>
-                  <CollapsibleTrigger className="group relative w-full min-w-0 pr-7 text-left cursor-pointer">
+                  <CollapsibleTrigger className="relative w-full min-w-0 cursor-pointer pr-7 text-left text-base">
                     {display.label} ({items.length})
                     <ChevronDown
                       aria-hidden="true"
-                      className="absolute right-1 top-1/2 size-4 -translate-y-1/2 text-muted-foreground transition-transform group-data-panel-open:rotate-180 motion-reduce:transition-none"
+                      className="absolute right-1 top-1/2 size-5 -translate-y-1/2 text-muted-foreground transition-transform group-data-[panel-open]/collapsible-trigger:rotate-180 motion-reduce:transition-none"
                     />
                   </CollapsibleTrigger>
-                  <CollapsibleContent className="h-(--collapsible-panel-height) overflow-hidden transition-[height,opacity] duration-200 data-starting-style:h-0 data-starting-style:opacity-0 data-ending-style:h-0 data-ending-style:opacity-0 motion-reduce:transition-none">
+                  <CollapsibleContent>
                     <div className="flex flex-col gap-2 py-2">
                       {items.map(relationship)}
                     </div>
@@ -142,7 +137,7 @@ export const ChangeImpactPanel = ({
                 >
                   <capabilityDisplay.Icon
                     aria-hidden="true"
-                    className="size-4"
+                    className="size-5"
                   />
                   {capability.language}
                   <span>{capabilityDisplay.label}</span>
@@ -159,25 +154,29 @@ export const ChangeImpactPanel = ({
       </Collapsible>
       {!!symbols.length && (
         <Collapsible>
-          <CollapsibleTrigger className="group relative w-full min-w-0 pr-7 text-left cursor-pointer text-muted-foreground">
+          <CollapsibleTrigger className="flex min-h-12 w-full items-center gap-2 px-4 py-3 text-left text-base font-medium text-foreground outline-none transition-colors hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
+            <Braces
+              aria-hidden="true"
+              className="size-5 shrink-0 text-primary"
+            />
             Symbols in this file
             <ChevronDown
               aria-hidden="true"
-              className="absolute right-1 top-1/2 size-4 -translate-y-1/2 text-muted-foreground transition-transform group-data-panel-open:rotate-180 motion-reduce:transition-none"
+              className="ml-auto size-5 shrink-0 text-muted-foreground transition-transform duration-200 group-data-[panel-open]/collapsible-trigger:rotate-180 motion-reduce:transition-none"
             />
           </CollapsibleTrigger>
-          <CollapsibleContent className="h-(--collapsible-panel-height) overflow-hidden transition-[height,opacity] duration-200 data-starting-style:h-0 data-starting-style:opacity-0 data-ending-style:h-0 data-ending-style:opacity-0 motion-reduce:transition-none">
-            <div className="flex max-h-64 flex-col gap-3 overflow-auto py-2">
+          <CollapsibleContent>
+            <div className="flex max-h-64 scroll-fade-y flex-col gap-3 overflow-auto px-4 pb-3">
               {symbols.map((symbol) => (
                 <Collapsible key={`${symbol.name}:${symbol.start}`}>
-                  <CollapsibleTrigger className="group relative w-full min-w-0 pr-7 text-left cursor-pointer font-mono">
+                  <CollapsibleTrigger className="relative w-full min-w-0 cursor-pointer pr-7 text-left font-mono text-base">
                     {symbol.name}
                     <ChevronDown
                       aria-hidden="true"
-                      className="absolute right-1 top-1/2 size-4 -translate-y-1/2 text-muted-foreground transition-transform group-data-panel-open:rotate-180 motion-reduce:transition-none"
+                      className="absolute right-1 top-1/2 size-5 -translate-y-1/2 text-muted-foreground transition-transform group-data-[panel-open]/collapsible-trigger:rotate-180 motion-reduce:transition-none"
                     />
                   </CollapsibleTrigger>
-                  <CollapsibleContent className="h-(--collapsible-panel-height) overflow-hidden transition-[height,opacity] duration-200 data-starting-style:h-0 data-starting-style:opacity-0 data-ending-style:h-0 data-ending-style:opacity-0 motion-reduce:transition-none">
+                  <CollapsibleContent>
                     <div className="flex flex-col gap-2 py-2">
                       <Button
                         variant="link"
@@ -191,7 +190,7 @@ export const ChangeImpactPanel = ({
                           })
                         }
                       >
-                        <ArrowRight className="size-4" />
+                        <ArrowRight className="size-5" />
                         Definition
                       </Button>
                       {symbol.references

@@ -151,35 +151,37 @@ export type GroupingSchema = z.infer<typeof groupingSchema>;
 export const createGroupingBatchSchema = (paths: string[]) => {
   const group = groupingSchema.shape.groups.element;
   const file = group.shape.files.element;
-  return groupingSchema.extend({
-    groups: z
-      .array(
-        group.extend({
-          title: group.shape.title.max(120),
-          rationale: group.shape.rationale.max(400),
-          files: z
-            .array(
-              file.extend({
-                path: z
-                  .literal(paths)
-                  .describe(
-                    "Exact path of a file in this batch. Other snapshot paths are context only and must not be included.",
-                  ),
-                summary: file.shape.summary.max(500),
-                related: file.shape.related.max(5),
-              }),
-            )
-            .min(1)
-            .max(paths.length)
-            .describe(group.shape.files.description!),
-        }),
-      )
-      .min(1)
-      .max(paths.length)
-      .describe(
-        "Cover only the supplied batch files exactly once, prerequisites first and tests last. Other batches are handled separately.",
-      ),
-  });
+  return groupingSchema
+    .omit({ unitGroups: true, organizationLimitations: true })
+    .extend({
+      groups: z
+        .array(
+          group.extend({
+            title: group.shape.title.max(120),
+            rationale: group.shape.rationale.max(400),
+            files: z
+              .array(
+                file.extend({
+                  path: z
+                    .literal(paths)
+                    .describe(
+                      "Exact path of a file in this batch. Other snapshot paths are context only and must not be included.",
+                    ),
+                  summary: file.shape.summary.max(500),
+                  related: file.shape.related.max(5),
+                }),
+              )
+              .min(1)
+              .max(paths.length)
+              .describe(group.shape.files.description!),
+          }),
+        )
+        .min(1)
+        .max(paths.length)
+        .describe(
+          "Cover only the supplied batch files exactly once, prerequisites first and tests last. Other batches are handled separately.",
+        ),
+    });
 };
 export type CreateGroupingBatchSchema = z.infer<
   ReturnType<typeof createGroupingBatchSchema>
@@ -555,6 +557,12 @@ export const agentStateSchema = z.object({
 });
 export type AgentStateSchema = z.infer<typeof agentStateSchema>;
 export const agentActionSchema = z.discriminatedUnion("action", [
+  z.object({
+    action: z.literal("cancel-grouping"),
+    snapshotId: z.uuid(),
+    expectedHash: z.string().optional(),
+    expectedRound: z.number().int().positive().optional(),
+  }),
   z.object({
     action: z.literal("rename-review"),
     id: z.uuid(),

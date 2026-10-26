@@ -8,12 +8,9 @@ import type {
 } from "@senslop/contracts";
 import type { LocalStore } from "../../db/local-store";
 import { listSourcePaths, readRepository } from "../git/repository";
-import { localBytes, blob, readBlobBatch } from "../git/snapshot";
-import {
-  materializeReview,
-  readExecutionManifest,
-  hashExecutionBytes,
-} from "./execution-manifest";
+import { localBytes, blob } from "../git/snapshot";
+import { materializeReview, readExecutionManifest } from "./execution-manifest";
+import { writeExecutionGitSources } from "./execution-git-sources";
 import { FixTasks } from "./fix-tasks";
 import { WorkflowStore } from "./workflow-store";
 import { readProjectPolicy, allowsSourcePath } from "./project-policy";
@@ -94,47 +91,39 @@ export const captureFixChanges = async (
         finding.observations.map((observation) => observation.evidence.path),
       ),
   );
-  const baseInputs = manifest
-    ? null
-    : await readBlobBatch(root, base, paths, 20 * 1024 * 1024, true);
-  if (baseInputs?.limited || baseInputs?.unavailable.length)
-    throw new Error(
-      "Original execution context is incomplete. Return changes manually.",
-    );
+  const originals = new Map(
+    (
+      manifest?.files ?? (await writeExecutionGitSources(root, base, paths))
+    ).map((file) => [file.path, file]),
+  );
   for (const path of new Set([...paths, ...currentPaths])) {
     const selected = capturedChanges.find((file) => file.path === path);
-    const existing = await localBytes(task.directory, path, 1024 * 1024);
-    if (existing.unsupported)
-      throw new Error(`${path}: ${existing.unsupported}`);
-    const originalMode =
-      manifest?.files.find((file) => file.path === path)?.mode ??
-      baseInputs?.modes[path] ??
-      0o644;
+    const digest = await localBytes(task.directory, path, 0, true);
+    if (digest.unsupported) throw new Error(`${path}: ${digest.unsupported}`);
+    const originalMode = originals.get(path)?.mode ?? 0o644;
     if (
-      existing.bytes &&
+      digest.hash &&
       ((await lstat(join(task.directory, path))).mode & 0o777) !==
         (originalMode & 0o777)
     )
       throw new Error(`File mode changes require manual handling: ${path}`);
-    const originalHash =
-      manifest?.files.find((file) => file.path === path)?.hash ??
-      (selected
+    const originalHash = manifest
+      ? (originals.get(path)?.hash ?? null)
+      : selected
         ? selected.afterHash
-        : baseInputs?.binarySources[path]
-          ? hashExecutionBytes(baseInputs.binarySources[path])
-          : null);
-    if (
-      (existing.bytes ? hashExecutionBytes(existing.bytes) : null) ===
-      originalHash
-    )
-      continue;
+        : (originals.get(path)?.hash ?? null);
+    if ((digest.hash ?? null) === originalHash) continue;
+    const existing = await localBytes(task.directory, path, 1024 * 1024);
+    if (existing.unsupported)
+      throw new Error(`${path}: ${existing.unsupported}`);
+    const original = selected
+      ? null
+      : await blob(root, manifest?.base ?? base, path, 1024 * 1024);
+    if (original?.unsupported)
+      throw new Error(`${path}: ${original.unsupported}`);
     const before = selected
       ? selected.after
-      : manifest
-        ? ((await blob(root, manifest.base, path, 1024 * 1024)).bytes?.toString(
-            "utf8",
-          ) ?? null)
-        : (baseInputs?.binarySources[path]?.toString("utf8") ?? null);
+      : (original?.bytes?.toString("utf8") ?? null);
     if (
       existing.bytes?.includes(0) ||
       before?.includes("\0") ||

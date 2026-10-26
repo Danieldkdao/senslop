@@ -26,7 +26,7 @@ export const NoteControls = ({
   return (
     <>
       <Popover open={adding} onOpenChange={setAdding}>
-        <TooltipWrapper content="Add note">
+        <TooltipWrapper content="Add note (N)">
           <PopoverTrigger
             disabled={!selectedPath}
             render={
@@ -50,6 +50,7 @@ export const NoteControls = ({
           </p>
           <ReviewNoteForm
             key={`${reviewId}:${selectedPath}`}
+            draftKey={`note:${reviewId}:${selectedPath}`}
             onSubmit={async ({ body }) => {
               await onAddNote(body);
               setAdding(false);

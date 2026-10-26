@@ -20,7 +20,9 @@ export type ReadingTrailSchema = z.infer<typeof readingTrailSchema>;
 
 const readTrail = (key: string): ReadingTrailSchema => {
   try {
-    const saved = sessionStorage.getItem(`senslop:trail:${key}`);
+    const saved =
+      sessionStorage.getItem(`senslop:trail:${key}`) ??
+      localStorage.getItem(`senslop:trail:${key}`);
     const parsed = readingTrailSchema.safeParse(
       saved ? JSON.parse(saved) : null,
     );
@@ -40,8 +42,10 @@ export const useReadingTrail = (key: string) => {
   if (state.key !== key) setState(readTrail(key));
   useEffect(() => {
     try {
-      if (state.key === key)
+      if (state.key === key) {
         sessionStorage.setItem(`senslop:trail:${key}`, JSON.stringify(state));
+        localStorage.setItem(`senslop:trail:${key}`, JSON.stringify(state));
+      }
     } catch {
       /* Navigation remains available if tab storage is full. */
     }

@@ -1,75 +1,75 @@
 ---
 doc: scope
 status: approved
-last-reconciled: 2026-10-24
-implementation-baseline: 0860767
+last-reconciled: 2026-10-26
+implementation-baseline: 738af5b
 ---
 
 # Senslop — Current Scope
 
-## Product direction
+## Product direction and delivery status
 
 Senslop is a local code review platform for developers who want to understand changes and catch bugs before pushing them. The long-term vision is **the ultimate local code review platform**.
 
-The current product is an installable CLI that owns a local browser workspace and background job engine. Local review does not require a Senslop cloud account. Model inference uses the user's configured local or remote provider.
+The implemented loop is **make changes → review locally → investigate findings → fix → verify → commit and push when ready**. A CLI owns the protected local browser workspace and background job engine; local review needs no Senslop cloud account or hosted database. Model inference uses the user's configured local or remote provider.
 
-The intended loop is **make changes → review locally → investigate findings → fix → verify → commit and push when ready**. Today the application supports capturing, organizing, reading, discussing, and analyzing changes. Fix application, executable verification, and in-app Git mutation remain future work.
+As of October 26, 2026, feature 1 and the approved scopes of all three delivery groups are implemented. Groups 1–2 are merged; the daily-workflow delivery and subsequent UI/runtime fixes are committed on `feat/finish-daily-workflow`. The package remains private, publishing is deferred, and additional platform/provider and release checks remain open; implementation completion is separate from release certification.
 
 ## Distinctive value
 
-Organize a large change into behavior-based groups, order definitions and dependencies before their consumers, and place related tests after the implementation. Combine that reading path with contextual explanations, evidence-backed AI findings, durable notes, and optional buddy feedback.
+Organize a large change into behavior-based flows, introduce definitions and dependencies before their consumers, and place related tests after the implementation. Combine that reading path with frozen source navigation, contextual explanations, evidence-backed findings, durable notes, executable checks, and optional buddy feedback.
 
-The current grouping unit is a whole changed file, assigned once to a group. Hunk-level grouping is proposed in the [roadmap](local-review-roadmap.md).
+Exact changed regions each have one completion owner; one file can participate in several flows. Legacy whole-file grouping seeds those regions, and users can edit the organization without losing unambiguous unchanged progress.
 
 ## Audience and motivation
 
-The primary audience is developers working with coding agents and reviewing large volumes of generated code. The owner wants to improve their own understanding of that code and reduce repeated push/review/fix cycles by finding issues locally.
+The primary audience is developers working with coding agents and reviewing large volumes of generated code. The owner wants to improve their understanding and reduce repeated push/review/fix cycles by finding issues locally.
 
-A coding agent can prepare a saved review through the CLI and hand it to a human. The human retains control over review decisions and changes to source.
+A coding agent can prepare a saved review through the CLI and hand it to a human. A human can create a persistent fix task for selected findings or notes, then give its exported instructions to an external agent; automatic agent launching remains future work.
 
 ## Current core journey
 
-1. Start the local app in the intended repository with `senslop app start`.
-2. From the browser or another terminal, select working-tree changes, one commit, an endpoint range, or a local branch comparison.
-3. Save a frozen review. Optionally group and summarize it using configured AI task models.
-4. Read the diff in the browser, follow the suggested file order, search, inspect explanations, and add file or line notes.
-5. Mark files complete and optionally advance to the next file. Use snapshot chat or explicitly run AI correctness analysis.
-6. Inspect findings and their original source evidence; copy targeted or combined fix instructions for a coding agent.
-7. Reopen reviews later, or re-sync an eligible working-tree review using keep or new mode.
+1. Start the local app in the intended Git repository and keep its owning terminal running.
+2. Capture working-tree changes, one commit, an endpoint range, or a local branch comparison; ordinary review works without AI and accepts small changes.
+3. Optionally group/summarize the frozen review, then read its regions, file overview, impact links, supporting source, and notes.
+4. Request chat, selected-code explanations, requirement assessment, or an explicit correctness review using configured models and source policies.
+5. Make finding decisions, compare rounds, and hand selected findings to an agent in a managed worktree or an explicitly chosen current checkout.
+6. Inspect returned edits, apply selected files where appropriate, re-sync, and run explicitly selected commands against the exact captured revision.
+7. Inspect verification evidence, export an immutable round report, and optionally promote deliberate decisions into scoped project guidance.
+8. Stage files/hunks, commit with configured hooks/signing, inspect outgoing coverage, and push through the optional checkpoint when ready.
 
-CLI creation prepares in the background when another saved review exists; the first review opens automatically. Explicit CLI Open uses a dedicated browser tab, while browser Open changes only its own tab. Tabs keep independent review/file selection. Feature 1 includes caller-folder tracking, persisted history status, queue controls, recovery, and shared capacity. Completion notifications are deferred by the owner.
+CLI creation prepares later reviews in the background; the first review opens automatically and `--open` opens a dedicated review tab. Existing readers retain their own review/file/position. Saved jobs support cancellation, retry, priority, and restart recovery; preparation can be stopped before its job first appears in polling.
 
 ## Implemented product boundary
 
-- Repository-bound Git inspection from browser and CLI, including small changes.
-- Immutable before/after source per captured round, validated paths, hashes, and original diff coordinates.
-- Durable local reviews, notes, completion, selected file, conversations, grouping, and correctness-run history.
-- History grouped by each review's recorded caller folder, with name/path search and legacy-folder fallback.
-- Optional AI grouping, source-aware chat, selected-code explanations, correctness findings, and copyable fix prompts.
-- Read-only frozen context tools, strongest semantically for JavaScript/TypeScript.
-- Persistent local background jobs, captured task settings, retries, cancellation, restart recovery, and stale-result protection.
-- Multiple short CLI clients attached to one owned app per resolved repository/data namespace.
-- Provider and subscription connections, model selection, capacity settings, and OS credential storage.
-- Searchable settings, saved editor/application preferences, keyboard navigation, and a configurable floating buddy.
-- A bundled agent skill and structured commands for the implemented review, note, run, provider, and settings operations.
+- Frozen source, hashes, before/after coordinates, archived rounds, and eligible keep/new re-sync.
+- Exact changed-region flows, manual organization, completion, impact guidance, frozen file/symbol/content search, and supported image/JSON views.
+- File/line notes, request briefs, acceptance criteria, scoped rules/profiles, chat/explanations, and correctness-run history.
+- Stable finding decisions and observations, manual or model verification, task claim/return/application, and exact-source command/check evidence.
+- Project/worktree discovery, source/model controls, local-only routing, usage accounting, and per-review budgets.
+- Live Git staging/unstaging, guarded commits, fetch, clean-tree fast-forward pull, normal push, conflict inspection, and optional terminal/app push checkpoints.
+- Explicit project memory and immutable per-round HTML/JSON reports with current source-policy filtering.
+- Opt-in desktop activity notifications, first-run guidance, command palette, focused reading, searchable settings, saved view state/drafts, and optional buddy customization.
+- Version/update availability, confirmed supported-install updates, diagnostic export in About, and source/metadata data-management actions.
+- Provider/subscription connections, model selection, shared capacity controls, OS credential storage, structured CLI commands, and an installable agent skill.
+- A declared deterministic quality corpus and opt-in live findings/grouping evaluation harness, with saved comparisons and explicit unknown usage/cost.
 
 ## Important current limits
 
-- The owning app terminal must remain running for background execution. A closed command client is different from stopping the app.
-- `current` remains shared; concurrent automation should retain explicit IDs and hash/round expectations.
-- Capacity and app ownership are scoped to the application-data namespace; separate data directories remain independent.
-- Static evidence and a valid source excerpt do not prove a finding's correctness.
-- AI requests may transmit captured context to the selected remote provider. Local storage does not imply local inference.
-- Fixes are instructions for the user's agent. Senslop does not currently edit source, run arbitrary project checks, stage, commit, pull, or push.
-- Findings do not yet have individual accept/dismiss/resolve states or automatic fix verification.
-- Historical hosted authentication and presence services remain separate. The hosted dashboard is a placeholder, not the local review workspace.
+- The app owner must stay running for background execution; desktop activity delivery also needs a workspace tab, browser permission, and category opt-in.
+- `current` is shared convenience state; concurrent automation should retain explicit review/job IDs and hash/round expectations.
+- App ownership and model capacity are coordinated within the application-data namespace; separate data directories and external clients remain independent.
+- A valid source excerpt, a model assessment, a passing command, and a human decision are distinct evidence; none automatically resolves a finding.
+- Source storage is local, but configured remote inference may transmit permitted context and incur provider charges.
+- External-agent handoffs require explicit agent participation through the task protocol; Senslop does not automatically launch agents or stop their independently launched processes.
+- Checks run with host permissions in managed worktrees, not an OS sandbox; dependency installation is explicit, and unsupported changed inputs or mode changes require manual handling.
+- Review capture bounds remain enforced, while unchanged tracked execution assets stream independently of the 20 MiB review snapshot limit.
+- JavaScript/TypeScript has the strongest semantic support; real optional language servers, additional operating systems, broader live-provider compatibility, and quality promotion thresholds need further evidence.
+- Package publication and actual upgrades to a future published release remain deferred; the supported try-out path is a source checkout.
+- Hosted authentication/device/presence services remain separate, and the hosted dashboard is a placeholder.
 
-## Next-stage direction
+## Next work and document ownership
 
-The [20-feature roadmap](local-review-roadmap.md) records proposed behavior, acceptance criteria, dependencies, and implementation entry points. Its first milestone combines background preparation, finding decisions, round comparison, agent fix handoff, and local verification.
+The [roadmap](local-review-roadmap.md) preserves approved scopes, delivery history, remaining release checks, and deferred decisions, including automatic agent adapters, a permanent daemon, and customizable shortcuts. Hosted PR ingestion and team approval workflows remain outside the product direction.
 
-In-app Git conveniences, including push and pull, are accepted future direction. Hosted PR ingestion and team approval workflows are outside this roadmap. Full roadmap delivery is not required for a hackathon submission.
-
-## Document ownership
-
-Use this scope for the current product boundary, [prd.md](prd.md) for user-visible behavior, [spec.md](spec.md) for architecture and contracts, and [checklist.md](checklist.md) for verification status. The older hosted-upload design is available in Git history and dated research notes; it is not an alternate current implementation.
+Use this scope for the boundary, [PRD](prd.md) for behavior, [spec](spec.md) for architecture/contracts, [checklist](checklist.md) for dated verification, and [README](../README.md) for trying/building/running the app. Dated research and the private learner profile preserve historical context rather than define current implementation status.

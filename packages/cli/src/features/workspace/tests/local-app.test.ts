@@ -1,4 +1,6 @@
-import { afterEach, expect, test } from "vitest";
+import { LocalStore } from "@senslop/review-core/storage";
+import * as updates from "@senslop/review-core/updates";
+import { afterEach, expect, test, vi } from "vitest";
 import {
   cp,
   symlink,
@@ -260,3 +262,67 @@ test.skipIf(process.env.RUN_LOCAL_DEV_TESTS !== "1")(
   },
   120000,
 );
+
+test("malformed pending updates leave the workspace responsive and permit the next update", async () => {
+  const dataDirectory = await mkdtemp(join(tmpdir(), "senslop-update-loop-"));
+  directories.push(dataDirectory);
+  const schedule = setInterval;
+  let poll!: () => void;
+  const timer = vi.spyOn(globalThis, "setInterval").mockImplementation(((
+    callback: () => void,
+    delay?: number,
+  ) => {
+    if (delay === 1000) {
+      poll = callback;
+      return schedule(() => {}, 60000);
+    }
+    return schedule(callback, delay);
+  }) as typeof setInterval);
+  const install = vi
+    .spyOn(updates, "installRelease")
+    .mockResolvedValue(undefined);
+  const stderr = vi
+    .spyOn(process.stderr, "write")
+    .mockImplementation(() => true);
+  let app: Awaited<ReturnType<typeof startLocalApp>> | undefined;
+  let local: LocalStore | undefined;
+  try {
+    app = await startLocalApp({
+      jobs: false,
+      dataDirectory,
+      serverPath: await fixture(),
+    });
+    local = new LocalStore(join(dataDirectory, "reviews.sqlite"));
+    const root = (await import("@senslop/review-core/git")).resolveRepository;
+    const key = `pending_update:${await root(process.cwd())}`;
+    const enqueue = (value: string) =>
+      local!.database
+        .prepare(
+          "INSERT INTO preferences VALUES (?,?) ON CONFLICT(name) DO UPDATE SET value=excluded.value",
+        )
+        .run(key, value);
+    enqueue("{invalid json");
+    expect(() => poll()).not.toThrow();
+    await vi.waitFor(() =>
+      expect(stderr).toHaveBeenCalledWith(
+        expect.stringContaining("Update failed:"),
+      ),
+    );
+    expect((await fetch(app.origin)).ok).toBe(true);
+    enqueue(JSON.stringify({ version: "1.2.3" }));
+    poll();
+    await vi.waitFor(() => expect(install).toHaveBeenCalledTimes(1));
+    await app.closed;
+    expect(
+      local.database
+        .prepare("SELECT value FROM preferences WHERE name=?")
+        .get(key),
+    ).toBeUndefined();
+  } finally {
+    await app?.stop();
+    local?.close();
+    timer.mockRestore();
+    install.mockRestore();
+    stderr.mockRestore();
+  }
+});

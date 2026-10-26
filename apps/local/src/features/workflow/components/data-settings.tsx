@@ -1,11 +1,5 @@
 "use client";
-import {
-  Download,
-  FileCode,
-  Stethoscope,
-  Trash2,
-  FolderGit2,
-} from "lucide-react";
+import { Download, FileCode, Trash2, FolderGit2 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useProjectSettings } from "../hooks/use-project-settings";
 import { Button } from "@/components/ui/button";
@@ -52,12 +46,6 @@ export const DataSettings = () => {
           label: "Export including captured source",
           query: "export=source",
           name: "senslop-project-source.json",
-        },
-        {
-          Icon: Stethoscope,
-          label: "Diagnostic bundle without source or credentials",
-          query: "diagnostics=1",
-          name: "senslop-diagnostics.json",
         },
       ].map((action) => (
         <div key={action.query} className="flex items-center gap-3">

@@ -25,7 +25,7 @@ export const ReviewPreparation = ({
   onRetry: () => Promise<unknown>;
   onConfigure: () => void;
   onDiscard: () => Promise<void>;
-  onStop: (id: string) => Promise<unknown>;
+  onStop: (id?: string) => Promise<unknown>;
 }) => {
   const [busy, setBusy] = useState<"retry" | "discard" | "stop" | null>(null);
   const { confirm, ConfirmationDialog } = useConfirm(
@@ -37,7 +37,7 @@ export const ReviewPreparation = ({
     setBusy(action);
     try {
       if (action === "retry") await onRetry();
-      else if (action === "stop" && job) await onStop(job.id);
+      else if (action === "stop") await onStop(job?.id);
       else await onDiscard();
     } catch {
       // The request handlers report failures through the shared toast system.
@@ -119,7 +119,7 @@ export const ReviewPreparation = ({
               </p>
             )}
           <div className="flex flex-wrap justify-center gap-2">
-            {running && (
+            {(running || (!job && configured && !failure)) && (
               <Button
                 className="text-base"
                 variant="outline"

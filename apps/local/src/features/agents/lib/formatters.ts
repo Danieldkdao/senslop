@@ -303,3 +303,41 @@ export const formatGroupingCountdown = (seconds: number, fallback: boolean) => {
     ? `Opening the file review in ${duration}.`
     : `Retrying grouping in ${duration}.`;
 };
+
+export const formatJobProgress = (progress: string) => {
+  const repair =
+    /^Repairing (review|grouping|ordering) defects: ([\s\S]*)$/.exec(progress);
+  const details = repair
+    ? [...new Set(repair[2]!.split(", ").filter(Boolean))]
+    : [];
+  switch (repair?.[1]) {
+    case "review":
+      return {
+        label: `Validating findings (${details.length} files)`,
+        details,
+        detailsLabel: "Files being checked",
+        Icon: ScanLine,
+      };
+    case "grouping":
+      return {
+        label: "Refining file groups",
+        details,
+        detailsLabel: "Analysis details",
+        Icon: Files,
+      };
+    case "ordering":
+      return {
+        label: "Refining reading order",
+        details,
+        detailsLabel: "Analysis details",
+        Icon: BookOpen,
+      };
+    default:
+      return {
+        label: progress,
+        details,
+        detailsLabel: "Analysis details",
+        Icon: LoaderCircle,
+      };
+  }
+};

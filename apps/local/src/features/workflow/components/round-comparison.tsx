@@ -40,7 +40,7 @@ export const RoundComparison = ({
     <>
       <Popover>
         <TooltipWrapper
-          content={`Round ${review.round}: history and comparison`}
+          content={`Round ${review.round}: history and comparison (B)`}
         >
           <PopoverTrigger
             render={

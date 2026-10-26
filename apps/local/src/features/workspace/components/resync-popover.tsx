@@ -5,7 +5,7 @@ import { Controller, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { resyncModes, type ResyncMode } from "@senslop/contracts";
-import { GitCompareArrows } from "lucide-react";
+import { FolderSync } from "lucide-react";
 import { useAiSettings } from "../../agents/hooks/use-ai-settings";
 import { assignedModel } from "../../agents/lib/model-selection";
 import { Button } from "@/components/ui/button";
@@ -58,8 +58,8 @@ export const ResyncPopover = ({
       <TooltipWrapper
         content={
           disabled && unavailableReason
-            ? unavailableReason
-            : "Re-sync changes. Choose whether to keep this round or show only newer edits. Git is unchanged."
+            ? `${unavailableReason} (Shift+S)`
+            : "Re-sync changes (Shift+S). Choose whether to keep this round or show only newer edits. Git is unchanged."
         }
       >
         <PopoverTrigger
@@ -73,7 +73,7 @@ export const ResyncPopover = ({
             />
           }
         >
-          <GitCompareArrows aria-hidden="true" className="size-5" />
+          <FolderSync aria-hidden="true" className="size-5" />
         </PopoverTrigger>
       </TooltipWrapper>
       <PopoverContent className="flex w-96 max-w-[calc(100vw-2rem)] flex-col gap-4 text-base">

@@ -1,5 +1,13 @@
 "use client";
 
+import { useWorkspaceToolbarShortcuts } from "../../workspace/hooks/use-workspace-toolbar-shortcuts";
+import { FirstRunGuide } from "../../usability/components/first-run-guide";
+import { CommandPalette } from "../../usability/components/command-palette";
+import { useSavedState } from "../../usability/hooks/use-saved-state";
+import { Focus } from "lucide-react";
+import { UpdateNotice } from "../../about/components/update-notice";
+import { NotificationListener } from "../../notifications/components/notification-listener";
+
 import { formatWhitespaceMode } from "../lib/formatters";
 
 import {
@@ -27,6 +35,7 @@ import { ReviewNotes } from "./review-notes";
 import { NoteControls } from "./note-controls";
 import { AgentPanel } from "../../agents/components/agent-panel";
 import { FileSummary } from "../../agents/components/file-summary";
+import { FileOverview } from "./file-overview";
 import { ReviewPreparation } from "../../agents/components/review-preparation";
 import { assignedModel } from "../../agents/lib/model-selection";
 import { useAiSettings } from "../../agents/hooks/use-ai-settings";
@@ -49,7 +58,7 @@ import {
   Files,
   Bot,
   Search,
-  ListRestart,
+  ListTree,
   CheckIcon,
 } from "lucide-react";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -58,6 +67,7 @@ import { TooltipWrapper } from "@/components/ui/tooltip-wrapper";
 import { cn } from "@/lib/utils";
 import { LoadingSwap } from "@/components/ui/loading-swap";
 import { Button } from "@/components/ui/button";
+import { Separator } from "@/components/ui/separator";
 import {
   ResizableHandle,
   ResizablePanel,
@@ -88,7 +98,9 @@ const PreviewDiff = dynamic(
 );
 
 export const ReviewWorkspace = ({ children }: ReviewWorkspaceProps) => {
+  useWorkspaceToolbarShortcuts();
   const mobile = useIsMobile(1024);
+  const [focused, setFocused] = useSavedState("focused-reading", false);
   const {
     preview,
     error,
@@ -197,6 +209,15 @@ export const ReviewWorkspace = ({ children }: ReviewWorkspaceProps) => {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [initialSettingsSection, setInitialSettingsSection] =
     useState<string>();
+  useEffect(() => {
+    const openSettings = (event: Event) => {
+      setInitialSettingsSection((event as CustomEvent<string>).detail);
+      setSettingsOpen(true);
+    };
+    window.addEventListener("senslop-open-settings", openSettings);
+    return () =>
+      window.removeEventListener("senslop-open-settings", openSettings);
+  }, []);
   const reviewNotes = preview?.notes ?? [];
   const selectedFile =
     preview?.files.find(
@@ -564,6 +585,7 @@ export const ReviewWorkspace = ({ children }: ReviewWorkspaceProps) => {
           <ReviewNotes
             key={preview?.id ?? "empty"}
             notes={reviewNotes}
+            review={identity}
             onDeleteNote={deleteNote}
             onEditNote={editNote}
             onSelectNote={(note) => {
@@ -582,45 +604,68 @@ export const ReviewWorkspace = ({ children }: ReviewWorkspaceProps) => {
     </div>
   );
 
+  const groupingAction = preview && preview.groupingEnabled !== false && (
+    <TooltipWrapper
+      content={
+        grouping ? "Regroup changes (Shift+G)" : "Group changes (Shift+G)"
+      }
+    >
+      <Button
+        variant="ghost"
+        size="icon"
+        aria-label={grouping ? "Regroup changes" : "Group changes"}
+        disabled={
+          !groupingConfigured ||
+          groupingJobs[0]?.status === "queued" ||
+          groupingJobs[0]?.status === "running"
+        }
+        onClick={() =>
+          void agents
+            .act({
+              action: "job",
+              snapshotId: preview.id,
+              kind: "grouping",
+            })
+            .catch(() => {})
+        }
+      >
+        <LoadingSwap
+          isLoading={
+            groupingJobs[0]?.status === "queued" ||
+            groupingJobs[0]?.status === "running"
+          }
+        >
+          <ListTree aria-hidden="true" className="size-5" />
+        </LoadingSwap>
+      </Button>
+    </TooltipWrapper>
+  );
+
   const canvas = (
-    <main aria-label="Review canvas" className="flex h-full min-w-0 flex-col">
+    <main
+      aria-label="Review canvas"
+      className={cn(
+        "flex h-full min-w-0 flex-col",
+        !preparing && completed && "bg-success/10",
+      )}
+    >
       <header
         className={cn(
           "flex min-h-14 shrink-0 items-center gap-2 border-b border-border px-3 py-2 text-muted-foreground md:px-5",
           !preparing && completed && "bg-success/10",
         )}
       >
-        <TooltipWrapper content="Back in reading history">
-          <Button
-            variant="ghost"
-            size="icon"
-            aria-label="Back in reading history"
-            disabled={!trail.canBack}
-            onClick={() => goHistory(-1)}
-          >
-            <Undo2 className="size-4" />
-          </Button>
-        </TooltipWrapper>
-        <TooltipWrapper content="Forward in reading history">
-          <Button
-            variant="ghost"
-            size="icon"
-            aria-label="Forward in reading history"
-            disabled={!trail.canForward}
-            onClick={() => goHistory(1)}
-          >
-            <Redo2 className="size-4" />
-          </Button>
-        </TooltipWrapper>
         {mobile && (
           <Sheet>
-            <SheetTrigger
-              render={
-                <Button variant="ghost" size="icon" aria-label="Open files" />
-              }
-            >
-              <Files aria-hidden="true" className="size-5" />
-            </SheetTrigger>
+            <TooltipWrapper content="Open files (Shift+F)">
+              <SheetTrigger
+                render={
+                  <Button variant="ghost" size="icon" aria-label="Open files" />
+                }
+              >
+                <Files aria-hidden="true" className="size-5" />
+              </SheetTrigger>
+            </TooltipWrapper>
             <SheetContent
               side="left"
               className="gap-0 overflow-hidden p-0 text-base"
@@ -650,13 +695,37 @@ export const ReviewWorkspace = ({ children }: ReviewWorkspaceProps) => {
             : (activeContext?.path ?? selectedFile?.path ?? "No file selected")}
         </span>
         <div
-          className="flex min-w-0 max-w-[45%] shrink-0 items-center gap-1 overflow-x-auto overscroll-x-contain md:max-w-[70%]"
+          className="flex min-w-0 max-w-[45%] shrink-0 scroll-fade-x items-center gap-1 overflow-x-auto overscroll-x-contain md:max-w-[80%]"
           aria-label="Workspace controls"
         >
+          <TooltipWrapper content="Back in reading history (Alt+←)">
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Back in reading history"
+              disabled={!trail.canBack}
+              onClick={() => goHistory(-1)}
+            >
+              <Undo2 aria-hidden="true" className="size-5" />
+            </Button>
+          </TooltipWrapper>
+          <TooltipWrapper content="Forward in reading history (Alt+→)">
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Forward in reading history"
+              disabled={!trail.canForward}
+              onClick={() => goHistory(1)}
+            >
+              <Redo2 aria-hidden="true" className="size-5" />
+            </Button>
+          </TooltipWrapper>
           {selectedFile && (
             <>
               <TooltipWrapper
-                content={organization ? "Previous region" : "Previous file"}
+                content={
+                  organization ? "Previous region (←)" : "Previous file (←)"
+                }
               >
                 <Button
                   variant="ghost"
@@ -674,7 +743,7 @@ export const ReviewWorkspace = ({ children }: ReviewWorkspaceProps) => {
                 </Button>
               </TooltipWrapper>
               <TooltipWrapper
-                content={organization ? "Next region" : "Next file"}
+                content={organization ? "Next region (→)" : "Next file (→)"}
               >
                 <Button
                   variant="ghost"
@@ -692,6 +761,23 @@ export const ReviewWorkspace = ({ children }: ReviewWorkspaceProps) => {
                   <ArrowRight aria-hidden="true" className="size-5" />
                 </Button>
               </TooltipWrapper>
+              <TooltipWrapper content="Find a file (K)">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label="Find a file"
+                  aria-keyshortcuts="k"
+                  disabled={preparing}
+                  onClick={() => setSearchOpen(true)}
+                >
+                  <Search aria-hidden="true" className="size-5" />
+                </Button>
+              </TooltipWrapper>
+              <Separator
+                orientation="vertical"
+                aria-hidden="true"
+                className="h-5 data-vertical:self-center"
+              />
               <TooltipWrapper
                 content={
                   selectedUnit
@@ -711,60 +797,49 @@ export const ReviewWorkspace = ({ children }: ReviewWorkspaceProps) => {
                   <Check aria-hidden="true" className="size-5" />
                 </Button>
               </TooltipWrapper>
-              <TooltipWrapper content="Find a file (K)">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  aria-label="Find a file"
-                  aria-keyshortcuts="k"
-                  disabled={preparing}
-                  onClick={() => setSearchOpen(true)}
-                >
-                  <Search aria-hidden="true" className="size-5" />
-                </Button>
-              </TooltipWrapper>
             </>
-          )}
-          {preview && preview.groupingEnabled !== false && (
-            <TooltipWrapper
-              content={grouping ? "Regroup changes" : "Group changes"}
-            >
-              <Button
-                variant="ghost"
-                size="icon"
-                aria-label={grouping ? "Regroup changes" : "Group changes"}
-                disabled={
-                  !groupingConfigured ||
-                  groupingJobs[0]?.status === "queued" ||
-                  groupingJobs[0]?.status === "running"
-                }
-                onClick={() =>
-                  void agents
-                    .act({
-                      action: "job",
-                      snapshotId: preview.id,
-                      kind: "grouping",
-                    })
-                    .catch(() => {})
-                }
-              >
-                <LoadingSwap
-                  isLoading={
-                    groupingJobs[0]?.status === "queued" ||
-                    groupingJobs[0]?.status === "running"
-                  }
-                >
-                  <ListRestart aria-hidden="true" className="size-5" />
-                </LoadingSwap>
-              </Button>
-            </TooltipWrapper>
           )}
           <NoteControls
             reviewId={preview?.id}
             selectedPath={preparing ? undefined : selectedFile?.path}
             onAddNote={addNote}
           />
-          <WorkspaceToolbar preparing={preparing} />
+          <Separator
+            orientation="vertical"
+            aria-hidden="true"
+            className="h-5 data-vertical:self-center"
+          />
+          <WorkspaceToolbar
+            groupingAction={groupingAction}
+            preparing={preparing}
+            onOpenFile={(path) =>
+              openSource({ path, side: "after", start: 1, end: 1 })
+            }
+          />
+          <Separator
+            orientation="vertical"
+            aria-hidden="true"
+            className="h-5 data-vertical:self-center"
+          />
+          <TooltipWrapper
+            content={focused ? "Exit focused reading (F)" : "Focus reading (F)"}
+          >
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label={focused ? "Exit focused reading" : "Focus reading"}
+              aria-pressed={focused}
+              onClick={() => setFocused(!focused)}
+            >
+              <Focus className="size-5" />
+            </Button>
+          </TooltipWrapper>
+          <CommandPalette
+            hasReview={!!preview}
+            onSearch={() => setSearchOpen(true)}
+            onFocus={() => setFocused(!focused)}
+          />
+          <UpdateNotice />
           <ReviewSettings
             review={
               preview?.hash && preview.round
@@ -788,19 +863,22 @@ export const ReviewWorkspace = ({ children }: ReviewWorkspaceProps) => {
             preferencesError={ui.preferences.error?.message}
             onRetryPreferences={() => void ui.preferences.refetch()}
           />
-          {mobile && (
+          {(mobile || focused) && (
             <Sheet>
-              <SheetTrigger
-                render={
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    aria-label="Open agents"
-                  />
-                }
-              >
-                <Bot aria-hidden="true" className="size-5" />
-              </SheetTrigger>
+              <TooltipWrapper content="Open agents (Shift+A)">
+                <SheetTrigger
+                  render={
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      aria-label="Open agents"
+                      title="Open agents (Shift+A)"
+                    />
+                  }
+                >
+                  <Bot aria-hidden="true" className="size-5" />
+                </SheetTrigger>
+              </TooltipWrapper>
               <SheetContent
                 side="right"
                 className="gap-0 overflow-hidden p-0 text-base"
@@ -858,22 +936,30 @@ export const ReviewWorkspace = ({ children }: ReviewWorkspaceProps) => {
         </div>
       )}
       {!preparing && selectedFile && (
-        <ChangeImpactPanel
-          side={explorerSide}
-          impact={impacts.find((item) => item.unitId === selectedUnit?.id)}
-          capability={
-            explorer.data?.capabilities[
-              activeContext?.path ?? selectedFile.path
-            ]
-          }
-          symbols={
-            explorer.data?.symbols.filter(
-              (symbol) =>
-                symbol.path === (activeContext?.path ?? selectedFile.path),
-            ) ?? []
-          }
-          onNavigate={openSource}
-        />
+        <FileOverview>
+          <FileSummary
+            key={`${preview?.id}:${selectedFile.path}`}
+            file={selectedFile}
+            grouping={grouping}
+            onSelect={selectFile}
+          />
+          <ChangeImpactPanel
+            side={explorerSide}
+            impact={impacts.find((item) => item.unitId === selectedUnit?.id)}
+            capability={
+              explorer.data?.capabilities[
+                activeContext?.path ?? selectedFile.path
+              ]
+            }
+            symbols={
+              explorer.data?.symbols.filter(
+                (symbol) =>
+                  symbol.path === (activeContext?.path ?? selectedFile.path),
+              ) ?? []
+            }
+            onNavigate={openSource}
+          />
+        </FileOverview>
       )}
       {!preparing &&
         selectedFile?.oldPath &&
@@ -888,11 +974,6 @@ export const ReviewWorkspace = ({ children }: ReviewWorkspaceProps) => {
         <p className="border-b px-4 py-2 text-base text-muted-foreground">
           {formatWhitespaceMode(settings.whitespace)} whitespace filter is
           active; completion remains manual.
-        </p>
-      )}
-      {!!grouping?.organizationLimitations?.length && (
-        <p className="border-b px-4 py-2 text-base text-muted-foreground">
-          {grouping.organizationLimitations.join(" ")}
         </p>
       )}
       {!preparing && selectedUnit && !activeContext && (
@@ -941,14 +1022,6 @@ export const ReviewWorkspace = ({ children }: ReviewWorkspaceProps) => {
             </Button>
           </TooltipWrapper>
         </div>
-      )}
-      {!preparing && selectedFile && (
-        <FileSummary
-          key={`${preview?.id}:${selectedFile.path}`}
-          file={selectedFile}
-          grouping={grouping}
-          onSelect={selectFile}
-        />
       )}
       <div
         ref={readingScroll}
@@ -1038,7 +1111,18 @@ export const ReviewWorkspace = ({ children }: ReviewWorkspaceProps) => {
               setInitialSettingsSection("ai");
               setSettingsOpen(true);
             }}
-            onStop={(id) => agents.act({ action: "cancel", id })}
+            onStop={(id) =>
+              agents.act(
+                id
+                  ? { action: "cancel", id }
+                  : {
+                      action: "cancel-grouping",
+                      snapshotId: preview!.id,
+                      expectedHash: preview!.hash,
+                      expectedRound: preview!.round,
+                    },
+              )
+            }
             onDiscard={discardReview}
           />
         ) : preview ? (
@@ -1084,6 +1168,8 @@ export const ReviewWorkspace = ({ children }: ReviewWorkspaceProps) => {
 
   return (
     <div className="fixed inset-0 overflow-clip bg-background text-base text-foreground">
+      <NotificationListener />
+      <FirstRunGuide hasReview={!!preview} />
       {preview && (
         <FileSearchDialog
           review={identity}
@@ -1097,7 +1183,7 @@ export const ReviewWorkspace = ({ children }: ReviewWorkspaceProps) => {
           onSelect={selectFile}
         />
       )}
-      {mobile ? (
+      {mobile || focused ? (
         canvas
       ) : (
         <ResizablePanelGroup

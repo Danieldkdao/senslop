@@ -21,6 +21,7 @@ import {
 import { FileIcon } from "@/components/file-icon";
 import { Button } from "@/components/ui/button";
 import { TooltipWrapper } from "@/components/ui/tooltip-wrapper";
+import { useSavedState } from "../../usability/hooks/use-saved-state";
 import { cn } from "@/lib/utils";
 import { formatUnitStatus } from "../lib/formatters";
 import {
@@ -44,6 +45,7 @@ import {
 import { OrganizationEditor } from "./organization-editor";
 
 type RegionBrowserProps = {
+  reviewId?: string;
   impact?: ChangeImpactSchema[];
   organization: OrganizationSchema;
   selectedUnitId?: string;
@@ -53,11 +55,16 @@ type RegionBrowserProps = {
 
 export const RegionBrowser = ({
   organization,
+  reviewId = "preview",
   impact = [],
   selectedUnitId,
   onSelect,
   onAction,
 }: RegionBrowserProps) => {
+  const [mode, setMode] = useSavedState(
+    `organization-mode:${reviewId}`,
+    "flows",
+  );
   const [editing, setEditing] = useState(false);
   const [attention, setAttention] = useState(false);
   const [collapseRepetitive, setCollapseRepetitive] = useState(true);
@@ -175,6 +182,8 @@ export const RegionBrowser = ({
     <>
       <ExpandingTabs
         aria-label="Review organization"
+        value={mode}
+        onValueChange={setMode}
         variant="transparent"
         items={[
           {
@@ -258,8 +267,15 @@ export const RegionBrowser = ({
             </TooltipWrapper>
           </div>
         </div>
-        <ExpandingTabsPanel value="flows" className="overflow-auto p-2">
-          <nav aria-label="Review flows" className="flex flex-col gap-2">
+        {/* Scroll animations stay inside panels so tab exits can finish. */}
+        <ExpandingTabsPanel
+          value="flows"
+          className="flex min-h-0 flex-col overflow-hidden"
+        >
+          <nav
+            aria-label="Review flows"
+            className="flex min-h-0 flex-1 scroll-fade-y flex-col gap-2 overflow-auto p-2"
+          >
             {organization.flows.map((flow) => {
               const units = flow.unitIds.flatMap(
                 (id) => organization.units.find((unit) => unit.id === id) ?? [],
@@ -304,8 +320,14 @@ export const RegionBrowser = ({
             })}
           </nav>
         </ExpandingTabsPanel>
-        <ExpandingTabsPanel value="files" className="overflow-auto p-2">
-          <nav aria-label="Files and regions" className="flex flex-col gap-2">
+        <ExpandingTabsPanel
+          value="files"
+          className="flex min-h-0 flex-col overflow-hidden"
+        >
+          <nav
+            aria-label="Files and regions"
+            className="flex min-h-0 flex-1 scroll-fade-y flex-col gap-2 overflow-auto p-2"
+          >
             {paths.map((path) => {
               const units = organization.units.filter(
                 (unit) => unit.path === path,

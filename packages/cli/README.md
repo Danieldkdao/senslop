@@ -1,8 +1,8 @@
 # Senslop CLI
 
-Requires Node.js 24 or 26+ and Git. Senslop bundles the local browser app and its job engine. Local reviews do not require a hosted Senslop account.
+Requires Node.js 24.x or 26+ and Git; source builds use pnpm 12.8.1. Senslop bundles the local browser app and its job engine. Local reviews do not require a hosted Senslop account.
 
-This reference describes the implementation reconciled on October 25, 2026, including the uncommitted precision implementation. The package remains private and unpublished. In a source checkout, build through the workspace task graph and substitute `node packages/cli/dist/index.js` for `senslop`; see the [root setup guide](../../README.md). The [technical spec](../../devpost/spec.md) describes the current architecture, while the [roadmap](../../devpost/local-review-roadmap.md) contains proposed features.
+This reference covers the complete local review workflow on `main`. The package remains private and unpublished. In a source checkout, build through the workspace task graph and substitute `node packages/cli/dist/index.js` for `senslop`; see the [root setup guide](../../README.md). The [technical spec](../../devpost/spec.md) describes the current architecture, while the [roadmap](../../devpost/local-review-roadmap.md) records delivered scopes, dated evidence, and remaining release work.
 
 ## Run the app and CLI separately
 
@@ -30,7 +30,7 @@ Commands discover the running app for the canonical repository root, authenticat
 
 Only one app owns a resolved repository in a given application-data namespace. Repeated `app start` calls reuse its authenticated session and return its location. Simultaneous launches elect one owner; stale cleanup cannot release a replacement. An unrelated occupied saved port receives a new available port. Separate repositories retain their own app/engine processes.
 
-`reviews create` saves and prepares without changing existing readers. The first saved review opens automatically; `--open` explicitly opens any new review in a dedicated browser tab. Browser history Open affects only that tab. Each tab retains its own review and selected file. Completion notifications are deferred.
+`reviews create` saves and prepares without changing existing readers. The first saved review opens automatically; `--open` explicitly opens any new review in a dedicated browser tab. Browser history Open affects only that tab. Each tab retains its own review and selected file. Desktop activity notifications are implemented with browser permission and category opt-in; they require a workspace tab and the owning app to remain running.
 
 Creation returns `id`, `hash`, `round`, `jobIds`, a safe review-specific `url`, the saved `review`, and `preparation` jobs. Omitting `--wait` returns after capture and scheduling, including when `--run-review` is requested. The owner must remain running for execution. Pending work resumes after restart. History shows snapshot readability separately from grouping and optional correctness status, with cancellation, retry, and queued priority controls.
 
@@ -73,7 +73,7 @@ senslop runs list --review current --json
 
 `groups show` reads current grouping, summaries, rationale, relationships, and order. `groups run` explicitly enables grouping for the snapshot and starts or reruns it. `runs show`, `runs watch`, `runs cancel`, and `runs retry` work with grouping and correctness jobs. Retry creates a new attempt linked by `retryOf`, retaining the original revision, settings, and priority; stale revisions require a fresh analysis. `runs list --all` lists pending workspace jobs. `runs prioritize RUN_ID --priority high` gives queued work a bounded two-minute preference, without interrupting running work. `--priority normal|high` also applies when creating or starting analysis. `runs rename` and `runs delete` manage saved correctness reviews. `runs export RUN_ID` prints combined fix guidance; `--finding N` selects one issue, and `--json` returns structured results. These commands generate instructions and never apply code changes.
 
-`--timeout SECONDS` bounds waits; default analysis timeout is 600 seconds. A timeout retains the saved job so an agent can reconnect with `runs watch`. Failed or canceled analysis returns an unsuccessful exit status; it is distinct from a completed review with no findings. AI requests may send captured code to the chosen provider and incur that provider's charges. AI review source tools remain read-only; task application and checks are separate explicit actions.
+`--timeout SECONDS` bounds CLI waiting, which defaults to 600 seconds; it is separate from the model transport timeout. A wait timeout retains the saved job so an agent can reconnect with `runs watch RUN_ID --timeout 1200 --json`. ChatGPT subscription and Vercel Gateway structured analysis stream with a 15-minute per-call budget and an eight-minute first-content/inactivity allowance; buffered provider steps retain an eight-minute step limit within that budget, and cancellation aborts active work. A successful fixture transport test does not establish real model/account compatibility. Failed or canceled analysis returns an unsuccessful exit status; it is distinct from a completed review with no findings. AI requests may send captured code to the chosen provider and incur that provider's charges. AI review source tools remain read-only; task application and checks are separate explicit actions.
 
 ## Notes and settings
 
@@ -94,7 +94,7 @@ Settings support `ai`, `review`, and `ui` sections. `settings set KEY VALUE` pat
 
 CLI writes automatically refresh the open browser's reviews, analysis, notes, completion, providers, and settings. Unsaved AI instruction drafts are preserved when settings refresh. Existing keyboard shortcuts remain available in the browser.
 
-Browser shortcuts include K for file search, D for completion, arrows for file navigation, and optional R/brackets for saved-review history. Typing and overlays retain their keys. Settings include Appearance, Review Preferences, Editor, AI, and Providers, with editor previews and configurable buddy behavior.
+Browser shortcuts include K for file search, D for completion, arrows for region/file navigation, optional R/brackets for saved-review history, Mod+K for commands, F for focused reading, N for notes, and named toolbar shortcuts. Typing and overlays retain their keys. Searchable settings include About, AI/Providers, editor/appearance, Git, notifications, project memory, source/execution, usage, rules, language support, and review quality.
 
 ## Precision review
 
@@ -124,6 +124,32 @@ Rules JSON selects `profiles`, `rules` with stable IDs/text/path globs/enabled s
 Source navigation/search always reads the saved before/after version. Python/Go have packaged parsing; semantic servers are optional local tools configured in Language support. Missing tools/dependencies retain honest limitations.
 
 Default quality runs are deterministic synthetic contracts. `quality run --live --yes --json` explicitly sends the corpus plus saved grouping instructions to the selected Review model and may incur charges. Reports retain model/instructions and separate contract checks from live findings/grouping judgments. Unknown usage/cost remains unknown; no live-provider quality result is claimed by ordinary tests.
+
+## Finish a review
+
+```sh
+senslop memory list --json
+senslop memory apply --file guidance-action.json --json
+senslop reports generate REVIEW --round 1 --json
+senslop reports list REVIEW --json
+senslop reports export REPORT --format html --output report.html
+senslop git status --json
+senslop git diff src/example.ts --staged --json
+senslop git stage src/example.ts --expected-state IDENTITY --json
+senslop git commit --subject "fix: preserve documented behavior" --yes --json
+senslop git outgoing --remote origin --branch main --json
+senslop git push --remote origin --branch main --yes --json
+```
+
+Project memory is explicit, scoped guidance with origin/version history; it never automatically dismisses findings. Report versions retain captured rounds, distinguish missing evidence, and export without source excerpts by default; `--include-source` includes only permitted frozen excerpts. Export refuses to overwrite existing files.
+
+Git actions operate on live state independently of frozen reviews. Files/hunks can be staged or unstaged without rewriting working edits. Commits include the complete staged candidate, run configured hooks/signing, and stop if hooks change that candidate. Pull is fast-forward only with a clean tree; fetch/push use existing Git authentication. `git conflict PATH` reads base/local/incoming sides; `git abort-merge --yes` explicitly aborts a merge. No force push or history rewriting is provided.
+
+The optional checkpoint defaults off. Configure it using `checkpoint configure --file policy.json`, install its terminal wrapper using `checkpoint install --yes`, and remove it using `checkpoint remove --yes`. The wrapper preserves an existing pre-push hook and checks exact outgoing refs/objects without the browser app. `checkpoint check` reports unreviewed versions, unresolved findings, and required missing/stale checks. `checkpoint override --reason TEXT` records a short-lived object-specific override; `git push --reason TEXT --yes` records the same explicit exception for an app-connected push.
+
+`about` reports app/version diagnostics. `update check` reads release availability; `update` asks before installation, and JSON automation requires `--yes`. Ordinary interactive commands automatically offer Update now or Continue when a newer stable release exists. Global npm/pnpm installs use their matching manager after idle checks and a SQLite backup; source/archive copies use their original installation method. The package remains unpublished, so a real newer-release upgrade remains a release check.
+
+Browser Settings includes About with nearby sanitized diagnostics and opt-in desktop notifications. All notification categories start off, permission must be granted before activation, and foreground alerts have their own opt-in. Test notification reports browser submission through toasts; OS banner visibility is separate, and delivery uses atomic server claims even when Web Locks is unavailable. App/CLI update notices remain automatic. Mod+K commands, focused reading, saved per-tab view state, and bounded 30-day note/chat/commit draft recovery support everyday work; shortcut customization is deferred beyond the first version. `/ai-test` is retired; provider checks remain metadata-only.
 
 ## Providers and credentials
 
@@ -169,9 +195,9 @@ Machine-oriented commands write undecorated JSON to stdout and structured errors
 
 ## Development and verification
 
-Run `pnpm dev:local` in the repository to start the source app and worker. Use `node --import tsx packages/cli/src/index.ts COMMAND` from another terminal for source CLI commands, or pass `--repo PATH`. UI edits use Fast Refresh; CLI calls load current source on each invocation. Restart the app terminal after changing launcher logic. Installed users run the bundled production app.
+Run `pnpm dev:local` in the repository to start the source app and worker. Use `node --import tsx packages/cli/src/index.ts COMMAND` from another terminal for source CLI commands, or pass `--repo PATH`. UI edits use Fast Refresh; frozen compilation runs in a separate worker and CLI calls load current source on each invocation. To run development against another project, use `node --import tsx packages/cli/src/index.ts app start --dev --repo /absolute/path/to/project`; restart the app terminal after changing launcher logic, and stop it before switching between development and production for the same project. Installed users run the bundled production app.
 
-Build the local app before the CLI with the package build commands. The archive includes standalone Next.js, shared assets, native runtime dependencies, and the skill; it excludes source workspaces and real environment files. The package remains private and is not published.
+From the checkout root, use the [root setup guide](../../README.md#try-it-locally): `pnpm install --frozen-lockfile`, then `pnpm exec turbo run build --filter=@senslop/cli`. For explicit rebuilds, run `pnpm --filter @senslop/local build` before `pnpm --filter @senslop/cli build`; the app build compiles the frozen-analysis worker before Next.js, and the CLI packages that standalone output. The archive includes standalone Next.js, shared assets, native runtime dependencies, and the skill; it excludes source workspaces and real environment files. The package remains private and is not published.
 
 For the checkout, `pnpm exec turbo run build --filter=@senslop/cli` builds through the dependency graph. Root `pnpm typecheck`/`pnpm build` also include hosted workspaces and their environment requirements; targeted local checks do not require hosted authentication setup. Verify fresh archive installation separately before claiming distribution readiness.
 
@@ -198,10 +224,12 @@ senslop rounds show REVIEW --round 1 --json
 senslop usage show REVIEW --json
 ```
 
-Comma-separated finding/note/file IDs select a bounded handoff. Add `--expected-hash HASH --expected-round N` for revision-sensitive automation. A managed task reproduces staged, unstaged, and untracked reviewed bytes; no task applies changes automatically. Inspect returned edits in Work before applying. Returning file-mode changes, including executable-bit-only edits, reports that manual handling is required. Pass `--repo ORIGINAL_PROJECT` to CLI operations while editing a managed directory. The manual handoff works with external agents; stopping their independent processes remains the agent runner's responsibility.
+Comma-separated finding/note/file IDs select a bounded handoff. Add `--expected-hash HASH --expected-round N` for revision-sensitive automation. A managed task reproduces staged, unstaged, and untracked reviewed bytes; no task applies changes automatically. Unchanged tracked assets stream independently of the 20 MiB review-snapshot aggregate limit, and unchanged large images are hashed before return-text capture; changed-file, mode, and source-policy restrictions still apply. Inspect returned edits in Work before applying. Returning file-mode changes, including executable-bit-only edits, reports that manual handling is required. Pass `--repo ORIGINAL_PROJECT` to CLI operations while editing a managed directory. The manual handoff works with external agents; stopping their independent processes remains the agent runner's responsibility.
+
+Work uses full-width icon tabs with tooltips and stacked disclosures: verification has per-finding status/details, and check Output is the only inner disclosure open by default. Creating task/verification work selects its tab with feedback; applying returned edits has a loading state and progress/outcome toasts. Individual/bulk history removal hides finished rows while retaining linked evidence, and active rows must finish or be canceled first; it is distinct from data deletion.
 
 Checks execute an explicitly chosen shell command with host permissions in a Senslop-owned worktree, with a bounded environment, recorded input/dependency hashes, output, duration, exit status, cancellation, and timeout. Worktrees share Git metadata and provide no OS sandbox. Dependency installation is an explicit check command; `--reuse-check CHECK` reuses its prepared workspace only for the same exact review revision. A command that changes captured source cannot become passing evidence. `checks watch` exits successfully only for a passed check; failed, blocked, canceled, timed-out, and interrupted results exit with code 4 and retain their check/review IDs in JSON error details. Base failures and missing tools remain distinct from changed-source regressions. The browser can also record and download explicitly selected generated artifacts; newer or expired artifact bytes are not served as the recorded artifact.
 
-The project switcher discovers sibling Git worktrees and retains archived source when a folder disappears. Model assignments, review preferences, and source policy share the common Git project; reviews, reading positions, and execution tasks stay worktree-scoped. Provider credentials, machine capacity, and appearance remain shared. Source & execution settings control inclusion, local-only inference, command timeouts, and retention. Stricter policies block incompatible contexts and old conversation continuation while preserving local evidence. Data & privacy provides exports, diagnostics, history deletion, and owned-workspace cleanup.
+The project switcher discovers sibling Git worktrees and retains archived source when a folder disappears. Model assignments, review preferences, and source policy share the common Git project; reviews, reading positions, and execution tasks stay worktree-scoped. Provider credentials, machine capacity, and appearance remain shared. Source & execution settings control inclusion, local-only inference, command timeouts, and retention. Stricter policies block incompatible contexts and old conversation continuation while preserving local evidence. Data & privacy provides metadata/source exports, review-data deletion, and owned-workspace cleanup; About provides sanitized diagnostics.
 
 Usage records include model requests, context calls, and retries. Per-review token/request-time allowances stop new work conservatively and concurrent requests share the remaining aggregate request time; Quick skips delegated context and Thorough permits it. The Usage settings section contains aggregate charts. Costs stay unknown when reliable pricing is unavailable and exclude independent external-agent usage. Completed batches remain available to a compatible retry.

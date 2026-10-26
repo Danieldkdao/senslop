@@ -1,3 +1,4 @@
+import { withRepositoryLease } from "@senslop/review-core/git-process";
 import { applyFixChanges } from "@senslop/review-core/fix-changes";
 import { assignedModel } from "../../agents/lib/model-selection";
 import { AgentStore } from "../../agents/lib/agent-store";
@@ -89,8 +90,12 @@ export class LocalWorkspace {
 
   directory = () => this.options.directory ?? this.options.repository;
 
-  private coordinate = <T>(operation: () => Promise<T>) => {
-    const result = this.operations.catch(() => {}).then(operation);
+  coordinate = <T>(operation: () => Promise<T>) => {
+    const result = this.operations
+      .catch(() => {})
+      .then(async () =>
+        withRepositoryLease(this.store, await this.root(), operation),
+      );
     this.operations = result;
     return result;
   };

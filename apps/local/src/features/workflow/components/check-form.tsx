@@ -1,8 +1,9 @@
 "use client";
+import { useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Play, ShieldAlert } from "lucide-react";
+import { Play, ShieldAlert, ListChecks } from "lucide-react";
 import type { CheckRunSchema, TrackedFindingSchema } from "@senslop/contracts";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -16,6 +17,12 @@ import {
   SelectContent,
   SelectItem,
 } from "@/components/ui/select";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import { WorkflowChevron, WorkflowDisclosure } from "./workflow-disclosure";
 import type { WorkflowActionSchema } from "../schemas";
 
 const checkFormSchema = z.object({
@@ -43,6 +50,7 @@ export const CheckForm = ({
   findings?: TrackedFindingSchema[];
   defaultTimeout?: number;
 }) => {
+  const [expanded, setExpanded] = useState(true);
   const form = useForm<CheckFormSchema>({
     resolver: zodResolver(checkFormSchema),
     defaultValues: {
@@ -95,164 +103,202 @@ export const CheckForm = ({
         } catch {}
       })}
     >
-      {!!findings.length && (
-        <fieldset className="flex w-full flex-col gap-2">
-          <legend className="pb-2">Related findings, optional</legend>
-          {findings
-            .filter((finding) => !finding.duplicateOf)
-            .map((finding) => (
-              <label key={finding.id} className="flex items-start gap-2">
-                <Checkbox
-                  className="mt-1"
-                  checked={findingIds.includes(finding.id)}
-                  onCheckedChange={(checked) =>
-                    form.setValue(
-                      "findingIds",
-                      checked
-                        ? [...form.getValues("findingIds"), finding.id]
-                        : form
-                            .getValues("findingIds")
-                            .filter((id) => id !== finding.id),
-                    )
+      <Collapsible open={expanded} onOpenChange={setExpanded}>
+        <CollapsibleContent>
+          <div className="flex flex-col gap-3 pb-3">
+            {!!suggestedCommands.length && (
+              <Select
+                value={null}
+                onValueChange={(value) =>
+                  value &&
+                  form.setValue("command", value, { shouldValidate: true })
+                }
+              >
+                <SelectTrigger
+                  aria-label="Suggested project check"
+                  className="w-full text-base"
+                >
+                  <SelectValue placeholder="Choose a project script" />
+                </SelectTrigger>
+                <SelectContent>
+                  {suggestedCommands.map((command) => (
+                    <SelectItem
+                      key={command}
+                      value={command}
+                      className="font-mono text-base"
+                    >
+                      {command}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+            <label className="flex w-full flex-col gap-2">
+              Command
+              <Input
+                {...form.register("command")}
+                aria-label="Command"
+                placeholder="pnpm test"
+                className="w-full font-mono text-base"
+                aria-invalid={!!form.formState.errors.command}
+              />
+            </label>
+            {form.formState.errors.command && (
+              <span role="alert" className="text-destructive">
+                {form.formState.errors.command.message}
+              </span>
+            )}
+            <label className="flex w-full flex-col gap-2">
+              Working directory
+              <Input
+                {...form.register("cwd")}
+                className="w-full font-mono text-base"
+              />
+            </label>
+            <label className="flex w-full flex-col gap-2">
+              Timeout in seconds
+              <Input
+                {...form.register("timeoutSeconds", { valueAsNumber: true })}
+                type="number"
+                className="w-full text-base"
+              />
+            </label>
+            <label className="flex w-full flex-col gap-2">
+              Execution workspace
+              <Select
+                value={reuseCheckId || "new"}
+                onValueChange={(value) =>
+                  form.setValue(
+                    "reuseCheckId",
+                    value === "new" ? "" : (value ?? ""),
+                  )
+                }
+              >
+                <SelectTrigger className="w-full text-base">
+                  <SelectValue>
+                    {reuseCheckId
+                      ? "Reuse prepared dependencies"
+                      : "New exact source copy"}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="new" className="text-base">
+                    New exact source copy
+                  </SelectItem>
+                  {reusable.map((check) => (
+                    <SelectItem
+                      key={check.id}
+                      value={check.id}
+                      className="text-base"
+                    >
+                      {check.command}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </label>
+            <label className="flex w-full flex-col gap-2">
+              Generated artifact paths, optional
+              <Input
+                {...form.register("artifacts")}
+                placeholder="report.txt, coverage/summary.json"
+                className="w-full font-mono text-base"
+              />
+            </label>
+            {!!findings.length && (
+              <WorkflowDisclosure
+                title={`Related findings (${findingIds.length} selected)`}
+                Icon={ListChecks}
+              >
+                <fieldset
+                  className="flex w-full flex-col gap-2"
+                  aria-label="Related findings, optional"
+                >
+                  {findings
+                    .filter((finding) => !finding.duplicateOf)
+                    .map((finding) => (
+                      <label
+                        key={finding.id}
+                        className="flex items-start gap-2"
+                      >
+                        <Checkbox
+                          className="mt-1"
+                          checked={findingIds.includes(finding.id)}
+                          onCheckedChange={(checked) =>
+                            form.setValue(
+                              "findingIds",
+                              checked
+                                ? [...form.getValues("findingIds"), finding.id]
+                                : form
+                                    .getValues("findingIds")
+                                    .filter((id) => id !== finding.id),
+                            )
+                          }
+                        />
+                        <span className="min-w-0 wrap-break-word">
+                          {finding.observations.at(-1)?.evidence.title}
+                        </span>
+                      </label>
+                    ))}
+                </fieldset>
+              </WorkflowDisclosure>
+            )}
+            <label className="flex items-center gap-2">
+              <Checkbox
+                checked={compareWithBase}
+                onCheckedChange={(checked) =>
+                  form.setValue("compareWithBase", !!checked)
+                }
+              />
+              Compare with base
+            </label>
+            {Object.entries(form.formState.errors)
+              .filter(([key]) => key !== "command")
+              .map(([key, error]) => (
+                <span key={key} role="alert" className="text-destructive">
+                  {error.message}
+                </span>
+              ))}
+          </div>
+        </CollapsibleContent>
+        <div className="flex items-center gap-2">
+          <TooltipWrapper content="Runs locally with host permissions; install dependencies explicitly in the execution workspace.">
+            <span tabIndex={0} aria-label="Local execution policy">
+              <ShieldAlert className="size-5 shrink-0 text-muted-foreground" />
+            </span>
+          </TooltipWrapper>
+          <TooltipWrapper
+            content={expanded ? "Collapse check form" : "Expand check form"}
+          >
+            <CollapsibleTrigger
+              render={
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label={
+                    expanded ? "Collapse check form" : "Expand check form"
                   }
                 />
-                <span className="min-w-0 wrap-break-word">
-                  {finding.observations.at(-1)?.evidence.title}
-                </span>
-              </label>
-            ))}
-        </fieldset>
-      )}
-      {!!suggestedCommands.length && (
-        <Select
-          value={null}
-          onValueChange={(value) =>
-            value && form.setValue("command", value, { shouldValidate: true })
-          }
-        >
-          <SelectTrigger
-            aria-label="Suggested project check"
-            className="w-full text-base"
+              }
+            >
+              <WorkflowChevron />
+            </CollapsibleTrigger>
+          </TooltipWrapper>
+          <Button
+            type="submit"
+            className="flex-1"
+            disabled={form.formState.isSubmitting}
           >
-            <SelectValue placeholder="Choose a project script" />
-          </SelectTrigger>
-          <SelectContent>
-            {suggestedCommands.map((command) => (
-              <SelectItem
-                key={command}
-                value={command}
-                className="font-mono text-base"
-              >
-                {command}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      )}
-      <label className="flex w-full flex-col gap-2">
-        Command
-        <Input
-          {...form.register("command")}
-          aria-label="Command"
-          placeholder="pnpm test"
-          className="w-full font-mono text-base"
-          aria-invalid={!!form.formState.errors.command}
-        />
-      </label>
-      {form.formState.errors.command && (
-        <span role="alert" className="text-destructive">
-          {form.formState.errors.command.message}
-        </span>
-      )}
-      <label className="flex w-full flex-col gap-2">
-        Working directory
-        <Input
-          {...form.register("cwd")}
-          className="w-full font-mono text-base"
-        />
-      </label>
-      <label className="flex w-full flex-col gap-2">
-        Timeout in seconds
-        <Input
-          {...form.register("timeoutSeconds", { valueAsNumber: true })}
-          type="number"
-          className="w-full text-base"
-        />
-      </label>
-      <label className="flex w-full flex-col gap-2">
-        Execution workspace
-        <Select
-          value={reuseCheckId || "new"}
-          onValueChange={(value) =>
-            form.setValue("reuseCheckId", value === "new" ? "" : (value ?? ""))
-          }
-        >
-          <SelectTrigger className="w-full text-base">
-            <SelectValue>
-              {reuseCheckId
-                ? "Reuse prepared dependencies"
-                : "New exact source copy"}
-            </SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="new" className="text-base">
-              New exact source copy
-            </SelectItem>
-            {reusable.map((check) => (
-              <SelectItem key={check.id} value={check.id} className="text-base">
-                {check.command}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </label>
-      <label className="flex w-full flex-col gap-2">
-        Generated artifact paths, optional
-        <Input
-          {...form.register("artifacts")}
-          placeholder="report.txt, coverage/summary.json"
-          className="w-full font-mono text-base"
-        />
-      </label>
-      <label className="flex items-center gap-2">
-        <Checkbox
-          checked={compareWithBase}
-          onCheckedChange={(checked) =>
-            form.setValue("compareWithBase", !!checked)
-          }
-        />
-        Compare with base
-      </label>
-      {Object.entries(form.formState.errors)
-        .filter(([key]) => key !== "command")
-        .map(([key, error]) => (
-          <span key={key} role="alert" className="text-destructive">
-            {error.message}
-          </span>
-        ))}
-      <div className="flex items-center gap-2">
-        <TooltipWrapper content="Runs locally with host permissions. Dependency installation is a separate command you explicitly run in this workspace.">
-          <span tabIndex={0} aria-label="Local execution policy">
-            <ShieldAlert
-              aria-hidden="true"
-              className="size-5 text-muted-foreground"
-            />
-          </span>
-        </TooltipWrapper>
-        <Button
-          type="submit"
-          className="flex-1"
-          disabled={form.formState.isSubmitting}
-        >
-          <LoadingSwap
-            isLoading={form.formState.isSubmitting}
-            className="flex items-center gap-2"
-          >
-            <Play aria-hidden="true" className="size-4" />
-            Run check
-          </LoadingSwap>
-        </Button>
-      </div>
+            <LoadingSwap
+              isLoading={form.formState.isSubmitting}
+              className="flex items-center gap-2"
+            >
+              <Play aria-hidden="true" className="size-5 shrink-0" />
+              Run check
+            </LoadingSwap>
+          </Button>
+        </div>
+      </Collapsible>
     </form>
   );
 };

@@ -149,7 +149,9 @@ test("editor settings survive reopening the workspace instead of resetting to de
   ).toBe("true");
 });
 vi.mock("../../workspace/components/workspace-toolbar", () => ({
-  WorkspaceToolbar: () => null,
+  WorkspaceToolbar: ({ groupingAction }: { groupingAction?: ReactNode }) => (
+    <div>{groupingAction}</div>
+  ),
 }));
 vi.mock("../components/live-preview-provider", async () => {
   const React = await import("react");
@@ -270,6 +272,7 @@ beforeEach(() => {
   });
   vi.resetAllMocks();
   localStorage.clear();
+  localStorage.setItem("senslop:setup-dismissed", "true");
   state.autoAdvance = false;
   state.jobs = [];
   state.act.mockResolvedValue({});
@@ -659,6 +662,7 @@ test("d toggles persisted completion with header/sidebar indicators, without int
       .getAttribute("aria-pressed"),
   ).toBe("true");
   expect(canvas.classList.contains("ring-primary/40")).toBe(false);
+  expect(canvas.classList.contains("bg-success/10")).toBe(true);
   expect(
     canvas.querySelector("header")?.classList.contains("bg-success/10"),
   ).toBe(true);
@@ -686,6 +690,56 @@ test("d toggles persisted completion with header/sidebar indicators, without int
       .getAttribute("aria-pressed"),
   ).toBe("false");
   expect(canvas.classList.contains("ring-primary/40")).toBe(false);
+  expect(canvas.classList.contains("bg-success/10")).toBe(false);
+});
+
+test("completed region tints the whole canvas while other file regions remain incomplete", async () => {
+  setNavigationPreview();
+  state.preview = {
+    ...state.preview!,
+    id: crypto.randomUUID(),
+    hash: "a".repeat(64),
+    round: 1,
+  };
+  const organization = organizationSchema.parse({
+    version: 1,
+    manual: false,
+    units: [true, false].map((reviewed, index) => ({
+      id: `region-${index}`,
+      path: state.preview!.files[0]!.path,
+      fingerprint: `region-${index}`,
+      label: `Region ${index + 1}`,
+      kind: "text",
+      reviewed,
+      ranges: [
+        { side: "after", start: index + 1, end: index + 1, code: "one" },
+      ],
+    })),
+    flows: [
+      { id: "flow", title: "Changes", unitIds: ["region-0", "region-1"] },
+    ],
+  });
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string) =>
+      Response.json(
+        url.startsWith("/api/precision?") ? organization : defaultUiPreferences,
+      ),
+    ),
+  );
+  const user = userEvent.setup();
+  render(<ReviewWorkspace>Setup</ReviewWorkspace>);
+  await screen.findByRole("button", { name: "Next region" });
+  const canvas = screen.getByRole("main", { name: "Review canvas" });
+  expect(
+    within(canvas).getByRole("button", { name: "Mark incomplete" }),
+  ).toBeTruthy();
+  expect(canvas.classList.contains("bg-success/10")).toBe(true);
+  await user.click(screen.getByRole("button", { name: "Next region" }));
+  expect(
+    within(canvas).getByRole("button", { name: "Mark complete" }),
+  ).toBeTruthy();
+  expect(canvas.classList.contains("bg-success/10")).toBe(false);
 });
 
 test("grouped reviews hide all files and the diff until the latest job publishes, including regrouping", async () => {
@@ -935,6 +989,23 @@ test("opening ungrouped reviews and refreshing stays quiet", () => {
   expect(state.toastSuccess).not.toHaveBeenCalled();
 });
 
+test("preparation can be stopped before its job appears in polling", async () => {
+  setNavigationPreview();
+  state.preview!.groupingEnabled = true;
+  state.jobs = [];
+  render(<ReviewWorkspace>Setup</ReviewWorkspace>);
+  await userEvent
+    .setup()
+    .click(screen.getByRole("button", { name: "Stop review" }));
+  expect(state.act).toHaveBeenCalledWith({
+    action: "cancel-grouping",
+    snapshotId: state.preview!.id,
+    expectedHash: state.preview!.hash,
+    expectedRound: state.preview!.round,
+  });
+  expect(state.discard).not.toHaveBeenCalled();
+});
+
 test.each(["queued", "running"] as const)(
   "stop review cancels the active %s grouping job and retains the snapshot",
   async (status) => {
@@ -985,10 +1056,10 @@ test("only header actions have tooltips and mobile drawers still open", async ()
   );
   const user = userEvent.setup();
   for (const [label, hint] of [
-    ["Previous file", "Previous file"],
-    ["Next file", "Next file"],
+    ["Previous file", "Previous file (←)"],
+    ["Next file", "Next file (→)"],
     ["Find a file", "Find a file (K)"],
-    ["Add note", "Add note"],
+    ["Add note", "Add note (N)"],
   ]) {
     const button = screen.getByRole("button", { name: label });
     const trigger = button.hasAttribute("disabled")

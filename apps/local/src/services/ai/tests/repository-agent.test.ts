@@ -1022,12 +1022,14 @@ test("Context retrieval reserves a final answer after repository tools instead o
 test("finding verification returns a separate assessment without a user decision", async () => {
   state.resolved = {
     model: new MockLanguageModelV4({
-      doGenerate: async () =>
-        jsonResponse({
+      doGenerate: async (call) => {
+        expect(JSON.stringify(call.prompt)).toContain("1: code");
+        return jsonResponse({
           outcome: "apparently-fixed",
           explanation:
             "The new guard handles the original empty-input trigger.",
-        }),
+        });
+      },
     }),
   };
   const assessment = await (

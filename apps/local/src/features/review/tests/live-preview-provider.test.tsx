@@ -9,6 +9,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
+import { savedReviewSchema } from "@senslop/contracts";
 import {
   LivePreviewProvider,
   useLivePreview,
@@ -297,6 +298,81 @@ const savedSnapshot = () => ({
   notes: [],
   completedPaths: [] as string[],
   selectedPath: "file.ts",
+});
+
+test("a failed poll from before a review switch cannot mark the newly opened review unavailable", async () => {
+  vi.useFakeTimers();
+  const snapshot = savedSnapshot();
+  let rejectPoll!: (error: Error) => void;
+  vi.stubGlobal(
+    "fetch",
+    vi
+      .fn()
+      .mockResolvedValueOnce(Response.json(snapshot))
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((_resolve, reject) => {
+            rejectPoll = reject;
+          }),
+      ),
+  );
+  let current!: ReturnType<typeof useLivePreview>;
+  const Observe = () => {
+    const value = useLivePreview();
+    useEffect(() => {
+      current = value;
+    }, [value]);
+    return null;
+  };
+  render(
+    <LivePreviewProvider>
+      <Observe />
+    </LivePreviewProvider>,
+  );
+  await act(async () => {});
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(1000);
+  });
+  const next = savedReviewSchema.parse({
+    ...snapshot,
+    id: "00000000-0000-4000-8000-000000000002",
+  });
+  await act(async () => {
+    current.openReview(next);
+  });
+  await act(async () => {
+    rejectPoll(new DOMException("Request timed out", "TimeoutError"));
+  });
+  expect(current.preview?.id).toBe(next.id);
+  expect(current.error).toBeNull();
+  expect(feedback.error).not.toHaveBeenCalled();
+});
+
+test("a slow preview request is distinguished from an unavailable app and recovers on the next poll", async () => {
+  vi.useFakeTimers();
+  vi.stubGlobal(
+    "fetch",
+    vi
+      .fn()
+      .mockRejectedValueOnce(
+        new DOMException("Request timed out", "TimeoutError"),
+      )
+      .mockResolvedValue(Response.json(savedSnapshot())),
+  );
+  render(
+    <LivePreviewProvider>
+      <Consumer />
+    </LivePreviewProvider>,
+  );
+  await act(async () => {});
+  expect(screen.queryByText(/local app is unavailable/i)).toBeNull();
+  expect(screen.getByText(/taking longer than expected/i)).toBeTruthy();
+  expect(feedback.error).not.toHaveBeenCalled();
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(1000);
+  });
+  expect(screen.getByText("file.ts")).toBeTruthy();
+  expect(screen.queryByText(/taking longer than expected/i)).toBeNull();
 });
 
 test("a poll superseded by completion releases its unread response body", async () => {

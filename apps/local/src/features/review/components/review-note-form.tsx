@@ -1,7 +1,9 @@
 "use client";
 
+import { useFormDraft } from "../../usability/hooks/use-form-draft";
+
 import { useId, useState } from "react";
-import { useForm } from "react-hook-form";
+import { useController, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -16,6 +18,7 @@ type ReviewNoteFormProps = {
   initialBody?: string;
   submitLabel?: string;
   onCancel?: () => void | Promise<void>;
+  draftKey?: string;
 };
 
 export const ReviewNoteForm = ({
@@ -24,25 +27,30 @@ export const ReviewNoteForm = ({
   initialBody = "",
   submitLabel,
   onCancel,
+  draftKey,
 }: ReviewNoteFormProps) => {
   const id = useId();
   const [saveError, setSaveError] = useState<string | null>(null);
-  const {
-    register,
-    handleSubmit,
-    reset,
-    formState: { errors, isSubmitting },
-  } = useForm<ReviewNoteSchema>({
+  const form = useForm<ReviewNoteSchema>({
     resolver: zodResolver(reviewNoteSchema),
     defaultValues: {
       body: initialBody,
     },
   });
+  const {
+    control,
+    handleSubmit,
+    reset,
+    formState: { errors, isSubmitting },
+  } = form;
+  const draft = useFormDraft(form, draftKey);
+  const { field } = useController({ control, name: "body" });
   const submit = async (note: ReviewNoteSchema) => {
     setSaveError(null);
     try {
       await onSubmit(note);
       reset();
+      draft.clear();
     } catch (error) {
       setSaveError((error as Error).message);
     }
@@ -70,7 +78,7 @@ export const ReviewNoteForm = ({
           autoFocus={isComment}
           aria-invalid={!!errors.body}
           aria-describedby={errors.body ? `${id}-body-error` : undefined}
-          {...register("body")}
+          {...field}
           onKeyDown={(event) => {
             if (
               event.key === "Enter" &&
@@ -109,7 +117,10 @@ export const ReviewNoteForm = ({
             variant="ghost"
             className={cn("text-base", isComment && "h-8")}
             disabled={isSubmitting}
-            onClick={onCancel}
+            onClick={() => {
+              draft.clear();
+              void onCancel?.();
+            }}
           >
             Cancel
           </Button>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Controller, useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -11,7 +11,7 @@ import {
 import { assignedModel } from "../../agents/lib/model-selection";
 import { useAiSettings } from "../../agents/hooks/use-ai-settings";
 import { Switch } from "@/components/ui/switch";
-import { Plus } from "lucide-react";
+import { FilePlus2 } from "lucide-react";
 import { TooltipWrapper } from "@/components/ui/tooltip-wrapper";
 import { LoadingSwap } from "@/components/ui/loading-swap";
 import { Button } from "@/components/ui/button";
@@ -95,6 +95,11 @@ export const NewReviewPopover = ({
   const { settings } = useAiSettings();
   const groupingConfigured = !!assignedModel(settings.data, "grouping");
   const [open, setOpen] = useState(false);
+  useEffect(() => {
+    const show = () => setOpen(true);
+    window.addEventListener("senslop-new-review", show);
+    return () => window.removeEventListener("senslop-new-review", show);
+  }, []);
   const {
     handleSubmit,
     control,
@@ -212,13 +217,13 @@ export const NewReviewPopover = ({
   return (
     <>
       <Popover open={open} onOpenChange={setOpen}>
-        <TooltipWrapper content="New review">
+        <TooltipWrapper content="New review (Shift+N)">
           <PopoverTrigger
             render={
               <Button variant="ghost" size="icon" aria-label="New review" />
             }
           >
-            <Plus aria-hidden="true" className="size-5" />
+            <FilePlus2 aria-hidden="true" className="size-5" />
           </PopoverTrigger>
         </TooltipWrapper>
         <PopoverContent

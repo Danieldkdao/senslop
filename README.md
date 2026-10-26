@@ -1,86 +1,117 @@
 # Senslop
 
-A local code review workspace for understanding changes and catching bugs before pushing. The CLI starts a protected browser app and local background job engine. Local review needs no Senslop account.
+Senslop is a local code review workspace for understanding changes, finding bugs, and checking fixes before pushing. It is built for developers reviewing their own work or changes produced by coding agents.
 
-Senslop captures Git changes, organizes related files into a suggested reading order, provides source-aware chat and selected-code explanations, and can run AI correctness reviews with original evidence and fix prompts. Saved reviews retain notes, progress, conversations, and analysis history.
+The CLI starts a protected browser app and a local background job engine for your Git repository. Reviews, frozen source, notes, decisions, and history stay in local SQLite storage; ordinary diff review needs neither a Senslop account nor an AI provider.
 
-## Run from a source checkout
+## Features
 
-Requires Node.js **24.x or 26+**, Git, and pnpm **12.8.1**.
+- **Review the changes you choose:** capture your working tree, a commit, a revision range, or a local branch comparison, with immutable before/after evidence and saved review rounds.
+- **Read changes in context:** split/unified diffs, AI summaries, editable flows of changed regions, per-region completion, file overview, symbol/content search, impact links, and a reading-history trail.
+- **Investigate with AI:** source-aware chat, selected-code explanations, and explicit correctness reviews using configured API providers, subscription connections, local model servers, or compatible endpoints.
+- **Act on findings:** accept, dismiss, resolve, or reopen issues while keeping model assessments, passing checks, and human decisions separate.
+- **Fix and verify:** hand selected findings to an external agent, inspect returned edits, apply selected files, and run chosen tests or commands against the exact captured revision.
+- **Finish with Git:** stage files or hunks, commit with existing hooks/signing, fetch, pull with fast-forward only, and push through existing Git authentication; optionally check outgoing review coverage before pushing.
+- **Retain useful context:** file/line notes, explicit scoped project memory, request/acceptance-criteria review, repository rules/profiles, and immutable HTML/JSON round reports.
+- **Work across projects:** saved reviews, sibling worktrees, independent browser tabs, background jobs, queue controls, source/model policies, and usage budgets.
+- **Keep the workspace comfortable:** searchable settings, command palette, focused reading, recoverable note/chat/commit drafts, smooth disclosures, optional desktop notifications, themes, and a configurable buddy.
+- **Inspect review quality:** a deterministic evaluation corpus and opt-in live findings/grouping runs with saved comparisons, evidence metrics, latency, and available usage data.
+
+JavaScript/TypeScript has compiler-backed analysis; Python/Go has packaged parsing and optional local semantic-server integration. Unsupported files remain reviewable as text or explicit binary fallbacks.
+
+## Try it locally
+
+The CLI package is currently private; the supported try-out path is this source checkout. Requires **Node.js 24.x or 26+**, **Git**, and **pnpm 12.8.1**.
+
+Clone the repository or use your existing checkout, then build from its root:
 
 ```sh
-pnpm install
+git clone https://github.com/Danieldkdao/senslop.git
+cd senslop
+pnpm install --frozen-lockfile
 pnpm exec turbo run build --filter=@senslop/cli
-node packages/cli/dist/index.js app start --repo /absolute/path/to/project
 ```
 
-Keep that terminal open. The CLI prints/opens the local browser workspace. In a second terminal, run commands against the same project:
+Start the built app for an existing Git project:
 
 ```sh
-node packages/cli/dist/index.js app status --repo /absolute/path/to/project --json
-node packages/cli/dist/index.js reviews create --repo /absolute/path/to/project --working-tree --no-group --open --json
+node packages/cli/dist/index.js app start --repo /absolute/path/to/your/project
 ```
 
-Choose changes in the browser instead if preferred. Supported sources are working-tree changes, one commit, an endpoint range, or a local branch comparison. Inspection reads Git without checking out, fetching, or editing files. Small changes are supported.
-
-The package remains private and is not published at the recorded baseline. These instructions use the checkout's built CLI; see [CLI documentation](packages/cli/README.md) for installed-package commands, packaging, storage, and troubleshooting.
-
-## Configure AI when wanted
-
-Open Settings → Providers to save an API key, connect a supported subscription, configure a local server, or add an OpenAI-compatible endpoint. Connection checks use metadata only. Credentials use the OS credential store; saved keys are not returned to the browser.
-
-Choose a shared model or separate Grouping, Context, Review, and Explain models in Settings → AI. Chat has its own model picker. With grouping configured, prepare a grouped review:
+Keep that terminal open; it owns the browser app and background jobs. Senslop opens the local workspace automatically. From a second terminal, still in the Senslop checkout, capture the target project's uncommitted changes without AI:
 
 ```sh
-node packages/cli/dist/index.js reviews create --repo /absolute/path/to/project --working-tree --group --open --wait --json
+node packages/cli/dist/index.js reviews create --repo /absolute/path/to/your/project --working-tree --no-group --open --json
 ```
 
-Grouping does not implicitly request a correctness review. Run one explicitly from the Review panel or with `reviews run REVIEW_ID --wait --json`. Copy a finding's fix instructions or export them through the CLI; Senslop does not currently apply fixes or run project tests.
+Use a project with an uncommitted change to explore the diff, or choose a commit, range, or branch in the browser. Small changes are supported. Inspection itself reads Git without changing your source or index.
 
-Remote inference may send captured source to the chosen provider and incur provider charges. Local UI/storage does not imply local inference. Ordinary diff review works without AI configuration.
+To stop, press Ctrl+C in the owning terminal, or run:
 
-## Review and revisit
+```sh
+node packages/cli/dist/index.js app stop --repo /absolute/path/to/your/project --json
+```
 
-- Read split/unified diffs, file summaries, related-file groups, and original finding evidence.
-- Search files with **K**, mark completion with **D**, and use arrow navigation where available.
-- Add file/line notes; Enter submits and Shift+Enter inserts a newline.
-- Reopen, rename, or delete saved reviews. History searches names and recorded folders, groups the current app folder first, and labels legacy reviews without a folder.
-- Re-sync a specified working-tree review on the same branch/HEAD: keep mode retains its identity, notes/history, and unchanged-file completion; new mode creates a separate newer-edits review.
-- Customize editor/app themes, fonts, diff options, panels, review preferences, and the optional floating buddy.
+Saved reviews survive shutdown. Closing a browser tab does not stop the app.
 
-The app owner must remain running for background jobs. Additional CLI clients create reviews in the background; the first review opens automatically and `--open` explicitly opens another in a dedicated tab. Existing tabs keep their reading state. Captures retain the caller folder, history shows preparation and optional-analysis status, and jobs support cancellation, retry, priority, and restart recovery. Shared request/token limits and a total AI request ceiling coordinate repository processes in the same data directory. Use explicit review IDs and revision expectations for automation. Completion notifications, finding decisions, fix verification, and in-app Git push/pull remain future work.
+## A typical review
 
-## Development and verification
+1. Create a review, open the diff, and add notes or mark regions complete.
+2. Optionally configure a model and request grouping, chat, explanations, or a correctness review; grouping alone does not run correctness analysis.
+3. Select findings to create a fix task or request verification; the app shows feedback and opens the corresponding Work tab.
+4. Copy/export the task handoff to your external agent, which claims and returns it through the CLI; automatic agent launching is not implemented.
+5. Inspect returned edits before applying selected files, then run a relevant check in Work → Checks; `node --version` is a simple first command, while project tests may require explicitly installing dependencies in that execution workspace.
+6. Inspect the verification outcome and evidence, make your finding decisions, and export a round report if useful.
+7. Open Git to stage, commit, inspect outgoing coverage, and push when ready.
+
+Checks run with host permissions in managed Git worktrees, which are separate directories rather than an OS sandbox. Human actions authorize source changes and Git operations; model findings do not apply or commit fixes automatically.
+
+## Configure optional AI and notifications
+
+Open Settings → AI/Providers to add a provider connection, sign in to a supported subscription, configure a local model server, or add an OpenAI-compatible endpoint. Assign a shared task model or separate Grouping, Context, Review, and Explain models; chat has its own model picker. Provider connection checks inspect metadata and do not establish inference quality or account compatibility.
+
+Credentials use the OS credential store, with no plaintext fallback. Remote inference can send permitted captured context to the selected provider and incur its charges; source policies can restrict included paths and require local inference.
+
+Settings → Notifications requests browser permission before enabling desktop delivery, and every activity category starts off. Enable the categories you want and use Test notification to check browser submission; foreground alerts are optional, and the local owner plus a workspace tab must stay running. App/CLI update notices are separate, while Settings → About contains version information and sanitized diagnostics.
+
+## Build and develop from source
+
+The filtered build above includes shared package checks, compiles the frozen-source analysis worker, builds the standalone Next.js app, and bundles it with the CLI. You can also rebuild the app and CLI explicitly, in that order:
+
+```sh
+pnpm --filter @senslop/local build
+pnpm --filter @senslop/cli build
+```
+
+For local UI development against the Senslop repository:
 
 ```sh
 pnpm dev:local
-pnpm test
-pnpm typecheck
-pnpm lint
-pnpm build
 ```
 
-`dev:local` starts the source local app and worker through the CLI. Stop the app terminal after testing. Root build/typecheck commands include hosted workspaces and their environment requirements; targeted package checks can be used for local-only changes.
+To use development mode with another project instead:
 
-Default tests use deterministic fixtures. Opt-in process, package, real credential, and live-provider scenarios require separate execution; a passing unit suite does not certify those environments. See the [verification ledger](devpost/checklist.md) and [CLI README](packages/cli/README.md).
+```sh
+node --import tsx packages/cli/src/index.ts app start --dev --repo /absolute/path/to/your/project
+```
 
-## Repository guide
+The CLI starts both Next.js development mode and the local job engine. UI changes use Fast Refresh; use `node --import tsx packages/cli/src/index.ts COMMAND` for source CLI calls from another terminal. Restart the owner after changing launcher logic, and stop it before switching between development and production modes for the same project.
 
-| Location               | Responsibility                                                                  |
-| ---------------------- | ------------------------------------------------------------------------------- |
-| apps/local             | Local review UI, protected APIs, model/analysis services, jobs, and settings    |
-| packages/cli           | App lifecycle, structured commands, agent skill, and standalone packaging       |
-| packages/review-core   | Git capture and local SQLite review persistence                                 |
-| packages/contracts     | Shared Zod contracts and constants                                              |
-| packages/ui            | Shared components, theme infrastructure, and shortcuts                          |
-| apps/web               | Separate hosted authentication/device flows, landing, and placeholder dashboard |
-| apps/connection-server | Separate hosted Express/ws presence service                                     |
-| packages/database      | Hosted Drizzle/Neon schema and database infrastructure                          |
+Local review requires no hosted database, cloud account, or hosted `.env` setup. Native parser/runtime dependencies use the installation policy in [pnpm-workspace.yaml](pnpm-workspace.yaml). Hosted development in `apps/web` is separate and uses its own environment configuration.
 
-Local review does not require hosted Postgres, Mailjet, OAuth, or a hosted inference proxy. Hosted development retains its own environment setup through `.env.example` and typed env modules; `pnpm dev:web` starts that separate web app.
+### Verification commands
 
-## Current documents and future work
+```sh
+pnpm test
+pnpm --filter @senslop/local typecheck
+pnpm exec tsc --project tsconfig.tests.json --noEmit
+pnpm --filter @senslop/local lint
+```
 
-Start with [scope](devpost/scope.md), [PRD](devpost/prd.md), and [technical spec](devpost/spec.md). They describe the current local application. [Checklist](devpost/checklist.md) separates implemented foundations from verification still outstanding.
+Ordinary tests use deterministic fixtures; process/archive, OS-credential, and live-provider checks have separate prerequisites and opt-ins. Root `pnpm typecheck`, `pnpm lint`, and `pnpm build` include hosted workspaces, whose environment requirements also apply. See the [verification ledger](devpost/checklist.md) for recorded results and remaining release checks.
 
-The [20-feature roadmap](devpost/local-review-roadmap.md) preserves the next-stage vision, acceptance criteria, code entry points, and new-chat handoff. Background reviews, explicit IDs, and concurrency are grouped as feature 1. Dated research notes are historical rationale, not alternate current architecture.
+## Documentation
+
+The complete local review workflow is available on `main`.
+
+Read the [scope](devpost/scope.md), [PRD](devpost/prd.md), [technical spec](devpost/spec.md), [delivery roadmap](devpost/local-review-roadmap.md), and [CLI reference](packages/cli/README.md). Dated research documents preserve earlier investigations rather than define current behavior. This project uses the [MIT license](LICENSE.md).

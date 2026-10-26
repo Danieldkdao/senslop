@@ -1,8 +1,8 @@
 ---
 doc: spec
 status: approved
-last-reconciled: 2026-10-25
-implementation-baseline: 0860767
+last-reconciled: 2026-10-26
+implementation-baseline: 6d3fde6
 ---
 
 # Senslop — Current Technical Specification
@@ -11,9 +11,9 @@ implementation-baseline: 0860767
 
 This specification describes the existing local application at the recorded baseline. It replaces the superseded cloud-upload/managed-inference design previously mixed into this file.
 
-Read [scope.md](scope.md) for the boundary, [prd.md](prd.md) for behavior, and [local-review-roadmap.md](local-review-roadmap.md) for proposed features and future implementation handoff. The roadmap does not mean its features are implemented. Recheck code and installed package versions before extending this baseline.
+Read [scope.md](scope.md) for the boundary, [prd.md](prd.md) for behavior, and [local-review-roadmap.md](local-review-roadmap.md) for approved delivery scopes, historical implementation evidence, and remaining release work. The approved scopes of all 20 features are present in this baseline; recheck code and installed package versions before extending it.
 
-The recorded commit is the foundation. Feature 1 was implemented on October 24, 2026 and updates the behavior below; completion notifications remain deferred. Its implementation commits and verification evidence are recorded in the roadmap progress record.
+The recorded commit includes the committed daily-workflow delivery and October 26 UI/runtime follow-ups on `feat/finish-daily-workflow`. The verification ledger separates source/fixture evidence from live-provider and release/platform checks.
 
 ## Architecture
 
@@ -73,7 +73,7 @@ Stopping an ordinary client does not stop the app. Stopping the owner stops exec
 - CLI discovery retains the effective caller folder separately from the canonical Git root. Capture sends and validates that folder against the workspace. Browser capture uses the owner folder; keep-mode re-sync retains its original folder.
 - Mutation paths use captured hash/round expectations where implemented to reject stale operations. Results are associated with their originating revision rather than the latest selected UI row.
 
-Feature 1 implements background capture, independent reading views, caller-folder context, persisted list status, queue controls, recovery, and shared capacity. Completion notifications are explicitly deferred. CLI/browser bootstrap URLs carry review and optional file selection privately; returned public locations omit session capabilities.
+Feature 1 implements background capture, independent reading views, caller-folder context, persisted list status, queue controls, recovery, and shared capacity. Completion notifications use the Group 3 opt-in browser delivery layer. CLI/browser bootstrap URLs carry review and optional file selection privately; returned public locations omit session capabilities.
 
 ## Git capture and bounds
 
@@ -89,19 +89,29 @@ Ordinary saved-review inspection accepts small changes. Legacy standalone `inspe
 
 ## Persistence and migrations
 
-The [LocalStore](../packages/review-core/src/db/local-store.ts) uses SQLite WAL, a busy timeout, foreign keys, explicit transactions, and restrictive filesystem permissions. The current user_version is 7; newer unsupported data versions are rejected.
+The [LocalStore](../packages/review-core/src/db/local-store.ts) uses SQLite WAL, a busy timeout, foreign keys, explicit transactions, and restrictive filesystem permissions. The current `user_version` is 8; older initialized databases receive a pre-v8 backup before migration, and newer unsupported data versions are rejected.
 
-| Table                | Responsibility                                                                      |
-| -------------------- | ----------------------------------------------------------------------------------- |
-| reviews              | Repository-keyed saved review JSON, source, round, notes, completion, and selection |
-| active_reviews       | Current review ID for a repository                                                  |
-| connections          | Nonsecret provider connection metadata                                              |
-| preferences          | Saved application/review/AI settings by preference key                              |
-| credential_cleanup   | Pending OS credential cleanup                                                       |
-| ai_jobs              | Grouping/correctness jobs and saved output                                          |
-| ai_conversations     | Snapshot chat history                                                               |
-| ai_context           | Captured source, static analysis cache, and incremental grouping context            |
-| ai_batch_checkpoints | Resumable analysis batch output by job/checkpoint                                   |
+| Table                               | Responsibility                                                                      |
+| ----------------------------------- | ----------------------------------------------------------------------------------- |
+| reviews                             | Repository-keyed saved review JSON, source, round, notes, completion, and selection |
+| active_reviews                      | Current review ID for a repository                                                  |
+| connections                         | Nonsecret provider connection metadata                                              |
+| preferences                         | Saved application/review/AI settings by preference key                              |
+| credential_cleanup                  | Pending OS credential cleanup                                                       |
+| ai_jobs                             | Grouping/correctness jobs and saved output                                          |
+| ai_conversations                    | Snapshot chat history                                                               |
+| ai_context                          | Captured source, static analysis cache, and incremental grouping context            |
+| ai_batch_checkpoints                | Resumable analysis batch output by job/checkpoint                                   |
+| review_rounds                       | Immutable source/context for captured rounds                                        |
+| review_findings                     | Durable finding observations and human decisions                                    |
+| fix_tasks, check_runs               | Agent task lifecycle and explicit command results                                   |
+| execution_manifests                 | Exact managed source hashes, modes, and dependency identity                         |
+| review_usage, finding_verifications | Model accounting and revision-bound assessments                                     |
+| review_precision, review_briefs     | Region organization and versioned request criteria                                  |
+| notification_events                 | Ordered activity feed and atomic per-event delivery claims                          |
+| review_reports                      | Immutable per-round report versions                                                 |
+| git_operations, checkpoint_records  | Git outcomes, coverage, and exact-object overrides                                  |
+| repository_leases                   | Cross-operation repository ownership and dead-owner recovery                        |
 
 Provider metadata, machine capacity, and appearance use shared per-user data. Project source/AI/review preferences use common-Git-directory keys; review limits use explicit review IDs. Worktree roots retain independent reviews and execution records. Repository isolation is enforced for review reads/writes. Deleting a review cascades associated job/context/conversation records through the implemented persistence paths.
 
@@ -111,13 +121,15 @@ History summaries expose recorded directory or null for legacy data. Search uses
 
 [LocalWorkspace](../apps/local/src/features/workspace/lib/local-workspace.ts) coordinates repository reads, inspection, captured context, CLI handoff ingestion, and re-sync. [Server workspace](../apps/local/src/features/workspace/lib/server-workspace.ts) constructs it from typed runtime exports.
 
-An eligible re-sync identifies the saved working-tree review by ID and expected hash/round with captured branch/HEAD, independently of global selection. A workspace operation queue serializes capture/re-sync; persistence rechecks expected identity before publishing. Keep mode updates the same ID, carries original references/notes, retains unchanged-file completion, and preserves the original directory. New mode saves a newer-edits review while retaining the older review. Changed branch/HEAD requires a new review.
+An eligible re-sync identifies the saved working-tree review by ID and expected hash/round with captured branch/HEAD, independently of global selection. A workspace operation queue plus common-Git-directory leases coordinate capture, task application, and Git mutations; persistence rechecks expected identity before publishing. Keep mode updates the same ID, carries original references/notes, retains unchanged-file completion, and preserves the original directory. New mode saves a newer-edits review while retaining the older review. Changed branch/HEAD requires a new review.
 
 [Note anchoring](../packages/review-core/src/features/history/note-anchors.ts) retains/remaps exact excerpts where unambiguous; original note context is not replaced with unrelated live source. Superseded jobs cannot publish over the current round. Original correctness output remains historical. Durable finding observations and decisions live separately; absence in a later run does not imply resolution.
 
 ## Frozen context and analysis
 
-[Context capture](../apps/local/src/services/analysis/frozen-context.ts) stores a bounded source view for the captured snapshot. [Snapshot analysis](../apps/local/src/services/analysis/snapshot-analysis.ts), [frozen compiler](../apps/local/src/services/analysis/frozen-compiler.ts), and workspace package resolution produce symbols, references, dependencies, cycles, diagnostics, and related-test information where available.
+[Context capture](../apps/local/src/services/analysis/frozen-context.ts) stores a bounded source view for the captured snapshot. [Worker coordination](../apps/local/src/services/analysis/source-analysis.ts), [snapshot analysis](../apps/local/src/services/analysis/snapshot-analysis.ts), [frozen compiler](../apps/local/src/services/analysis/frozen-compiler.ts), and workspace package resolution produce symbols, references, dependencies, cycles, diagnostics, and related-test information where available.
+
+Frozen compilation runs in a separately bundled Node worker with a 120-second limit, serialized compilation, a small shared request cache, and failure eviction. Development/test use the same worker source through tsx; production uses `.analysis/source-analysis-worker.mjs`. Protected preview/workspace/agent routes return saved state before `after()` schedules background jobs; scheduling no longer prepares frozen context inline.
 
 Read-only tools list/read/search frozen source and expose that analysis. Before/after reads keep the captured sides distinct. JavaScript/TypeScript receives compiler-backed support; arbitrary languages do not have equivalent semantic coverage.
 
@@ -130,11 +142,13 @@ Diagnostics use captured configurations and available source. External declarati
 - AI settings select a shared task model or separate Grouping, Context, Review, and Explain assignments. Grouping mode defaults to never; instructions and connection capacities are configurable.
 - Jobs snapshot settings when created. A context agent can retrieve supporting source for analysis rather than relying solely on changed lines.
 - Large work is budgeted and batched, with persisted checkpoints and bounded format/coverage repair. Incremental grouping can reuse previous round context.
-- Grouping covers each selected file once with rationale, summaries, related paths, and order. The model contract expresses prerequisite-first/test-last intent; validation verifies coverage and paths rather than proving semantic ordering.
+- The initial file-summary phase covers each selected file once with rationale, related paths, and order; precise region organization can then place one file in several flows while owning each changed region once. The contract expresses prerequisite-first/test-last intent; validation verifies coverage and paths rather than proving semantic ordering.
 - Correctness findings require supported severity and exact evidence matching frozen selected change locations. Invalid or incomplete output fails or follows the implemented bounded repair path.
 - Combined and per-finding fix prompts include location/context and ask the downstream agent to evaluate validity before fixing.
 - Chat and explanations stream through their dedicated endpoints and persist supported conversation states. Their model choices are distinct from assigning every background task role.
-- Adapter behavior follows configured capabilities for tools, structured output, context/output limits, and subscription routing.
+- Adapter behavior follows configured capabilities for tools, structured output, context/output limits, and subscription routing; generated schemas use provider-compatible JSON Schema while validating results against the Zod contract.
+- ChatGPT subscription and Vercel Gateway structured calls use `ToolLoopAgent.stream`, an overall 15-minute call timeout, and eight-minute first-content/inactivity limits. Buffered providers use the same overall budget and an eight-minute per-step limit. Explicit completion checks reject truncated/refused/capped responses; user cancellation bypasses format-repair retry. Chat retains its separate timeout policy.
+- Verification includes bounded exact before/after target excerpts and diff context, with tools available for further frozen-source investigation.
 
 Generation/round/hash checks prevent stale writes. Analysis limits are recorded explicitly; evidence validation and successful model output do not certify code correctness.
 
@@ -146,26 +160,31 @@ The analysis function currently limits active execution to two slots and to one 
 
 The existing adaptive process limiter is layered with a shared SQLite admission coordinator in ai-capacity.sqlite beside reviews.sqlite. It tracks queued requests, active slots, process IDs, and one-minute input/output/request reservations, using transactions across repository processes in that data namespace. Matching endpoint/account hashes share capacity without persisting credentials. A total machineConcurrency ceiling defaults to four, and active captured policies use the strictest applicable ceiling. Streaming retains admission through consumption/cancellation. Nested native-context requests reuse the parent slot while reserving their own quota. Dead process slots are reclaimed; usage reservations remain conservative until expiry. Separate data directories and outside clients are independent. Capacity preference changes, including the total ceiling, are rejected while queued/running saved jobs exist. Waiting clients time out without deleting jobs.
 
-Grouping preparation retains terminal fallback to original files. History projects the latest persisted job for each kind and exact review revision without returning model settings or result bodies. Readability and optional correctness state remain separate. Queued priority changes invalidate the previous dispatch and send a replacement with a bounded 120-second scheduling preference. Retries link through retryOf and preserve captured settings/revision/priority. Batch checkpoints are reused only within that retry lineage; an intentional completed-run re-analysis starts fresh. Dispatch generation plus owner-start identity reject old execution after reprioritization or restart. Existing active-view activity feedback is retained; background completion notifications are deferred.
+Grouping preparation retains terminal fallback to original files. History projects the latest persisted job for each kind and exact review revision without returning model settings or result bodies. Readability and optional correctness state remain separate. Queued priority changes invalidate the previous dispatch and send a replacement with a bounded 120-second scheduling preference. Retries link through retryOf and preserve captured settings/revision/priority. Batch checkpoints are reused only within that retry lineage; an intentional completed-run re-analysis starts fresh. Dispatch generation plus owner-start identity reject old execution after reprioritization or restart. Existing active-view activity feedback is retained; background completion notifications use the Group 3 event feed.
 
 ## Local API boundaries
 
 These Next.js routes implement the current local surface; consult their request schemas for exact methods and payloads.
 
-| Route                                        | Responsibility                                                                          |
-| -------------------------------------------- | --------------------------------------------------------------------------------------- |
-| /api/health, /api/session                    | Authenticated discovery/readiness and browser session handoff                           |
-| /api/preview                                 | Current saved preview and legacy CLI transport handoff                                  |
-| /api/workspace                               | Repository metadata, history/search, inspect/open/change/re-sync operations             |
-| /api/workspace/updates                       | Revision polling for external CLI writes                                                |
-| /api/agents                                  | Jobs/results, history, conversation/run mutations, cancellation, and fix-prompt exports |
-| /api/agents/chat, /api/agents/explain        | Snapshot chat/explanation streaming                                                     |
-| /api/agents/settings                         | AI settings reads and validated updates                                                 |
-| /api/ai-test                                 | Provider/model chat testing                                                             |
-| /api/providers, /api/providers/models        | Connection operations and model metadata                                                |
-| /api/providers/subscriptions                 | Subscription sign-in/status/cancel/sign-out                                             |
-| /api/review-preferences, /api/ui-preferences | Persisted review and UI configuration                                                   |
-| /api/inngest                                 | Local worker endpoint and registration                                                  |
+| Route                                        | Responsibility                                                                                      |
+| -------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| /api/health, /api/session                    | Authenticated discovery/readiness and browser session handoff                                       |
+| /api/preview                                 | Current saved preview and legacy CLI transport handoff                                              |
+| /api/workspace                               | Repository metadata, history/search, inspect/open/change/re-sync operations                         |
+| /api/workspace/updates                       | Revision polling for external CLI writes                                                            |
+| /api/agents                                  | Jobs/results, history, conversation/run mutations, cancellation, and fix-prompt exports             |
+| /api/agents/chat, /api/agents/explain        | Snapshot chat/explanation streaming                                                                 |
+| /api/agents/settings                         | AI settings reads and validated updates                                                             |
+| /api/about, /api/notifications               | Version/update diagnostics and persisted local activity                                             |
+| /api/git, /api/project-memory, /api/reports  | Guarded Git actions, explicit guidance, and immutable round reports                                 |
+| /api/providers, /api/providers/models        | Connection operations and model metadata                                                            |
+| /api/providers/subscriptions                 | Subscription sign-in/status/cancel/sign-out                                                         |
+| /api/review-preferences, /api/ui-preferences | Persisted review and UI configuration                                                               |
+| /api/workflow                                | Finding decisions, fix tasks/application, checks/artifacts, verification, usage, and history hiding |
+| /api/project, /api/projects                  | Source/execution policy, data management, and project/worktree discovery                            |
+| /api/precision, /api/review-intent           | Region/flow organization, completion, versioned briefs, and request criteria                        |
+| /api/source-explorer, /api/review-quality    | Frozen navigation/search and deterministic or opt-in live quality reports                           |
+| /api/inngest                                 | Local worker endpoint and registration                                                              |
 
 Session/capability and origin checks protect local operations. Browser APIs expose configured credential state, not saved secrets. The worker uses its distinct runtime capability/signing configuration. Do not expose capability-bearing URLs as public project links.
 
@@ -173,11 +192,11 @@ Session/capability and origin checks protect local operations. Browser APIs expo
 
 TanStack Query owns resource queries/mutations. History uses a 250 ms Pacer debounce. A local workspace revision poll invalidates affected queries after external CLI operations. Preview polling uses the tab's pinned review ID, retaining immutable file objects on metadata updates. Browser actions apply the returned review only to their provider; background creation and another client's shared-default selection do not navigate existing tabs. History polls while open and preserves rows during refresh, including queued controls and rename drafts. Snapshot and job status icons share the title row with rename/delete controls; full status details and icon actions have hover/focus tooltips and accessible labels.
 
-The diff workspace composes files/notes, central canvas, and Agents panels with responsive drawers. Persisted UI preferences include application/editor themes, fonts, view/options, panel sizes, and buddy configuration. Pending preference mutations overlay confirmed data to avoid older responses undoing newer input.
+The diff workspace composes files/notes, central canvas, and Agents panels with responsive drawers, focused reading, grouped toolbar actions, and a command palette. File overview orders summary, impact, and symbols; completion tints surrounding surfaces without replacing the diff background. Shared collapsibles animate height/opacity, and confined lists/toolbars use scroll fades; the search Input variant is transparent, edge-to-edge, and vertically bordered. Persisted UI preferences include application/editor themes, fonts, view/options, panel sizes, and buddy configuration. Pending preference mutations overlay confirmed data to avoid older responses undoing newer input.
 
 Settings use reusable section/screen definitions, breadcrumbs, and optional headerActions. The header parent uses `flex items-center gap-2 min-w-0`, title wrapper `flex-1 min-w-0`, and actions wrapper `shrink-0`. Provider navigation from AI settings passes the full section so those actions remain.
 
-[useKeyboardShortcuts](../packages/ui/src/hooks/use-keyboard-shortcuts.ts) wraps TanStack registration, shared/per-binding options, repeat/overlay policy, and an unmount AbortSignal. Native `ignoreInputs: true` supplies input filtering, including shadow inputs. Accepted events apply configured preventDefault/propagation behavior. K opens file search; D completes; arrows navigate; R/brackets handle saved history; the shared sidebar uses Mod+B.
+[useKeyboardShortcuts](../packages/ui/src/hooks/use-keyboard-shortcuts.ts) wraps TanStack registration, shared/per-binding options, repeat/overlay policy, and an unmount AbortSignal. Native `ignoreInputs: true` supplies input filtering, including shadow inputs. Accepted events apply configured preventDefault/propagation behavior. K opens file search; D completes; arrows navigate; R/brackets handle saved history; Mod+K opens commands and F toggles focused reading. Workspace-specific note/Git/report/context/round/new-review/re-sync bindings live in `use-workspace-toolbar-shortcuts.ts`; the shared sidebar uses Mod+B.
 
 Do not restore the removed custom text-input detector. [Hotkey research](tanstack-hotkeys-input-research.md) records version-specific behavior.
 
@@ -214,7 +233,7 @@ The CLI package is private and not published at this baseline. Normal data lives
 
 `packages/review-core/src/features/workflow` owns persistence, conservative finding matching, revision guards, manual decisions, exact check linkage, task ownership/transitions, source materialization, process supervision, source/provider policy, usage admission, project discovery, and retention. The root-scoped Next APIs `/api/workflow`, `/api/project`, and `/api/projects` share existing local capability/origin protection. Source context remains frozen and source-policy-checked. Browser hooks own their TanStack Query configuration in feature hook files. Finding observation matching consumes at most one distinct location per finding per job, preserves exact replay identity, and prefers unambiguous locations across runs.
 
-Managed source uses a detached `git worktree add --no-checkout`, bounded allowed Git objects, and full captured working-tree overlays from `syncBaseline` when available, including unchanged dirty helpers and deletions outside the current round diff, with SHA/mode manifests and a separate index. Source is limited to 20 MiB; unsupported/missing inputs fail explicitly. Binary execution bytes require an exact available hash. Worktrees share Git objects and host access. Current-worktree tasks require explicit selection and fresh identity; managed application checks destinations, preserves modes/index, and rolls back only bytes written by that application when possible. Task return explicitly rejects file-mode changes, including mode-only edits and newly executable files, instead of silently omitting them. Application and re-sync share the workspace operation queue.
+Managed source uses a detached `git worktree add --no-checkout`, streamed policy-permitted Git blobs, and full captured working-tree overlays from `syncBaseline` when available, including unchanged dirty helpers and deletions outside the current round diff, with SHA/mode manifests and a separate index. The 20 MiB serialized review snapshot limit is not an aggregate execution-tree limit: unchanged tracked files stream through `git cat-file --batch` with raw SHA-256/mode manifests, and unchanged large assets are compared by streaming digest before loading task return text. Changed returned text retains its 1 MiB bound; binary source overlays still require exact available hashes and their own bound, while unsupported/missing inputs fail explicitly. Worktrees share Git objects and host access. Current-worktree tasks require explicit selection and fresh identity; managed application checks destinations, preserves modes/index, and rolls back only bytes written by that application when possible. Task return explicitly rejects file-mode changes, including mode-only edits and newly executable files, instead of silently omitting them. Application and re-sync share the workspace operation queue.
 
 The command supervisor owns a shell process group, streams bounded output, and terminates child work on cancellation, timeout, or parent disconnection. Standard tool/runtime environment variables are allowlisted; application/provider credentials are not injected. Result metadata includes dependency manifests/installed metadata, selected artifacts, exact source side, and revision. Modifying captured inputs invalidates a pass. Filesystem inventory comparison detects restored deleted files and staged additions independently of the mutable Git index and ignore rules; dependency/build outputs and explicitly selected generated artifacts remain excluded from additional-source detection. Automatic cleanup uses the same comparison. Artifact downloads recheck recorded hashes and current policy; cleanup can make old artifact bytes unavailable while retaining metadata.
 
@@ -222,7 +241,7 @@ Inngest registers check and verification functions alongside existing analysis. 
 
 Model middleware applies current source/local-only policy before every supported model request, reserves review token/time allowances transactionally, and records measured usage at completion. Active requests recheck shared persisted accounting against one aggregate request-time allowance, including requests admitted by another store connection; completion releases their active time contribution into measured duration. Unknown reservations remain conservative. Saved analysis captures Quick/Thorough depth; retries retain it, and incremental grouping requires compatible source, settings, and depth. Source-policy changes block old conversation continuation and excluded original finding evidence. Models without reliable pricing keep cost unknown; no invented zero charge or dollar budget is shown.
 
-The browser adds finding filters/decisions/history, round comparison, task/change review, command logs/artifacts, verification history, context/routing inspection, project switching, source/privacy/usage settings, and shadcn/Recharts usage charts. Notes are contiguous padded rows. The Pierre 1.5.2 React adapter reapplies controlled selection after `onPostRender`; a parent layout effect reapplies `activeLineSide` after that synchronization so split selection stays on its initiating side. Real-renderer tests cover pointer-down, multi-line drag, release, and rerender on both columns.
+The browser adds finding filters/decisions/history, round comparison, task/change review, command logs/artifacts, verification history, context/routing inspection, project switching, source/privacy/usage settings, and shadcn/Recharts usage charts. Work uses full-width icon tabs; creating a task or verification emits feedback and selects its tab. Apply has a shared pending state, duplicate-submit guard, LoadingSwap, and outcome toasts; verification findings have status/tooltips plus nested evidence, while checks default only Output open. History removal persists hidden finished IDs in review/kind preferences, preserves evidence, and rejects active-item removal. Notes are contiguous padded rows. The Pierre 1.5.2 React adapter reapplies controlled selection after `onPostRender`; a parent layout effect reapplies `activeLineSide` after that synchronization so split selection stays on its initiating side. Real-renderer tests cover pointer-down, multi-line drag, release, and rerender on both columns.
 
 The bundled agent skill and CLI support explicit finding/task/check/verification/round/usage operations. External-agent launch adapters remain optional; the implemented integration is copy/export plus claim/return/apply through the authenticated original project. The expanded precision corpus and comparison harness separate deterministic contracts from opt-in live findings/grouping judgments. Real-provider diagnosis quality remains unmeasured in this delivery.
 
@@ -230,7 +249,7 @@ The bundled agent skill and CLI support explicit finding/task/check/verification
 
 `packages/contracts/src/precision.ts` defines units/ranges/flows, organization actions, briefs, criteria/evidence, rules/profiles/provenance, language capabilities, and relationships. SQLite v7 adds round-keyed `review_precision` and append-only `review_briefs` with review foreign-key cleanup. Shared arrays define enum values. Existing file completion and unit completion synchronize atomically; organization writes guard both source identity and organization version.
 
-`PrecisionStore` lazily derives exact diff regions, migrates matching saved file grouping/completion, validates unique ownership, and supports manual organization. Reconciliation retains only unambiguous source matches, including manually split/combined unchanged ranges; changed or ambiguous ownership requires review. Model region grouping runs after existing file summaries, validates supplied region IDs, and falls back with visible limitations. Publishing and persistence share the existing job transaction; manual organization survives ordinary regrouping until explicitly reset.
+`PrecisionStore` lazily derives exact diff regions, migrates matching saved file grouping/completion, validates unique ownership, and supports manual organization. Reconciliation retains only unambiguous source matches, including manually split/combined unchanged ranges; changed or ambiguous ownership requires review. Model region grouping runs after existing file summaries, validates supplied region IDs, and falls back to file-based organization with inspectable limitation metadata; the main canvas omits the redundant standalone warning row. Publishing and persistence share the existing job transaction; manual organization survives ordinary regrouping until explicitly reset.
 
 `ReviewIntent` stores brief versions and validates exact source excerpts. Criteria become verified only through their explicitly linked passing changed-side checks for the same hash/round, with source-changing checks excluded. The job captures its brief and effective instructions after frozen context loads; retries retain that capture. Rule precedence is built-in, root, nested subtree, local project, then one-review override. Per-path profile scopes and rule provenance are passed as explicit instructions, separate from untrusted source/documents.
 
@@ -254,4 +273,18 @@ Hosted development uses its own configured environment and services. Local revie
 
 See [checklist.md](checklist.md) for the current verification ledger and [README](../README.md) for commands. Local source/fixture tests, typechecks, opt-in process/package tests, real provider checks, and human browser exploration are different evidence.
 
-Future completion notifications, general Git mutations, and report generation are described in the [roadmap](local-review-roadmap.md). Group 1 finding decisions, verification, task application, and explicit check execution are committed on `feat/fix-verify`. Further implementation must extend the existing identities, storage, and lifecycle rather than silently substituting the old hosted design.
+Group 3 uses review-core modules for project memory, Git/checkpoints, reports, notifications, and updates, with shared contracts and protected local APIs. SQLite format 8 adds report/event/Git/checkpoint/lease records; existing databases receive a pre-migration backup. Git leases share the common Git directory and dead-owner recovery. Staged candidate identity, hook guards, and outgoing object identity prevent stale approval; pulls use ff-only without automatic stashing. The terminal pre-push wrapper replays existing hook input before evaluating the same checkpoint policy.
+
+Reports store immutable captured-round outcome versions; HTML escapes authored content with a restrictive CSP. Evidence and exports apply current source policy. Browser form drafts use tab-local state plus a restart backup, bounded size and 30-day expiry; successful submissions clear them, and note cancellation also clears its draft. Notifications require browser permission, category opt-in, event cursors, and atomic server-side event claims; Web Locks serialize local delivery when available, with direct delivery using the same claims otherwise. Notification-worker preparation has a ten-second timeout; browser submission itself is awaited without a misleading timeout because it cannot be canceled. Completion events are recorded at job publication/failure, without requiring a later rename; the minimal service worker handles click navigation without source caching or a remote push service.
+
+Update checks use the stable @senslop/cli npm registry release with bounded requests and cached availability. Installation supports detected global npm/pnpm copies, validates a pinned version, rejects active work/running owners, backs up SQLite, and invokes argument-based package-manager commands after explicit confirmation. Source/archive copies do not self-replace. About owns diagnostics; `/ai-test` and its inference helper are retired. Fixed input-aware hotkeys remain; configurable shortcuts and publishing are deferred.
+
+## Review-defect corrections — October 26, 2026
+
+The follow-up source baseline `6d3fde6` corrects checkpoint, report, memory, update, and browser-state defects without expanding the approved product scope. Checkpoints resolve the configured push destination, inspect the complete tip against the empty tree for new branches when history is disabled, and match unresolved findings across saved reviews/rounds against exact outgoing file hashes. Check evidence uses raw-byte hashes for both binary and text content; Git blob digests stream independently of the former 25 MiB buffer bound. Whole-file rename unstaging restores both index paths, and exact-object pushes explicitly configure tracking for the local branch after success.
+
+Project guidance resolves its origin within the common Git project, and queued memory autosaves advance their version from each server response even after settings close. Reports prefer job-captured briefs or inherited earlier-round briefs, retain verification evidence paths, and apply current policy to reads/exports, including older pathless verification records. The report dialog resets revision-specific selection and rejects cross-review report data.
+
+Notification claims are renewable two-minute leases, distinct from a completed delivery acknowledgement; abandoned leases can be recovered, and pending claims elsewhere do not advance the browser cursor. Delivery retries every three seconds even when polling returns structurally identical data. Explicit valid Work-tab links override saved tab selection, while view-state restoration uses a matching server/hydration snapshot before reading browser storage. Global-install detection resolves the executable real path before classifying the package manager.
+
+The [verification ledger](checklist.md#review-findings-follow-up--october-26-2026) records focused regressions and the full-suite result; no live notification banner or provider inference was exercised by this follow-up.

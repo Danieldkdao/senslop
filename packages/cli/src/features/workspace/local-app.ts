@@ -1,3 +1,10 @@
+import cliPackage from "../../../package.json";
+import {
+  detectInstallation,
+  compareReleaseVersions,
+  installRelease,
+} from "@senslop/review-core/updates";
+import { LocalStore } from "@senslop/review-core/storage";
 import { fork } from "node:child_process";
 import { createRequire } from "node:module";
 import { randomBytes, randomUUID } from "node:crypto";
@@ -179,6 +186,15 @@ export const startLocalApp = async ({
       NEXT_TELEMETRY_DISABLED: "1",
       HOSTNAME: "127.0.0.1",
       PORT: String(port),
+      SENSLOP_APP_VERSION: cliPackage.version,
+      SENSLOP_INSTALLATION: development
+        ? "source"
+        : detectInstallation(process.argv[1] ?? ""),
+      SENSLOP_CLI_COMMAND: JSON.stringify([
+        process.execPath,
+        ...process.execArgv,
+        process.argv[1],
+      ]),
       SENSLOP_LOCAL_STARTED_AT: new Date().toISOString(),
       SENSLOP_LOCAL_ORIGIN: origin,
       SENSLOP_LOCAL_TOKEN: token,
@@ -209,6 +225,7 @@ export const startLocalApp = async ({
   const cleanup = async (error?: Error) => {
     if (ended) return;
     ended = true;
+    if (updateTimer) clearInterval(updateTimer);
     signal?.removeEventListener("abort", onAbort);
     await engine?.stop().catch(() => {});
     await write.catch(() => {});
@@ -230,7 +247,10 @@ export const startLocalApp = async ({
             ),
       ).catch(fail),
   );
+  let updateTimer: ReturnType<typeof setInterval> | undefined;
+  let updating = false;
   const stop = async () => {
+    if (updateTimer) clearInterval(updateTimer);
     if (!stopping && !ended) {
       stopping = true;
       await engine?.stop().catch(() => {});
@@ -311,6 +331,46 @@ export const startLocalApp = async ({
             );
         }
         await publishWorkspaceSession(userData, session);
+        updateTimer = setInterval(() => {
+          if (updating || stopping || ended) return;
+          updating = true;
+          void (async () => {
+            let local: LocalStore | undefined;
+            try {
+              local = new LocalStore(join(userData, "reviews.sqlite"));
+              const key = `pending_update:${repositoryRoot}`;
+              const row = local.database
+                .prepare("SELECT value FROM preferences WHERE name=?")
+                .get(key);
+              if (!row) return;
+              local.database
+                .prepare("DELETE FROM preferences WHERE name=?")
+                .run(key);
+              const request = JSON.parse(String(row.value)) as {
+                version: string;
+              };
+              compareReleaseVersions(request.version, request.version);
+              await stop();
+              await installRelease(
+                local,
+                join(userData, "reviews.sqlite"),
+                detectInstallation(process.argv[1] ?? ""),
+                request.version,
+              );
+              process.stderr.write(
+                "Senslop updated. Run senslop app start to reopen your saved workspace.\n",
+              );
+            } catch (error) {
+              process.stderr.write(
+                `Update failed: ${(error as Error).message}\n`,
+              );
+            } finally {
+              local?.close();
+              updating = false;
+            }
+          })();
+        }, 1000);
+        updateTimer.unref();
         return {
           origin,
           url: `${origin}/api/session?token=${token}`,

@@ -4,6 +4,14 @@ import {
   findingSchema,
   groupingSchema,
 } from "../../features/agents/schemas";
+import { findingCategories, reviewProfiles } from "@senslop/contracts";
+
+// Strict providers require every generated field; defaults retain legacy parsing.
+const generatedFindingSchema = findingSchema.extend({
+  ruleIds: z.array(z.string()).default([]),
+  profiles: z.array(z.enum(reviewProfiles)).default([]),
+  category: z.enum(findingCategories).default("uncategorized"),
+});
 
 export const groupingRepairGroupSchema = groupingSchema.shape.groups.element
   .omit({ files: true })
@@ -36,7 +44,7 @@ export const placementRepairSchema = groupingRepairSchema.extend({
 export type PlacementRepairSchema = z.infer<typeof placementRepairSchema>;
 export const reviewFileSchema = z.object({
   path: z.string().min(1).max(4096),
-  findings: z.array(findingSchema).max(300),
+  findings: z.array(generatedFindingSchema).max(300),
 });
 export type ReviewFileSchema = z.infer<typeof reviewFileSchema>;
 export const reviewBatchSchema = correctnessSchema
@@ -62,7 +70,7 @@ export type CreateReviewBatchSchema = z.infer<
 >;
 export const reviewRepairFindingSchema = z.object({
   id: z.string().min(1).max(80),
-  finding: findingSchema.nullable(),
+  finding: generatedFindingSchema.nullable(),
 });
 export type ReviewRepairFindingSchema = z.infer<
   typeof reviewRepairFindingSchema

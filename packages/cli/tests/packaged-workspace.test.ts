@@ -1,5 +1,10 @@
 import { afterEach, expect, test } from "vitest";
-import { execFile, spawn, type ChildProcess } from "node:child_process";
+import {
+  execFile,
+  spawn,
+  type ChildProcess,
+  type ExecFileOptions,
+} from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 import { once } from "node:events";
@@ -19,11 +24,26 @@ import { promisify } from "node:util";
 import { setTimeout as sleep } from "node:timers/promises";
 
 import { LocalStore } from "@senslop/review-core/storage";
-import { applicationDataDirectory } from "../src/features/workspace/local-app";
 import { ProviderService } from "../../../apps/local/src/features/providers/lib/provider-service";
 import { osCredentials } from "../../../apps/local/src/services/credentials/os-credentials";
 
-const execute = promisify(execFile);
+const executeFile = promisify(execFile);
+const execute = (
+  file: string,
+  args: string[],
+  options: Omit<ExecFileOptions, "encoding"> = {},
+) =>
+  executeFile(file, args, {
+    ...options,
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      PATH: `${join(scratch!, "bin")}:${process.env.PATH}`,
+      SENSLOP_BROWSER_TEST_OUTPUT: join(scratch!, "browser-open.txt"),
+      SENSLOP_DATA_DIRECTORY: join(scratch!, "data"),
+      ...options.env,
+    },
+  });
 const children = new Set<ChildProcess>();
 let scratch: string | undefined;
 const fixtureRepositories = new Set<string>();
@@ -39,9 +59,7 @@ afterEach(async () => {
   }
   children.clear();
   if (fixtureRepositories.size) {
-    const store = new LocalStore(
-      join(applicationDataDirectory(), "reviews.sqlite"),
-    );
+    const store = new LocalStore(join(scratch!, "data", "reviews.sqlite"));
     try {
       const service = new ProviderService(store, osCredentials);
       if (
@@ -74,6 +92,7 @@ const start = (cli: string, cwd: string, args: string[]) =>
         PATH: `${join(scratch!, "bin")}:${process.env.PATH}`,
         SENSLOP_BROWSER_TEST_OUTPUT: join(scratch!, "browser-open.txt"),
         TMPDIR: scratch,
+        SENSLOP_DATA_DIRECTORY: join(scratch!, "data"),
       },
       stdio: ["ignore", "pipe", "pipe"],
     });
@@ -142,6 +161,8 @@ packageTest(
       true,
     );
     expect(paths.some((path) => path.includes(".next/static/"))).toBe(true);
+    expect(paths).toContain("dist/local-app/node_modules/react/index.js");
+    expect(paths).toContain("dist/local-app/node_modules/react-dom/index.js");
     expect(paths.some((path) => path.includes("/route-cache/"))).toBe(false);
     expect(
       paths.some((path) =>
@@ -197,7 +218,7 @@ packageTest(
       const cookie = session.headers.get("set-cookie")!.split(";")[0]!;
       expect(session.headers.get("set-cookie")).toContain("HttpOnly");
       const headers = { Cookie: cookie };
-      await execute(
+      const created = await execute(
         process.execPath,
         [cli, "reviews", "create", ...mode, "--no-group", "--json"],
         { cwd: repo, timeout: 30000 },
@@ -209,7 +230,9 @@ packageTest(
       expect(html).toContain("New review");
       expect(html).toContain("Use the New review button");
       expect(html).not.toContain("Open account menu");
-      const response = await fetch(`${origin}/api/preview`, { headers });
+      const createdReview = JSON.parse(created.stdout) as { id: string };
+      const previewUrl = `${origin}/api/preview?id=${createdReview.id}`;
+      const response = await fetch(previewUrl, { headers });
       const snapshot = (await response.json()) as {
         files: { path: string; after: string }[];
       };
@@ -217,7 +240,7 @@ packageTest(
       expect(snapshot.files[0].after).toContain(index === 0 ? "= 3" : "= 2");
       expect(
         (
-          await fetch(`${origin}/api/preview`, {
+          await fetch(previewUrl, {
             headers: {
               ...headers,
               "If-None-Match": response.headers.get("etag")!,
@@ -227,7 +250,7 @@ packageTest(
       ).toBe(304);
       expect(
         (
-          await fetch(`${origin}/api/preview`, {
+          await fetch(previewUrl, {
             headers: { ...headers, Origin: "https://evil.example" },
           })
         ).status,
@@ -351,7 +374,7 @@ packageTest(
       ).history,
     ).toEqual([]);
     const refreshed = await (
-      await fetch(`${origin}/api/preview`, { headers })
+      await fetch(`${origin}/api/preview?id=${browserId}`, { headers })
     ).json();
     expect(refreshed.notes).toEqual([note]);
     expect(refreshed.completedPaths).toEqual(["sample.ts"]);
@@ -464,8 +487,7 @@ packageTest(
       expect(probeRequests).toBe(2);
       expect((await fetch(`${origin}/ai-test`)).status).toBe(403);
       const aiPage = await fetch(`${origin}/ai-test`, { headers });
-      expect(aiPage.status).toBe(200);
-      expect(await aiPage.text()).toContain("AI test");
+      expect(aiPage.status).toBe(404);
       const catalog = await fetch(
         `${origin}/api/providers/models?connectionId=${connectionId}`,
         { headers },
@@ -477,13 +499,12 @@ packageTest(
         ],
         source: "live",
       });
-      const reply = await post("/api/ai-test", {
-        connectionId,
-        modelId: "packaged-model",
-        messages: [{ role: "user", content: "Test packaged inference" }],
+      const removedTestApi = await fetch(`${origin}/api/ai-test`, {
+        method: "POST",
+        headers,
       });
-      expect(reply).toEqual({ text: "Packaged AI fixture response" });
-      expect(inferenceRequests).toBe(1);
+      expect(removedTestApi.status).toBe(404);
+      expect(inferenceRequests).toBe(0);
 
       const settingsPage = await fetch(`${origin}/settings/providers`, {
         headers,
@@ -508,7 +529,9 @@ packageTest(
       Cookie: restartSession.headers.get("set-cookie")!.split(";")[0]!,
     };
     const restored = await (
-      await fetch(`${restartOrigin}/api/preview`, { headers: restartHeaders })
+      await fetch(`${restartOrigin}/api/preview?id=${browserId}`, {
+        headers: restartHeaders,
+      })
     ).json();
     expect(restored).toMatchObject({
       id: browserId,

@@ -46,8 +46,7 @@
 
 .pip-motion,
 .pip-sprite,
-.pip-sprite-canvas,
-.pip-sprite-fallback {
+.pip-sprite-canvas {
   display: block;
   width: var(--buddy-size);
   height: var(--buddy-size);
@@ -65,11 +64,6 @@
 }
 .pip-sprite-canvas {
   position: relative;
-}
-.pip-sprite-fallback {
-  position: absolute;
-  inset: 0;
-  background-size: 400% 400%;
 }
 
 .pip-motion[data-mood="idle"] {

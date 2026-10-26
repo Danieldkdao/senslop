@@ -121,6 +121,7 @@ const revision = async (cwd: string, input: string) => {
 export const secretReason = (path: string): string | null => {
   const parts = path.split("/");
   const name = parts.at(-1)!;
+  const credentialModule = /^credentials\.(?:[cm]?[jt]sx?|py|go)$/i.test(name);
   const reviewConfig =
     name === "review.json" &&
     parts.at(-2) === ".senslop" &&
@@ -128,7 +129,8 @@ export const secretReason = (path: string): string | null => {
   if (
     (/^\.env(?:\.|$)/i.test(name) &&
       !/^\.env\.(example|sample|template)$/i.test(name)) ||
-    /^(credentials(?:\..*)?|id_(rsa|dsa|ecdsa|ed25519)(?:\.pub)?|\.npmrc|\.pypirc|\.netrc|\.git-credentials)$/i.test(
+    (/^credentials(?:\..*)?$/i.test(name) && !credentialModule) ||
+    /^(id_(rsa|dsa|ecdsa|ed25519)(?:\.pub)?|\.npmrc|\.pypirc|\.netrc|\.git-credentials)$/i.test(
       name,
     ) ||
     /\.(pem|p12|pfx|key)$/i.test(name) ||
@@ -216,7 +218,9 @@ export const readBlobBatch = async (
     const entry = entries.get(path);
     if (!entry) continue;
     const [mode, type, id, length] = entry;
-    if (mode === "120000" || type !== "blob") {
+    // Symlinks are excluded source, never execution inputs or link targets.
+    if (mode === "120000") continue;
+    if (type !== "blob") {
       if (includeBinary) unavailable.push(path);
       continue;
     }
@@ -270,6 +274,7 @@ export const localBytes = async (
   root: string,
   path: string,
   byteLimit: number = SNAPSHOT_LIMITS.fileBytes,
+  digestOnly = false,
 ) => {
   const absolute = resolve(root, path);
   if (
@@ -306,8 +311,14 @@ export const localBytes = async (
       };
     if (!stat.isFile())
       return { bytes: null, unsupported: "unsupported filesystem entry" };
-    checkFileSize(stat.size, path, byteLimit);
+    if (!digestOnly) checkFileSize(stat.size, path, byteLimit);
     handle = await open(absolute, constants.O_RDONLY | constants.O_NOFOLLOW);
+    if (digestOnly) {
+      const hash = createHash("sha256");
+      for await (const chunk of handle.createReadStream({ autoClose: false }))
+        hash.update(chunk);
+      return { bytes: null, unsupported: null, hash: hash.digest("hex") };
+    }
     const bytes = await handle.readFile();
     checkFileSize(bytes.length, path, byteLimit);
     return { bytes, unsupported: null };

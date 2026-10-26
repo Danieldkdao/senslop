@@ -1,4 +1,5 @@
 "use client";
+import { RememberDecision } from "../../memory/components/remember-decision";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -38,17 +39,21 @@ import {
   formatActivityTime,
 } from "../lib/formatters";
 import type { WorkflowActionSchema } from "../schemas";
+import { WorkflowChevron } from "./workflow-disclosure";
+import type { ReactNode } from "react";
 import { ManualVerification } from "./manual-verification";
 
 const reasonSchema = z.object({ reason: z.string().max(5000) });
 export type ReasonSchema = z.infer<typeof reasonSchema>;
 export const FindingControls = ({
   finding,
+  children,
   onAction,
   review,
   allFindings = [],
 }: {
   finding: TrackedFindingSchema;
+  children?: ReactNode;
   allFindings?: TrackedFindingSchema[];
   review?: ReviewIdentitySchema;
   onAction: (operation: WorkflowActionSchema) => Promise<unknown>;
@@ -96,10 +101,10 @@ export const FindingControls = ({
         >
           <SelectTrigger
             aria-label="Finding decision"
-            className="w-full text-base"
+            className="w-full min-w-0 flex-1 text-base"
           >
-            <SelectValue>
-              <display.Icon aria-hidden="true" className="size-4" />
+            <SelectValue className="flex items-center gap-2">
+              <display.Icon aria-hidden="true" className="size-5 shrink-0" />
               {display.label}
             </SelectValue>
           </SelectTrigger>
@@ -108,15 +113,17 @@ export const FindingControls = ({
               const item = formatFindingDecision(value);
               return (
                 <SelectItem key={value} value={value} className="text-base">
-                  <item.Icon aria-hidden="true" className="size-4" />
-                  {item.label}
+                  <span className="flex items-center gap-2">
+                    <item.Icon aria-hidden="true" className="size-5 shrink-0" />
+                    {item.label}
+                  </span>
                 </SelectItem>
               );
             })}
           </SelectContent>
         </Select>
         <Popover open={open} onOpenChange={setOpen}>
-          <TooltipWrapper content="Add optional reason">
+          <TooltipWrapper content="Explain your finding decision">
             <PopoverTrigger
               render={
                 <Button
@@ -156,6 +163,17 @@ export const FindingControls = ({
           </PopoverContent>
         </Popover>
         <ManualVerification findingId={finding.id} onAction={onAction} />
+        {review &&
+          finding.decision !== "open" &&
+          finding.observations.at(-1) && (
+            <RememberDecision
+              review={review}
+              text={finding.history.at(-1)?.reason ?? ""}
+              path={finding.observations.at(-1)!.evidence.path}
+              originId={finding.id}
+              originKind="finding"
+            />
+          )}
         {assessment && (
           <TooltipWrapper
             content={`${assessment.label}: ${currentAssessment ? finding.assessment!.explanation : "No assessment for this round"}`}
@@ -169,10 +187,11 @@ export const FindingControls = ({
           </TooltipWrapper>
         )}
       </div>
+      {children}
       <Collapsible>
-        <CollapsibleTrigger className="flex items-center gap-2 text-base text-muted-foreground">
+        <CollapsibleTrigger className="flex w-full items-center gap-2 text-base text-muted-foreground">
           <History aria-hidden="true" className="size-4" />
-          Activity ({finding.history.length})
+          Activity ({finding.history.length})<WorkflowChevron />
         </CollapsibleTrigger>
         <CollapsibleContent>
           <ol className="flex flex-col gap-3 border-l pl-3 pt-3">

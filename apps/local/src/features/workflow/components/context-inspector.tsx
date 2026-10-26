@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ShieldCheck, Check } from "lucide-react";
+import { Database, Check } from "lucide-react";
 import type { ReviewIdentitySchema } from "@senslop/contracts";
 import { Button } from "@/components/ui/button";
 import { FileIcon } from "@/components/file-icon";
@@ -32,7 +32,7 @@ export const ContextInspector = ({
   const context = useReviewContext(review, open, path);
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <TooltipWrapper content="Captured context & model routing">
+      <TooltipWrapper content="Captured context & model routing (I)">
         <PopoverTrigger
           render={
             <Button
@@ -42,7 +42,7 @@ export const ContextInspector = ({
             />
           }
         >
-          <ShieldCheck aria-hidden="true" className="size-5" />
+          <Database aria-hidden="true" className="size-5" />
         </PopoverTrigger>
       </TooltipWrapper>
       <PopoverContent className="flex max-h-[75vh] w-[32rem] max-w-[calc(100vw-2rem)] flex-col gap-3 overflow-y-auto text-base">

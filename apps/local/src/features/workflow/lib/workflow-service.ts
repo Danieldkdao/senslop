@@ -10,6 +10,7 @@ import { UsageStore } from "@senslop/review-core/usage";
 import { FixTasks } from "@senslop/review-core/fix-tasks";
 import { VerificationStore } from "@senslop/review-core/verification";
 import { AgentStore } from "../../agents/lib/agent-store";
+import { hiddenWorkflowHistory } from "./workflow-history";
 
 export const readWorkflow = (
   store: LocalStore,
@@ -62,8 +63,17 @@ export const readWorkflow = (
         .map((name) => `${manager} run ${name}`);
     }
   } catch {}
+  const hiddenTasks = hiddenWorkflowHistory(store, reviewId, "tasks");
+  const hiddenChecks = hiddenWorkflowHistory(store, reviewId, "checks");
+  const hiddenVerifications = hiddenWorkflowHistory(
+    store,
+    reviewId,
+    "verification",
+  );
   return {
-    verifications: new VerificationStore(store, repository).list(reviewId),
+    verifications: new VerificationStore(store, repository)
+      .list(reviewId)
+      .filter((item) => !hiddenVerifications.has(item.id)),
     suggestedCommands,
     findings: workflow.findings(reviewId),
     rounds: workflow
@@ -75,8 +85,12 @@ export const readWorkflow = (
         createdAt,
         updatedAt,
       })),
-    tasks: new FixTasks(store, repository).list(reviewId),
-    checks: new CheckRunner(store, repository, "").list(reviewId),
+    tasks: new FixTasks(store, repository)
+      .list(reviewId)
+      .filter((item) => !hiddenTasks.has(item.id)),
+    checks: new CheckRunner(store, repository, "")
+      .list(reviewId)
+      .filter((item) => !hiddenChecks.has(item.id)),
     policy: readReviewPolicy(store, repository, reviewId),
     usage: new UsageStore(store, repository).list(reviewId),
   };

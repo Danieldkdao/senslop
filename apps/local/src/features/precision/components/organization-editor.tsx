@@ -82,7 +82,10 @@ const SplitRegion = ({
       </label>
       {errors.line && <p role="alert">{errors.line.message}</p>}
       <Button type="submit" variant="outline" disabled={isSubmitting}>
-        <LoadingSwap isLoading={isSubmitting}>
+        <LoadingSwap
+          isLoading={isSubmitting}
+          className="flex items-center justify-center gap-2"
+        >
           <Scissors className="size-4" />
           Split region
         </LoadingSwap>

@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { listNotifications } from "@senslop/review-core/notifications";
 import { LocalStore } from "@senslop/review-core/storage";
 import { saveProjectPolicy } from "@senslop/review-core/policy";
 import { projectPolicySchema } from "@senslop/contracts";
@@ -61,6 +62,23 @@ const fixture = async () => {
     databasePath,
   };
 };
+
+test("stopping preparation before dispatch records a revision-specific cancellation", async () => {
+  const { local, review, agents } = await fixture();
+  try {
+    const job = agents.cancelGrouping(review.id, review.hash, review.round);
+    expect(job.status).toBe("canceled");
+    expect(agents.jobs(review.id)).toHaveLength(1);
+    expect(agents.cancelGrouping(review.id, review.hash, review.round).id).toBe(
+      job.id,
+    );
+    expect(() =>
+      agents.cancelGrouping(review.id, "stale", review.round),
+    ).toThrow(/changed/);
+  } finally {
+    local.close();
+  }
+});
 
 test("capacity settings lock across repositories and remain frozen in saved runs", async () => {
   const { local, review, agents, databasePath } = await fixture();
@@ -739,6 +757,34 @@ test("source policy changes preserve conversation history but require a new conv
       }),
     ).toThrow(/policy/i);
     expect(agents.conversation(conversation.id)).not.toBeNull();
+  } finally {
+    local.close();
+  }
+});
+
+test("published analysis and failures emit completion activity without requiring a rename", async () => {
+  const { local, review, agents } = await fixture();
+  try {
+    const job = agents.createJob(review.id, "review");
+    expect(
+      agents.publish(job.id, {
+        findings: [],
+        limitations: [],
+        fixAllPrompt: "No fixes needed.",
+      }),
+    ).toBe(true);
+    expect(listNotifications(local, "/repo", 0)).toEqual([
+      expect.objectContaining({ kind: "review", reviewId: review.id }),
+    ]);
+    agents.renameReview(job.id, "Renamed findings");
+    expect(listNotifications(local, "/repo", 0)).toHaveLength(1);
+    const failed = agents.createJob(review.id, "review");
+    agents.failJob(failed.id, "Provider unavailable");
+    expect(listNotifications(local, "/repo", 0)).toHaveLength(2);
+    expect(listNotifications(local, "/repo", 0)[1]?.kind).toBe("attention");
+    const canceled = agents.createJob(review.id, "review");
+    agents.updateJob(canceled.id, { status: "canceled" });
+    expect(listNotifications(local, "/repo", 0)).toHaveLength(2);
   } finally {
     local.close();
   }

@@ -122,44 +122,49 @@ export const LivePreviewProvider = ({ children }: { children: ReactNode }) => {
           sessionStorage.getItem("senslop:last-review");
         initialized.current = true;
       }
-      const response = await fetch(
-        selectedReview.current
-          ? `/api/preview?id=${encodeURIComponent(selectedReview.current)}`
-          : "/api/preview",
-        {
-          cache: "no-store",
-          signal: AbortSignal.any([
-            ...(signal ? [signal] : []),
-            AbortSignal.timeout(localRequestTimeoutMs),
-          ]),
-          headers:
-            !force && etag.current ? { "If-None-Match": etag.current } : {},
-        },
-      );
-      if (signal?.aborted || started !== epoch.current) {
-        await response.body?.cancel().catch(() => {});
-        return;
-      }
-      if (!response.ok && response.status !== 304) {
-        const failure = (await response.json().catch(() => null)) as {
-          message?: string;
-        } | null;
-        throw new LocalPreviewRequestError(
-          failure?.message ??
-            "The local app is unavailable. Keep your CLI running or restart it. Check application-data permissions and retry.",
+      try {
+        const response = await fetch(
+          selectedReview.current
+            ? `/api/preview?id=${encodeURIComponent(selectedReview.current)}`
+            : "/api/preview",
+          {
+            cache: "no-store",
+            signal: AbortSignal.any([
+              ...(signal ? [signal] : []),
+              AbortSignal.timeout(localRequestTimeoutMs),
+            ]),
+            headers:
+              !force && etag.current ? { "If-None-Match": etag.current } : {},
+          },
         );
-      }
+        if (signal?.aborted || started !== epoch.current) {
+          await response.body?.cancel().catch(() => {});
+          return;
+        }
+        if (!response.ok && response.status !== 304) {
+          const failure = (await response.json().catch(() => null)) as {
+            message?: string;
+          } | null;
+          throw new LocalPreviewRequestError(
+            failure?.message ??
+              "The local app is unavailable. Keep your CLI running or restart it. Check application-data permissions and retry.",
+          );
+        }
 
-      if (response.status !== 304) {
-        const data: unknown = await response.json();
+        if (response.status !== 304) {
+          const data: unknown = await response.json();
+          if (signal?.aborted || started !== epoch.current) return;
+          apply(data);
+          etag.current =
+            data === null ? null : (response.headers?.get("etag") ?? null);
+        }
+        setState((current) =>
+          current.error ? { ...current, error: null } : current,
+        );
+      } catch (error) {
         if (signal?.aborted || started !== epoch.current) return;
-        apply(data);
-        etag.current =
-          data === null ? null : (response.headers?.get("etag") ?? null);
+        throw error;
       }
-      setState((current) =>
-        current.error ? { ...current, error: null } : current,
-      );
     },
     [apply],
   );
@@ -337,12 +342,15 @@ export const LivePreviewProvider = ({ children }: { children: ReactNode }) => {
         failed = false;
       } catch (failure) {
         if (abort.signal.aborted) return;
-        const error =
-          failure instanceof LocalPreviewRequestError
+        const timedOut =
+          (failure as { name?: string } | null)?.name === "TimeoutError";
+        const error = timedOut
+          ? "Loading this review is taking longer than expected; retrying automatically."
+          : failure instanceof LocalPreviewRequestError
             ? failure.message
             : "The local app is unavailable. Keep your CLI running or restart it. Check application-data permissions and retry.";
         setState((current) => ({ ...current, error }));
-        if (!failed) toast.error(error);
+        if (!failed && !timedOut) toast.error(error);
         failed = true;
       } finally {
         if (!abort.signal.aborted) timer = setTimeout(tick, 1000);

@@ -51,7 +51,10 @@ export const FindingHistoryEvidence = ({
           }
         }}
       >
-        <LoadingSwap isLoading={busy}>
+        <LoadingSwap
+          isLoading={busy}
+          className="flex items-center justify-center gap-2"
+        >
           <History aria-hidden="true" className="size-4" />
           Original evidence, round {observation.review.round}
         </LoadingSwap>

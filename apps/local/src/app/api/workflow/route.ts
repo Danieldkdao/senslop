@@ -36,6 +36,7 @@ import {
   dispatchVerifications,
 } from "../../../services/inngest/functions";
 import { VerificationStore } from "@senslop/review-core/verification";
+import { removeWorkflowHistory } from "../../../features/workflow/lib/workflow-history";
 
 const requestSchema = z.object({
   review: reviewIdentitySchema,
@@ -146,6 +147,16 @@ export const POST = async (request: Request) => {
     const operation = input.operation;
     const tasks = new FixTasks(workspace.store, root);
     switch (operation.action) {
+      case "remove-history":
+        return Response.json(
+          removeWorkflowHistory(
+            workspace.store,
+            root,
+            input.review.id,
+            operation.kind,
+            operation.id,
+          ),
+        );
       case "verify-findings": {
         const run = new VerificationStore(workspace.store, root).create(
           input.review,

@@ -12,7 +12,19 @@ import {
   verificationRunSchema,
 } from "@senslop/contracts";
 
+export const workflowHistoryKinds = [
+  "tasks",
+  "checks",
+  "verification",
+] as const;
+export type WorkflowHistoryKind = (typeof workflowHistoryKinds)[number];
+
 export const workflowActionSchema = z.discriminatedUnion("action", [
+  z.object({
+    action: z.literal("remove-history"),
+    kind: z.enum(workflowHistoryKinds),
+    id: z.uuid().optional(),
+  }),
   z.object({
     action: z.literal("verify-findings"),
     findingIds: z.array(z.uuid()).min(1),

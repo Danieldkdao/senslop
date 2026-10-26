@@ -1,7 +1,19 @@
 "use client";
+import { WorkflowHistoryAction } from "./workflow-history-action";
+import { LoadingSwap } from "@/components/ui/loading-swap";
+import { cn } from "@/lib/utils";
 import { useState } from "react";
+import { WorkflowChevron, WorkflowDisclosure } from "./workflow-disclosure";
 import { useFixTaskPrompt } from "../hooks/use-fix-task-prompt";
-import { Eye, Play, Send, X, FileWarning, FolderGit2 } from "lucide-react";
+import {
+  Eye,
+  Play,
+  Send,
+  X,
+  FileWarning,
+  FolderGit2,
+  History,
+} from "lucide-react";
 import type {
   FixTaskSchema,
   ReviewIdentitySchema,
@@ -17,7 +29,11 @@ import {
   CollapsibleContent,
 } from "@/components/ui/collapsible";
 import { FixPrompt } from "../../agents/components/fix-prompt";
-import { formatFixTaskStatus, formatTaskActivity } from "../lib/formatters";
+import {
+  formatFixTaskStatus,
+  formatTaskActivity,
+  formatWorkspaceKind,
+} from "../lib/formatters";
 import { ChangeInspector } from "./change-inspector";
 import type { WorkflowActionSchema } from "../schemas";
 
@@ -31,6 +47,7 @@ export const FixTaskItem = ({
     review?: ReviewIdentitySchema,
   ) => Promise<unknown>;
 }) => {
+  const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState(false);
   const [inspect, setInspect] = useState(false);
   const [selected, setSelected] = useState<string[] | null>(null);
@@ -41,11 +58,15 @@ export const FixTaskItem = ({
   );
   const prompt = useFixTaskPrompt(task, open);
   const act = async (operation: WorkflowActionSchema) => {
+    if (busy) return false;
+    setBusy(true);
     try {
       await onAction(operation, task.review);
       return true;
     } catch {
       return false;
+    } finally {
+      setBusy(false);
     }
   };
   const files: PreviewFileSchema[] = task.changes.map((change) => ({
@@ -71,22 +92,30 @@ export const FixTaskItem = ({
       <Collapsible
         open={open}
         onOpenChange={setOpen}
-        className="flex min-w-0 flex-col gap-2 border-b py-3"
+        className="flex min-w-0 flex-col gap-3 border-b p-4"
       >
-        <div className="flex min-w-0 items-center gap-2">
+        <div className="flex min-w-0 items-start gap-2 text-base leading-6">
           <TooltipWrapper content={status.label}>
-            <span tabIndex={0} aria-label={status.label}>
+            <span
+              tabIndex={0}
+              aria-label={status.label}
+              className="flex h-lh items-center"
+            >
               <status.Icon
                 aria-hidden="true"
-                className="size-5 text-muted-foreground"
+                className={cn(
+                  "size-5 shrink-0 text-muted-foreground",
+                  status.loading && "animate-spin",
+                )}
               />
             </span>
           </TooltipWrapper>
-          <CollapsibleTrigger className="min-w-0 flex-1 wrap-break-word text-left text-base font-medium">
-            {task.title}
+          <CollapsibleTrigger className="flex min-w-0 flex-1 items-start gap-2 text-left leading-6 text-base font-medium">
+            <span className="min-w-0 flex-1 wrap-break-word">{task.title}</span>
+            <WorkflowChevron />
           </CollapsibleTrigger>
           {!["reviewed", "failed", "canceled"].includes(task.status) && (
-            <TooltipWrapper content="Cancel task">
+            <TooltipWrapper content="Cancel task" className="h-lh items-center">
               <Button
                 size="icon"
                 variant="ghost"
@@ -96,84 +125,105 @@ export const FixTaskItem = ({
                     await act({ action: "cancel-task", taskId: task.id });
                 }}
               >
-                <X aria-hidden="true" className="size-4" />
+                <X aria-hidden="true" className="size-5 shrink-0" />
               </Button>
             </TooltipWrapper>
           )}
+          <WorkflowHistoryAction
+            kind="tasks"
+            id={task.id}
+            disabled={!["reviewed", "failed", "canceled"].includes(task.status)}
+            onAction={(operation) => onAction(operation, task.review)}
+          />
         </div>
         <CollapsibleContent>
           <div className="flex min-w-0 flex-col gap-3">
             <span className="font-mono text-base text-muted-foreground">
               Round {task.review.round} / {task.review.hash.slice(0, 8)}
             </span>
-            {task.directory && (
-              <div className="flex min-w-0 items-start gap-2">
-                <FolderGit2 aria-hidden="true" className="size-4 shrink-0" />
-                <span className="min-w-0 wrap-break-word font-mono text-base">
-                  {task.directory}
-                </span>
+            {["ready", "in-progress", "returned"].includes(task.status) && (
+              <div className="flex flex-wrap gap-2">
+                {task.status === "ready" && (
+                  <Button
+                    disabled={busy}
+                    onClick={() =>
+                      void act({
+                        action: "claim-task",
+                        taskId: task.id,
+                        agent: "External agent",
+                      })
+                    }
+                  >
+                    <LoadingSwap
+                      isLoading={busy}
+                      className="flex items-center gap-2"
+                    >
+                      <Play aria-hidden="true" className="size-5 shrink-0" />
+                      Start task
+                    </LoadingSwap>
+                  </Button>
+                )}
+                {task.status === "in-progress" && (
+                  <Button
+                    disabled={busy}
+                    onClick={() =>
+                      void act({ action: "return-task", taskId: task.id })
+                    }
+                  >
+                    <LoadingSwap
+                      isLoading={busy}
+                      className="flex items-center gap-2"
+                    >
+                      <Send aria-hidden="true" className="size-5 shrink-0" />
+                      Capture returned edits
+                    </LoadingSwap>
+                  </Button>
+                )}
+                {task.status === "returned" && (
+                  <Button onClick={() => setInspect(true)}>
+                    <Eye aria-hidden="true" className="size-5 shrink-0" />
+                    Review changes
+                  </Button>
+                )}
               </div>
             )}
-            {task.agent && (
-              <span className="text-muted-foreground">{task.agent}</span>
-            )}
+            <WorkflowDisclosure title="Workspace" Icon={FolderGit2}>
+              <div className="flex min-w-0 flex-col gap-2 text-base">
+                <p className="text-muted-foreground">
+                  {formatWorkspaceKind(task.workspaceKind).label}
+                </p>
+                {task.directory && (
+                  <p className="wrap-break-word font-mono">{task.directory}</p>
+                )}
+              </div>
+            </WorkflowDisclosure>
             {prompt.data && (
-              <FixPrompt label="Agent handoff" prompt={prompt.data} secondary />
+              <FixPrompt label="Agent handoff" prompt={prompt.data} flat />
             )}
             {prompt.error && (
               <span role="alert" className="text-destructive">
                 {prompt.error.message}
               </span>
             )}
-            <div className="flex flex-wrap gap-2">
-              {task.status === "ready" && (
-                <Button
-                  onClick={() =>
-                    void act({
-                      action: "claim-task",
-                      taskId: task.id,
-                      agent: "External agent",
-                    })
-                  }
-                >
-                  <Play aria-hidden="true" className="size-4" />
-                  Start task
-                </Button>
-              )}
-              {task.status === "in-progress" && (
-                <Button
-                  onClick={() =>
-                    void act({ action: "return-task", taskId: task.id })
-                  }
-                >
-                  <Send aria-hidden="true" className="size-4" />
-                  Capture returned edits
-                </Button>
-              )}
-              {task.status === "returned" && (
-                <Button onClick={() => setInspect(true)}>
-                  <Eye aria-hidden="true" className="size-4" />
-                  Review changes
-                </Button>
-              )}
-            </div>
-            <ol className="flex flex-col gap-2 border-l pl-3">
-              {task.activity.map((event, index) => {
-                const activity = formatTaskActivity(event.label);
-                return (
-                  <li
-                    key={index}
-                    className="flex items-center gap-2 text-base text-muted-foreground"
-                  >
-                    <activity.Icon
-                      aria-hidden="true"
-                      className="size-4 shrink-0"
-                    />
-                    {activity.label}
-                  </li>
-                );
-              })}
-            </ol>
+            <WorkflowDisclosure title="Activity" Icon={History} defaultOpen>
+              <ol className="flex flex-col gap-2 border-l pl-3">
+                {task.activity.map((event, index) => {
+                  const activity = formatTaskActivity(event.label);
+                  return (
+                    <li
+                      key={index}
+                      className="flex items-center gap-2 text-base text-muted-foreground"
+                    >
+                      <activity.Icon
+                        aria-hidden="true"
+                        className="size-5 shrink-0"
+                      />
+                      {activity.label}
+                    </li>
+                  );
+                })}
+              </ol>
+            </WorkflowDisclosure>
           </div>
         </CollapsibleContent>
       </Collapsible>
@@ -185,7 +235,7 @@ export const FixTaskItem = ({
         description="Inspect the edits before applying them. Findings require a separate verification decision."
         files={files}
       >
-        <div className="flex max-h-40 shrink-0 flex-col gap-2 overflow-y-auto border-t pt-3">
+        <div className="flex max-h-40 shrink-0 scroll-fade-y flex-col gap-2 overflow-y-auto border-t pt-3">
           {task.changes.map((change) => (
             <label
               key={change.path}
@@ -209,7 +259,7 @@ export const FixTaskItem = ({
                   <span tabIndex={0} aria-label="Outside requested files">
                     <FileWarning
                       aria-hidden="true"
-                      className="size-4 text-muted-foreground"
+                      className="size-5 shrink-0 text-muted-foreground"
                     />
                   </span>
                 </TooltipWrapper>
@@ -220,7 +270,9 @@ export const FixTaskItem = ({
         <div className="flex shrink-0 justify-end gap-2">
           {task.workspaceKind === "managed" ? (
             <Button
-              disabled={!choices.length}
+              aria-label="Apply selected files"
+              aria-busy={busy}
+              disabled={busy || !choices.length}
               onClick={async () => {
                 const applied = await act({
                   action: "apply-task",
@@ -230,16 +282,19 @@ export const FixTaskItem = ({
                 if (applied) setInspect(false);
               }}
             >
-              Apply selected files
+              <LoadingSwap isLoading={busy}>Apply selected files</LoadingSwap>
             </Button>
           ) : (
             <Button
+              aria-label="Mark changes reviewed"
+              aria-busy={busy}
+              disabled={busy}
               onClick={async () => {
                 if (await act({ action: "review-task", taskId: task.id }))
                   setInspect(false);
               }}
             >
-              Mark changes reviewed
+              <LoadingSwap isLoading={busy}>Mark changes reviewed</LoadingSwap>
             </Button>
           )}
         </div>
