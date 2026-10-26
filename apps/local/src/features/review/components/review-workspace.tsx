@@ -29,6 +29,7 @@ import { ReviewNotes } from "./review-notes";
 import { NoteControls } from "./note-controls";
 import { AgentPanel } from "../../agents/components/agent-panel";
 import { FileSummary } from "../../agents/components/file-summary";
+import { FileOverview } from "./file-overview";
 import { ReviewPreparation } from "../../agents/components/review-preparation";
 import { assignedModel } from "../../agents/lib/model-selection";
 import { useAiSettings } from "../../agents/hooks/use-ai-settings";
@@ -586,7 +587,13 @@ export const ReviewWorkspace = ({ children }: ReviewWorkspaceProps) => {
   );
 
   const canvas = (
-    <main aria-label="Review canvas" className="flex h-full min-w-0 flex-col">
+    <main
+      aria-label="Review canvas"
+      className={cn(
+        "flex h-full min-w-0 flex-col",
+        !preparing && completed && "bg-success/10",
+      )}
+    >
       <header
         className={cn(
           "flex min-h-14 shrink-0 items-center gap-2 border-b border-border px-3 py-2 text-muted-foreground md:px-5",
@@ -861,22 +868,30 @@ export const ReviewWorkspace = ({ children }: ReviewWorkspaceProps) => {
         </div>
       )}
       {!preparing && selectedFile && (
-        <ChangeImpactPanel
-          side={explorerSide}
-          impact={impacts.find((item) => item.unitId === selectedUnit?.id)}
-          capability={
-            explorer.data?.capabilities[
-              activeContext?.path ?? selectedFile.path
-            ]
-          }
-          symbols={
-            explorer.data?.symbols.filter(
-              (symbol) =>
-                symbol.path === (activeContext?.path ?? selectedFile.path),
-            ) ?? []
-          }
-          onNavigate={openSource}
-        />
+        <FileOverview>
+          <FileSummary
+            key={`${preview?.id}:${selectedFile.path}`}
+            file={selectedFile}
+            grouping={grouping}
+            onSelect={selectFile}
+          />
+          <ChangeImpactPanel
+            side={explorerSide}
+            impact={impacts.find((item) => item.unitId === selectedUnit?.id)}
+            capability={
+              explorer.data?.capabilities[
+                activeContext?.path ?? selectedFile.path
+              ]
+            }
+            symbols={
+              explorer.data?.symbols.filter(
+                (symbol) =>
+                  symbol.path === (activeContext?.path ?? selectedFile.path),
+              ) ?? []
+            }
+            onNavigate={openSource}
+          />
+        </FileOverview>
       )}
       {!preparing &&
         selectedFile?.oldPath &&
@@ -891,11 +906,6 @@ export const ReviewWorkspace = ({ children }: ReviewWorkspaceProps) => {
         <p className="border-b px-4 py-2 text-base text-muted-foreground">
           {formatWhitespaceMode(settings.whitespace)} whitespace filter is
           active; completion remains manual.
-        </p>
-      )}
-      {!!grouping?.organizationLimitations?.length && (
-        <p className="border-b px-4 py-2 text-base text-muted-foreground">
-          {grouping.organizationLimitations.join(" ")}
         </p>
       )}
       {!preparing && selectedUnit && !activeContext && (
@@ -944,14 +954,6 @@ export const ReviewWorkspace = ({ children }: ReviewWorkspaceProps) => {
             </Button>
           </TooltipWrapper>
         </div>
-      )}
-      {!preparing && selectedFile && (
-        <FileSummary
-          key={`${preview?.id}:${selectedFile.path}`}
-          file={selectedFile}
-          grouping={grouping}
-          onSelect={selectFile}
-        />
       )}
       <div
         ref={readingScroll}

@@ -25,17 +25,17 @@ export const FileSummary = ({
   const summary = group?.files.find((member) => member.path === file.path);
   if (!summary) return null;
   return (
-    <Collapsible defaultOpen className="shrink-0 border-b bg-muted/30">
-      <CollapsibleTrigger className="group flex w-full items-center gap-2 px-5 py-3 text-left text-base font-medium hover:bg-muted/50">
-        <Sparkles aria-hidden="true" className="size-4 text-primary" />
+    <Collapsible defaultOpen className="shrink-0 border-b">
+      <CollapsibleTrigger className="flex min-h-12 w-full items-center gap-2 px-4 py-3 text-left text-base font-medium text-foreground outline-none transition-colors hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
+        <Sparkles aria-hidden="true" className="size-5 shrink-0 text-primary" />
         Summary
         <ChevronDown
           aria-hidden="true"
-          className="ml-auto size-4 transition-transform group-data-open:rotate-180 motion-reduce:transition-none"
+          className="ml-auto size-5 shrink-0 text-muted-foreground transition-transform duration-200 group-data-[panel-open]/collapsible-trigger:rotate-180 motion-reduce:transition-none"
         />
       </CollapsibleTrigger>
-      <CollapsibleContent className="h-(--collapsible-panel-height) overflow-hidden transition-[height,opacity] duration-200 data-starting-style:h-0 data-starting-style:opacity-0 data-ending-style:h-0 data-ending-style:opacity-0 motion-reduce:transition-none">
-        <div className="max-h-[35dvh] overflow-auto flex flex-col gap-3 px-5 pb-4">
+      <CollapsibleContent>
+        <div className="flex max-h-[35dvh] scroll-fade-y flex-col gap-3 overflow-auto px-4 pb-3">
           <p>{summary.summary}</p>
           {group && (
             <p className="text-muted-foreground">

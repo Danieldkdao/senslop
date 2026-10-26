@@ -659,6 +659,7 @@ test("d toggles persisted completion with header/sidebar indicators, without int
       .getAttribute("aria-pressed"),
   ).toBe("true");
   expect(canvas.classList.contains("ring-primary/40")).toBe(false);
+  expect(canvas.classList.contains("bg-success/10")).toBe(true);
   expect(
     canvas.querySelector("header")?.classList.contains("bg-success/10"),
   ).toBe(true);
@@ -686,6 +687,56 @@ test("d toggles persisted completion with header/sidebar indicators, without int
       .getAttribute("aria-pressed"),
   ).toBe("false");
   expect(canvas.classList.contains("ring-primary/40")).toBe(false);
+  expect(canvas.classList.contains("bg-success/10")).toBe(false);
+});
+
+test("completed region tints the whole canvas while other file regions remain incomplete", async () => {
+  setNavigationPreview();
+  state.preview = {
+    ...state.preview!,
+    id: crypto.randomUUID(),
+    hash: "a".repeat(64),
+    round: 1,
+  };
+  const organization = organizationSchema.parse({
+    version: 1,
+    manual: false,
+    units: [true, false].map((reviewed, index) => ({
+      id: `region-${index}`,
+      path: state.preview!.files[0]!.path,
+      fingerprint: `region-${index}`,
+      label: `Region ${index + 1}`,
+      kind: "text",
+      reviewed,
+      ranges: [
+        { side: "after", start: index + 1, end: index + 1, code: "one" },
+      ],
+    })),
+    flows: [
+      { id: "flow", title: "Changes", unitIds: ["region-0", "region-1"] },
+    ],
+  });
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string) =>
+      Response.json(
+        url.startsWith("/api/precision?") ? organization : defaultUiPreferences,
+      ),
+    ),
+  );
+  const user = userEvent.setup();
+  render(<ReviewWorkspace>Setup</ReviewWorkspace>);
+  await screen.findByRole("button", { name: "Next region" });
+  const canvas = screen.getByRole("main", { name: "Review canvas" });
+  expect(
+    within(canvas).getByRole("button", { name: "Mark incomplete" }),
+  ).toBeTruthy();
+  expect(canvas.classList.contains("bg-success/10")).toBe(true);
+  await user.click(screen.getByRole("button", { name: "Next region" }));
+  expect(
+    within(canvas).getByRole("button", { name: "Mark complete" }),
+  ).toBeTruthy();
+  expect(canvas.classList.contains("bg-success/10")).toBe(false);
 });
 
 test("grouped reviews hide all files and the diff until the latest job publishes, including regrouping", async () => {
