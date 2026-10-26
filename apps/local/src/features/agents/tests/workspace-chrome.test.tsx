@@ -830,3 +830,40 @@ test.each(["task", "verification"])(
     );
   },
 );
+
+test.each(["checks", "verification"])(
+  "explicit notification work tab %s overrides saved selection",
+  async (work) => {
+    window.history.replaceState(
+      {},
+      "",
+      `/?review=snapshot&panel=work&work=${work}`,
+    );
+    sessionStorage.setItem(
+      "senslop:view:agent-panel:snapshot",
+      JSON.stringify("chat"),
+    );
+    sessionStorage.setItem(
+      "senslop:view:work-panel:snapshot",
+      JSON.stringify("tasks"),
+    );
+    render(
+      <AgentPanel
+        snapshotId="snapshot"
+        snapshot={{ id: "snapshot", hash: "current", round: 1 } as never}
+        agents={{ state: { data: { jobs: [] } } } as never}
+        onEvidence={vi.fn()}
+      />,
+    );
+    await waitFor(() =>
+      expect(
+        screen
+          .getByRole("tab", {
+            name: work === "checks" ? "Checks" : "Verification",
+          })
+          .getAttribute("aria-selected"),
+      ).toBe("true"),
+    );
+    window.history.replaceState({}, "", "/");
+  },
+);

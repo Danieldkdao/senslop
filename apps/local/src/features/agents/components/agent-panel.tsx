@@ -121,9 +121,7 @@ export const AgentPanel = ({
   const [tab, setTab] = useSavedState(`agent-panel:${snapshotId}`, "chat");
   const [workTab, setWorkTab] = useSavedState(
     `work-panel:${snapshotId}`,
-    typeof location === "undefined"
-      ? "tasks"
-      : (new URLSearchParams(location.search).get("work") ?? "tasks"),
+    "tasks",
   );
   const handleWorkflowAction = async (
     operation: WorkflowActionSchema,
@@ -151,12 +149,15 @@ export const AgentPanel = ({
   useEffect(() => {
     const params = new URLSearchParams(location.search);
     const panel = params.get("panel");
-    if (
-      params.get("review") === snapshotId &&
-      ["review", "work", "chat"].includes(panel ?? "")
-    )
-      requestAnimationFrame(() => setTab(panel!));
-  }, [snapshotId, setTab]);
+    if (params.get("review") !== snapshotId) return;
+    const work = params.get("work");
+    const frame = requestAnimationFrame(() => {
+      if (["review", "work", "chat"].includes(panel ?? "")) setTab(panel!);
+      if (["tasks", "checks", "verification"].includes(work ?? ""))
+        setWorkTab(work!);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [snapshotId, setTab, setWorkTab]);
   const [fixIds, setFixIds] = useState<string[] | null>(null);
   const savedSnapshot = savedReviewSchema.safeParse(snapshot);
   const [selectedRun, setSelectedRun] = useState<JobSchema | null>(null);
